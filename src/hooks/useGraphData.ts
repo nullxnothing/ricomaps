@@ -70,16 +70,18 @@ export function useGraphData(): UseGraphDataReturn {
   dataRef.current = data;
 
   // Handle holder balance diffs from polling
+  // Poll diff handler — ONLY updates balances of existing graph nodes.
+  // Does NOT add new holders (scan already filtered LP/programs/etc).
+  // Removes holders that sold to 0.
   const handleHolderDiff = useCallback(
     (diff: { added: { owner: string; amount: number }[]; removed: string[]; changed: { owner: string; amount: number }[] }) => {
       const currentData = dataRef.current;
       if (!currentData) return;
 
       let nodes = [...currentData.nodes];
-      const links = [...currentData.links];
       let hasChanges = false;
 
-      // Update changed holder balances
+      // Update changed holder balances (only nodes already in graph)
       for (const h of diff.changed) {
         const idx = nodes.findIndex(n => n.id === h.owner);
         if (idx !== -1) {
@@ -88,37 +90,27 @@ export function useGraphData(): UseGraphDataReturn {
         }
       }
 
-      // Remove holders that sold everything
+      // Remove holders that sold everything (balance went to 0)
       if (diff.removed.length > 0) {
-        const removedSet = new Set(diff.removed);
-        nodes = nodes.filter(n => !removedSet.has(n.id));
-        hasChanges = true;
-        console.log(`[Poll] Removed ${diff.removed.length} holders (sold)`);
-      }
-
-      // Add new holders as basic nodes
-      for (const h of diff.added) {
-        if (!nodes.some(n => n.id === h.owner)) {
-          nodes.push({
-            id: h.owner,
-            label: h.owner.slice(0, 4) + '...' + h.owner.slice(-4),
-            val: 5,
-            color: '#5BFFB0',
-            type: 'holder',
-            depth: 1,
-            tokenAmount: h.amount,
-            expanded: false,
-          });
+        const graphIds = new Set(nodes.map(n => n.id));
+        const toRemove = diff.removed.filter(id => graphIds.has(id));
+        if (toRemove.length > 0) {
+          const removedSet = new Set(toRemove);
+          nodes = nodes.filter(n => !removedSet.has(n.id));
           hasChanges = true;
+          console.log(`[Poll] Removed ${toRemove.length} holders (sold)`);
         }
       }
 
+      // Skip diff.added — do NOT add new holders from poll.
+      // The scan already applied filters (LP, programs, etc).
+      // Adding raw poll holders would reintroduce filtered addresses.
+
       if (hasChanges) {
-        setData({ nodes, links });
+        setData({ nodes, links: currentData.links });
         setStats(prev => ({
           ...prev,
           nodesFound: nodes.length,
-          linksFound: links.length,
         }));
       }
     },
