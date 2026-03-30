@@ -1,9 +1,9 @@
 // Graph Node Types
-export type NodeType = 'target' | 'funder' | 'funded' | 'connected' | 'holder' | 'token' | 'cabal-funder';
+export type NodeType = 'target' | 'funder' | 'funded' | 'connected' | 'holder' | 'token' | 'cabal-funder' | 'sniper' | 'bundled';
 
 export interface GraphNode {
   id: string;                    // Wallet address
-  label: string;                 // Truncated address
+  label: string;                 // Truncated address or identity name
   val: number;                   // Node size (based on SOL amount)
   color: string;                 // Node color (role-based)
   type: NodeType;
@@ -11,6 +11,41 @@ export interface GraphNode {
   solBalance?: number;
   tokenAmount?: number;          // For holder nodes
   expanded: boolean;
+
+  // Helius Wallet API identity
+  identity?: {
+    name: string | null;
+    category: string | null;     // "Centralized Exchange", "DeFi Protocol", etc.
+    type: string | null;         // "exchange", "defi", "market-maker", "validator"
+    tags: string[];
+  };
+
+  // Replaces simple walletLabel
+  walletLabel?: {
+    name: string;
+    category: string;
+    verified: boolean;
+    risk?: string;
+  };
+
+  // Wallet portfolio snapshot (from /balances API)
+  portfolio?: {
+    totalUsdValue: number;
+    solBalance: number;
+    tokenCount: number;
+    topHoldings: { symbol: string; usdValue: number; balance: number }[];
+  };
+
+  // Funding chain data
+  fundingSource?: {
+    funderAddress: string;
+    funderName: string | null;    // From Wallet API identity
+    funderType: string | null;    // "exchange", "defi", etc.
+    amount: number;               // SOL amount
+    timestamp: number;
+    signature: string;
+  };
+
   metadata?: {
     firstTx?: number;            // Unix timestamp
     txCount?: number;
@@ -18,6 +53,21 @@ export interface GraphNode {
     funded?: string[];
     suspicious?: boolean;
     fundedCount?: number;        // For cabal-funder nodes
+    isSniper?: boolean;          // Bought in first blocks
+    buyBlock?: number;
+    buyTimestamp?: number;
+    blocksAfterLaunch?: number;
+    // Deep forensic data
+    walletAgeDays?: number;
+    totalTransfers?: number;     // Total in+out transfer count
+    sharedFunderGroup?: string;  // ID of the funder cluster this wallet belongs to
+    cabalConfidence?: number;    // 0-100 confidence score
+    isBundled?: boolean;         // Detected in Jito bundle cluster
+    transferPatterns?: {
+      totalIn: number;           // Total SOL received
+      totalOut: number;          // Total SOL sent
+      uniqueCounterparties: number;
+    };
   };
 }
 
@@ -51,12 +101,17 @@ export interface TokenResponse {
   success: boolean;
   data?: GraphData;
   stats?: {
-    totalHolders: number;
+    totalHolders: number;         // After filtering known programs
+    rawHolderCount: number;       // Raw from API
+    filteredOut: number;          // How many filtered
     analyzedHolders: number;
+    analysisIncomplete: boolean;  // Did analysis stop early?
     cabalConnectionsFound: number;
     suspiciousWallets: string[];
     dexFundedHolders?: number;
     freshWalletFunders?: number;
+    snipersDetected?: number;
+    sniperWallets?: string[];
   };
   tokenSecurity?: TokenSecurityInfo | null;
   tokenMetadata?: TokenMetadata | null;
@@ -168,22 +223,24 @@ export interface FunderInfo {
 // Mode for the app
 export type AppMode = 'wallet' | 'token';
 
-// Color palette for Rico Maps - bubble/outline style
+// Color palette — Matrix green forensic theme
 export const NODE_COLORS = {
-  target: '#e34946',      // Coral red - target wallet
-  funder: '#64b5f6',      // Soft blue - funders
-  funded: '#ce93d8',      // Soft purple - funded wallets
-  holder: '#5a7a9a',      // Muted blue-gray - token holders (floating bubbles)
-  token: '#ffd54f',       // Gold - token center node
-  'cabal-funder': '#ff3366',  // Hot pink - suspicious shared funder (with glow)
-  connected: '#ff9f43',   // Orange - connected to cabal
-  default: '#4a5a6a',     // Gray fallback
-  unlinked: '#3a4a5a',    // Faded grey-blue - isolated nodes (background noise)
-  hub: '#ffcc00',         // Yellow - high-centrality nodes
+  target: '#00FF41',       // Matrix green — target wallet
+  funder: '#64b5f6',       // Blue — funders
+  funded: '#8b8bff',       // Soft purple — funded wallets
+  holder: '#1a7a3a',       // Dim green — token holders
+  token: '#f59e0b',        // Amber — token center node
+  'cabal-funder': '#ff3366',  // Hot pink — suspicious shared funder
+  connected: '#ff9f43',    // Orange — connected to cabal
+  sniper: '#00ffcc',       // Cyan — sniped early (bought in first blocks)
+  bundled: '#a78bfa',      // Purple — detected in Jito bundle cluster
+  default: '#2a3a2a',      // Dark green-gray fallback
+  unlinked: '#1a2a1a',     // Faded dark — isolated nodes
+  hub: '#ffcc00',          // Yellow — high-centrality nodes
 } as const;
 
 export const LINK_COLORS = {
-  normal: 'rgba(227, 73, 70, 0.2)',  // Semi-transparent coral
+  normal: 'rgba(0, 255, 65, 0.15)',  // Semi-transparent matrix green
   suspicious: '#ff3366',  // Red for cabal links
 } as const;
 
@@ -276,12 +333,19 @@ export interface ScanResponse {
     nodesFound?: number;
     linksFound?: number;
     scanDepth?: number;
-    totalHolders?: number;
+    totalHolders?: number;         // After filtering known programs
+    rawHolderCount?: number;       // Raw from API
+    filteredOut?: number;          // How many filtered (exchanges, programs)
     analyzedHolders?: number;
+    analysisIncomplete?: boolean;  // Did analysis stop early due to API limits?
     cabalConnectionsFound?: number;
     suspiciousWallets?: string[];
     dexFundedHolders?: number;
     freshWalletFunders?: number;
+    snipersDetected?: number;      // Number of wallets that bought in first blocks
+    sniperWallets?: string[];      // Addresses of snipers
+    bundleClustersDetected?: number;
+    bundledWallets?: string[];
   };
   tokenSecurity?: TokenSecurityInfo | null;
   tokenMetadata?: TokenMetadata | null;
@@ -419,4 +483,51 @@ export interface StreamingState {
   watchedAddresses: string[];
   lastUpdate: number | null;
   transactionCount: number;
+}
+
+// Bundle Detection / Blacklist Types
+
+export interface BundleTokenAppearance {
+  mint: string;
+  tokenName?: string;
+  tokenSymbol?: string;
+  slot: number;
+  timestamp: number;
+  walletCount: number;
+  transactionSignatures: string[];
+}
+
+export interface BundleCluster {
+  id: string;
+  wallets: string[];
+  tokens: BundleTokenAppearance[];
+  totalAppearances: number;
+  lastSeenTimestamp: number;
+  firstSeenTimestamp: number;
+  confidence: number;
+  sharedFunder?: string;
+  metadata?: {
+    avgClusterSize: number;
+    maxSameSlotCount: number;
+  };
+}
+
+export interface BlacklistEntry {
+  wallet: string;
+  clusters: string[];
+  tokenAppearances: number;
+  lastSeen: number;
+  confidence: number;
+  solBalance?: number;
+  identity?: { name: string | null; category: string | null };
+}
+
+export interface BlacklistResponse {
+  success: boolean;
+  clusters: BundleCluster[];
+  totalWallets: number;
+  totalClusters: number;
+  page: number;
+  totalPages: number;
+  error?: string;
 }

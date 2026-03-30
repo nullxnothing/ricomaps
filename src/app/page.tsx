@@ -1,49 +1,43 @@
 'use client';
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, Suspense } from 'react';
 import dynamic from 'next/dynamic';
+import { useSearchParams } from 'next/navigation';
+import Link from 'next/link';
 import { GraphNode } from '@/lib/types';
 import { AddressInput } from '@/components/AddressInput';
 import { StatsPanel } from '@/components/StatsPanel';
 import { LoadingOverlay } from '@/components/LoadingOverlay';
 import { TrendingTokens } from '@/components/TrendingTokens';
-import { StreamControl } from '@/components/StreamControl';
 import { NodeDetailPanel } from '@/components/NodeDetailPanel';
-import { TransactionFeed } from '@/components/TransactionFeed';
 import { useGraphData } from '@/hooks/useGraphData';
 import { isValidSolanaAddress, truncateAddress } from '@/lib/address-utils';
 
-// Dynamic import to avoid SSR issues with Three.js
-// ForensicGraph3D - Clean cyberpunk visualization with distinct node shapes
-const ForensicGraph3D = dynamic(
-  () => import('@/components/ForensicGraph3D').then((mod) => mod.ForensicGraph3D),
+const BubbleMap = dynamic(
+  () => import('@/components/BubbleMap').then((mod) => mod.BubbleMap),
   {
     ssr: false,
     loading: () => (
-      <div className="w-full h-full flex items-center justify-center bg-[#0a0a0a]">
-        <div className="text-[#4a9eff] font-mono text-sm">INITIALIZING FORENSIC VIEW...</div>
-      </div>
-    ),
-  }
-);
-
-// Legacy Graph3D - Bubble style (keep for fallback)
-const Graph3D = dynamic(
-  () => import('@/components/Graph3D').then((mod) => mod.Graph3D),
-  {
-    ssr: false,
-    loading: () => (
-      <div className="w-full h-full flex items-center justify-center bg-[#0a0a0a]">
-        <div className="text-[#e34946] animate-pulse">Loading 3D visualization...</div>
+      <div className="w-full h-full flex items-center justify-center" style={{ background: '#000' }}>
+        <div className="spinner-lg" />
       </div>
     ),
   }
 );
 
 export default function Home() {
+  return (
+    <Suspense fallback={<div className="min-h-screen" style={{ background: '#000' }} />}>
+      <HomeContent />
+    </Suspense>
+  );
+}
+
+function HomeContent() {
+  const searchParams = useSearchParams();
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null);
   const [clipboardAddress, setClipboardAddress] = useState<string | null>(null);
-  const [useForensicView, setUseForensicView] = useState(true); // Default to new forensic view
+  const [autoScanned, setAutoScanned] = useState(false);
   const {
     data,
     stats,
@@ -56,31 +50,32 @@ export default function Home() {
     scanWithAutoDetect,
     expandNode,
     reset,
-    streaming,
-    startStreaming,
-    stopStreaming,
   } = useGraphData();
 
-  // Check clipboard for valid Solana address on mount
   useEffect(() => {
     async function checkClipboard() {
       try {
-        // Only check if clipboard API is available and we have permission
         if (!navigator.clipboard?.readText) return;
-
         const text = await navigator.clipboard.readText();
         const trimmed = text?.trim();
-
         if (trimmed && isValidSolanaAddress(trimmed)) {
           setClipboardAddress(trimmed);
         }
       } catch {
-        // Clipboard access denied or not available - silently ignore
+        // Clipboard access denied
       }
     }
-
     checkClipboard();
   }, []);
+
+  // Auto-scan from URL param (e.g., /?address=xxx from blacklist)
+  useEffect(() => {
+    const addressParam = searchParams.get('address');
+    if (addressParam && isValidSolanaAddress(addressParam) && !autoScanned && !data) {
+      setAutoScanned(true);
+      scanWithAutoDetect(addressParam);
+    }
+  }, [searchParams, autoScanned, data, scanWithAutoDetect]);
 
   const handleScan = useCallback(async (address: string) => {
     reset();
@@ -97,180 +92,103 @@ export default function Home() {
 
   const handleNodeClick = useCallback((node: GraphNode) => {
     setSelectedNode(node);
-    // Don't auto-expand - let user click the buttons to expand
   }, []);
 
   const handleBack = useCallback(() => {
-    stopStreaming();
     reset();
     setSelectedNode(null);
-  }, [reset, stopStreaming]);
+  }, [reset]);
 
-  const handleStreamToggle = useCallback(() => {
-    if (streaming.isStreaming) {
-      stopStreaming();
-    } else {
-      startStreaming();
-    }
-  }, [streaming.isStreaming, startStreaming, stopStreaming]);
-
-  // Graph View (has data)
+  // Graph View
   if (data) {
     return (
-      <main className="relative w-screen h-screen overflow-hidden">
-        {/* Loading Overlay */}
+      <main className="relative w-screen h-screen overflow-hidden" style={{ background: '#000' }}>
         <LoadingOverlay isLoading={isLoading} mode={detectedMode || 'wallet'} />
 
-        {/* Compact Header */}
-        <header className="absolute top-0 left-0 right-0 z-10 p-4">
-          <div className="flex items-center gap-4">
-            {/* Back Button */}
-            <button
-              onClick={handleBack}
-              className="btn-back"
-              title="Back to home"
-            >
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        {/* Header */}
+        <header className="absolute top-0 left-0 right-0 z-10" style={{ background: 'rgba(0,0,0,0.8)', WebkitBackdropFilter: 'blur(16px)', backdropFilter: 'blur(16px)', borderBottom: '1px solid #1a1a1a' }}>
+          <div className="flex items-center gap-2 sm:gap-3 px-2 sm:px-4 py-2">
+            <button onClick={handleBack} className="btn-back flex-shrink-0" title="Back">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M19 12H5M12 19l-7-7 7-7"/>
               </svg>
             </button>
 
-            {/* Logo */}
-            <div className="flex items-center gap-2">
-              <img src="/favicon.png" alt="RicoMaps" className="w-8 h-8 rounded-lg" />
-              <h1 className="text-lg font-bold text-[#e34946]">RicoMaps</h1>
-            </div>
-
-            {/* Token Info or Mode Badge */}
             {detectedMode === 'token' && tokenMetadata ? (
-              <div className="flex items-center gap-2 px-3 py-1.5 bg-[#1a1a2e]/80 rounded-lg border border-[#2a2a4a]">
+              <div className="flex items-center gap-1.5 sm:gap-2 min-w-0 overflow-hidden">
                 {tokenMetadata.image && (
                   <img
-                    src={tokenMetadata.image}
-                    alt={tokenMetadata.name || 'Token'}
-                    className="w-6 h-6 rounded-full"
+                    src={tokenMetadata.image.startsWith('https://') ? tokenMetadata.image : ''}
+                    alt=""
+                    className="w-5 h-5 rounded-full flex-shrink-0"
                     onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
                   />
                 )}
-                <div className="flex flex-col">
-                  <span className="text-sm font-semibold text-white leading-tight">
-                    {tokenMetadata.name || 'Unknown Token'}
-                  </span>
-                  {tokenMetadata.symbol && (
-                    <span className="text-[10px] text-[#6b7280] leading-tight">${tokenMetadata.symbol}</span>
-                  )}
-                </div>
+                <span className="text-xs sm:text-sm font-semibold truncate max-w-[80px] sm:max-w-[150px] md:max-w-none" style={{ color: '#f0f0f0' }}>
+                  {tokenMetadata.name || 'Unknown'}
+                </span>
+                {tokenMetadata.symbol && (
+                  <span className="text-xs flex-shrink-0 hidden sm:inline" style={{ color: '#555' }}>${tokenMetadata.symbol}</span>
+                )}
               </div>
-            ) : detectedMode && (
-              <span className="mode-badge">
-                {detectedMode === 'token' ? 'Token Analysis' : 'Wallet Trace'}
-              </span>
+            ) : (
+              <span className="text-sm font-semibold hidden sm:inline" style={{ color: '#555' }}>RicoMaps</span>
             )}
 
-            {/* Stream Control */}
-            <StreamControl
-              isStreaming={streaming.isStreaming}
-              isConnecting={streaming.isConnecting}
-              watchedCount={streaming.watchedAddresses.length}
-              transactionCount={streaming.transactionCount}
-              error={streaming.error}
-              onToggle={handleStreamToggle}
-            />
+            {/* Linked wallets headline — hidden on mobile */}
+            {detectedMode === 'token' && data && (() => {
+              const groups = new Map<string, number>();
+              const holders = data.nodes.filter(n => n.type !== 'token');
+              const total = holders.reduce((s, n) => s + (n.tokenAmount || 0), 0);
+              if (total <= 0) return null;
+              for (const n of data.nodes) {
+                const g = n.metadata?.sharedFunderGroup;
+                if (!g) continue;
+                groups.set(g, (groups.get(g) || 0) + ((n.tokenAmount || 0) / total) * 100);
+              }
+              if (groups.size === 0) return null;
+              const pct = Array.from(groups.values()).reduce((s, v) => s + v, 0);
+              return (
+                <span className="text-xs hidden md:inline" style={{ color: '#555' }}>
+                  <span style={{ color: '#ef4444' }}>{groups.size}</span>
+                  {' linked wallets hold '}
+                  <span className="font-mono" style={{ color: '#b8b8b8' }}>{pct.toFixed(1)}%</span>
+                </span>
+              );
+            })()}
 
-            {/* Compact Search */}
-            <div className="flex-1 max-w-md ml-auto">
-              <AddressInput
-                onSubmit={handleScan}
-                isLoading={isLoading}
-                isDetecting={isDetecting}
-              />
+            <div className="ml-auto flex-shrink-0 w-36 sm:w-48 md:w-56">
+              <AddressInput onSubmit={handleScan} isLoading={isLoading} isDetecting={isDetecting} />
             </div>
           </div>
         </header>
 
-        {/* Error Message */}
         {error && (
-          <div className="absolute top-20 left-4 right-4 z-10">
-            <div className="card bg-[#ff336620] border-[#ff3366]">
-              <p className="text-[#ff3366] text-sm">{error}</p>
+          <div className="absolute top-14 sm:top-16 left-2 right-2 sm:left-4 sm:right-4 z-10">
+            <div className="glass-panel-danger p-3">
+              <p className="text-sm" style={{ color: 'var(--red-primary)' }}>{error}</p>
             </div>
           </div>
         )}
 
-        {/* 3D Graph - Toggle between Forensic and Legacy views */}
-        <div className="fixed inset-0 z-0">
-          {useForensicView ? (
-            <ForensicGraph3D
-              data={data}
-              onNodeClick={handleNodeClick}
-            />
-          ) : (
-            <Graph3D
-              data={data}
-              onNodeClick={handleNodeClick}
-            />
-          )}
+        {/* Bubble Map — use absolute instead of fixed to avoid Safari issues */}
+        <div className="absolute inset-0 z-0">
+          <BubbleMap data={data} onNodeClick={handleNodeClick} />
         </div>
 
-        {/* View Toggle */}
-        <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10">
-          <div className="flex items-center gap-1 bg-[#0a0a0a]/90 border border-[#1f2937] rounded-lg p-1">
-            <button
-              onClick={() => setUseForensicView(true)}
-              className={`px-3 py-1.5 text-[10px] font-mono font-medium rounded transition-all ${
-                useForensicView
-                  ? 'bg-[#4a9eff] text-black'
-                  : 'text-[#6b7280] hover:text-[#4a9eff]'
-              }`}
-            >
-              FORENSIC
-            </button>
-            <button
-              onClick={() => setUseForensicView(false)}
-              className={`px-3 py-1.5 text-[10px] font-mono font-medium rounded transition-all ${
-                !useForensicView
-                  ? 'bg-[#e34946] text-black'
-                  : 'text-[#6b7280] hover:text-[#e34946]'
-              }`}
-            >
-              BUBBLE
-            </button>
-          </div>
-        </div>
-
-        {/* Stats Panel */}
-        <div className="absolute top-20 right-4 z-10">
+        {/* Stats — responsive positioning */}
+        <div className="absolute top-14 sm:top-[60px] right-2 sm:right-3 z-10">
           <StatsPanel
             data={data}
             mode={detectedMode || 'wallet'}
             stats={stats || undefined}
             tokenSecurity={tokenSecurity}
-            streaming={{
-              isStreaming: streaming.isStreaming,
-              transactionCount: streaming.transactionCount,
-            }}
           />
         </div>
 
-        {/* Transaction Feed - shows when streaming */}
-        {streaming.isStreaming && (
-          <div className="absolute top-20 left-4 z-10">
-            <TransactionFeed
-              transactions={streaming.transactions}
-              maxItems={8}
-              onAddressClick={(address) => {
-                const node = data?.nodes.find(n => n.id === address);
-                if (node) {
-                  setSelectedNode(node);
-                }
-              }}
-            />
-          </div>
-        )}
-
-        {/* Selected Node Detail Panel */}
+        {/* Detail Panel — full-width bottom on mobile */}
         {selectedNode && (
-          <div className="absolute bottom-4 left-4 z-10">
+          <div className="absolute bottom-0 left-0 right-0 sm:bottom-4 sm:left-4 sm:right-auto z-10">
             <NodeDetailPanel
               node={selectedNode}
               onClose={() => setSelectedNode(null)}
@@ -280,103 +198,54 @@ export default function Home() {
             />
           </div>
         )}
-
-
       </main>
     );
   }
 
-  // Landing Page View (no data)
+  // Landing Page
   return (
-    <main className="landing-page">
-      {/* Loading Overlay */}
+    <main className="min-h-screen" style={{ background: '#000' }}>
       <LoadingOverlay isLoading={isLoading || isDetecting} mode={detectedMode || 'wallet'} />
 
-      {/* Hero Section */}
-      <div className="landing-hero">
-        {/* Logo and Title */}
-        <div className="hero-brand">
-          <img src="/favicon.png" alt="RicoMaps" className="hero-logo" />
-          <h1 className="hero-title">RicoMaps</h1>
+      <div className="flex flex-col items-center pt-16 sm:pt-24 pb-8 px-3 sm:px-4 text-center">
+        <div className="flex items-center gap-3 mb-4 sm:mb-6">
+          <img src="/favicon.png" alt="RicoMaps" className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl" style={{ border: '1px solid var(--border-base)' }} />
+          <h1 className="text-2xl sm:text-3xl font-bold" style={{ color: 'var(--text-primary)' }}>RicoMaps</h1>
         </div>
 
-        {/* Tagline */}
-        <p className="hero-tagline">
-          Trace wallet funding chains and expose hidden connections in real time
+        <p className="text-sm sm:text-base mb-6 sm:mb-8 max-w-md px-2" style={{ color: 'var(--text-tertiary)' }}>
+          Trace wallet funding chains and expose hidden connections
         </p>
 
-        {/* Large Search Bar */}
-        <div className="hero-search">
-          <AddressInput
-            onSubmit={handleScan}
-            isLoading={isLoading}
-            isDetecting={isDetecting}
-            size="large"
-          />
+        <div className="w-full max-w-xl mb-4 px-1">
+          <AddressInput onSubmit={handleScan} isLoading={isLoading} isDetecting={isDetecting} size="large" />
         </div>
 
-        {/* Clipboard Detection */}
         {clipboardAddress && !isLoading && !isDetecting && (
-          <button
-            className="clipboard-btn"
-            onClick={() => handleScan(clipboardAddress)}
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>
-              <rect x="8" y="2" width="8" height="4" rx="1" ry="1"/>
-            </svg>
-            <span>Scan {truncateAddress(clipboardAddress, 4)} from clipboard</span>
+          <button className="btn-ghost text-xs sm:text-sm mt-2" onClick={() => handleScan(clipboardAddress)}>
+            Scan {truncateAddress(clipboardAddress, 4)} from clipboard
           </button>
         )}
 
-        {/* Error Message */}
         {error && (
-          <div className="hero-error">
-            <p>{error}</p>
+          <div className="glass-panel-danger p-3 mt-4 max-w-md w-full">
+            <p className="text-sm" style={{ color: 'var(--red-primary)' }}>{error}</p>
           </div>
         )}
       </div>
 
-      {/* Trending Tokens Section */}
       <TrendingTokens onTokenClick={handleTokenClick} />
 
-      {/* Social Links */}
-      <div className="social-links">
-        <a
-          href="https://pump.fun/coin/GmfCguoum2Mbw6ohrFtjuPo5hjsjoWv36YYzwxdwpump"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="social-link-btn token-btn"
-          title="$RicoMaps Token - GmfCguoum2Mbw6ohrFtjuPo5hjsjoWv36YYzwxdwpump"
-        >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <circle cx="12" cy="12" r="10" />
-            <path d="M12 6v12M6 12h12" />
+      <div className="fixed bottom-3 right-3 sm:bottom-4 sm:right-4 flex gap-1.5 sm:gap-2 z-50">
+        <Link href="/blacklist" className="btn-ghost text-xs flex items-center gap-1.5" style={{ color: 'var(--purple-primary)' }}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M12 9v2m0 4h.01M5.07 19H19a2 2 0 001.75-2.96l-6.93-12a2 2 0 00-3.5 0l-6.93 12A2 2 0 005.07 19z" />
           </svg>
-          <span>$RicoMaps</span>
-        </a>
-        <a
-          href="/docs"
-          className="social-link-btn"
-          title="Documentation"
-        >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
-            <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
-          </svg>
-          <span>Docs</span>
-        </a>
-        <a
-          href="https://x.com/RicoMaps"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="social-link-btn"
-          title="Follow us on X"
-        >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-            <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
-          </svg>
-          <span>X</span>
+          <span className="hidden sm:inline">Blacklist</span>
+        </Link>
+        <a href="https://x.com/Nullxnothing" target="_blank" rel="noopener noreferrer" className="btn-ghost text-xs flex items-center gap-1.5">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
+          <span className="hidden sm:inline">X</span>
         </a>
       </div>
     </main>

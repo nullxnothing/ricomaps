@@ -1,6 +1,112 @@
 'use client';
 
 import Link from 'next/link';
+import { useState, useCallback } from 'react';
+
+function EmbedCodeGenerator() {
+  const [address, setAddress] = useState('');
+  const [view, setView] = useState<'forensic' | 'bubble'>('forensic');
+  const [width, setWidth] = useState('100%');
+  const [height, setHeight] = useState('500px');
+  const [copied, setCopied] = useState(false);
+
+  const baseUrl = typeof window !== 'undefined' ? window.location.origin : 'https://ricomaps.com';
+  const embedUrl = `${baseUrl}/embed?address=${address}&view=${view}`;
+  const embedCode = `<iframe
+  src="${embedUrl}"
+  width="${width}"
+  height="${height}"
+  frameborder="0"
+  allow="accelerometer; gyroscope"
+  style="border-radius: 8px;"
+></iframe>`;
+
+  const copyToClipboard = useCallback(() => {
+    navigator.clipboard.writeText(embedCode);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }, [embedCode]);
+
+  return (
+    <div className="space-y-4">
+      {/* Address Input */}
+      <div>
+        <label className="block text-sm text-[#9898a6] mb-2">Wallet or Token Address</label>
+        <input
+          type="text"
+          value={address}
+          onChange={(e) => setAddress(e.target.value)}
+          placeholder="Enter Solana address..."
+          className="w-full bg-[#0a0a0a] border border-[#2a2a4a] rounded-lg px-4 py-3 text-white font-mono text-sm focus:border-[#4a9eff] focus:outline-none"
+        />
+      </div>
+
+      {/* Options Row */}
+      <div className="grid grid-cols-3 gap-4">
+        <div>
+          <label className="block text-sm text-[#9898a6] mb-2">View Style</label>
+          <select
+            value={view}
+            onChange={(e) => setView(e.target.value as 'forensic' | 'bubble')}
+            className="w-full bg-[#0a0a0a] border border-[#2a2a4a] rounded-lg px-3 py-2 text-white text-sm focus:border-[#4a9eff] focus:outline-none"
+          >
+            <option value="forensic">Forensic</option>
+            <option value="bubble">Bubble</option>
+          </select>
+        </div>
+        <div>
+          <label className="block text-sm text-[#9898a6] mb-2">Width</label>
+          <input
+            type="text"
+            value={width}
+            onChange={(e) => setWidth(e.target.value)}
+            className="w-full bg-[#0a0a0a] border border-[#2a2a4a] rounded-lg px-3 py-2 text-white text-sm focus:border-[#4a9eff] focus:outline-none"
+          />
+        </div>
+        <div>
+          <label className="block text-sm text-[#9898a6] mb-2">Height</label>
+          <input
+            type="text"
+            value={height}
+            onChange={(e) => setHeight(e.target.value)}
+            className="w-full bg-[#0a0a0a] border border-[#2a2a4a] rounded-lg px-3 py-2 text-white text-sm focus:border-[#4a9eff] focus:outline-none"
+          />
+        </div>
+      </div>
+
+      {/* Preview */}
+      {address && (
+        <div>
+          <label className="block text-sm text-[#9898a6] mb-2">Preview URL</label>
+          <a
+            href={embedUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-[#4a9eff] hover:underline text-sm break-all"
+          >
+            {embedUrl}
+          </a>
+        </div>
+      )}
+
+      {/* Generated Code */}
+      <div>
+        <div className="flex items-center justify-between mb-2">
+          <label className="block text-sm text-[#9898a6]">Embed Code</label>
+          <button
+            onClick={copyToClipboard}
+            className="text-xs px-3 py-1 bg-[#4a9eff]/20 text-[#4a9eff] rounded hover:bg-[#4a9eff]/30 transition-colors"
+          >
+            {copied ? 'Copied!' : 'Copy'}
+          </button>
+        </div>
+        <pre className="bg-[#0a0a0a] rounded-lg p-4 text-sm text-[#c3e88d] overflow-x-auto font-mono">
+          {embedCode}
+        </pre>
+      </div>
+    </div>
+  );
+}
 
 export default function DocsPage() {
   return (
@@ -15,7 +121,7 @@ export default function DocsPage() {
             <span className="text-[#e34946] font-bold">Rico Maps</span>
           </Link>
           <a
-            href="https://x.com/RicoMaps"
+            href="https://x.com/Nullxnothing"
             target="_blank"
             rel="noopener noreferrer"
             className="text-[#6b7280] hover:text-white transition-colors"
@@ -277,6 +383,76 @@ export default function DocsPage() {
                 <span>Multi-hop obfuscation (A → B → C → Holder) is not fully traced.</span>
               </li>
             </ul>
+          </div>
+        </section>
+
+        {/* Embed Integration */}
+        <section className="mb-12">
+          <h2 className="text-2xl font-bold text-[#f59e0b] mb-6 flex items-center gap-2">
+            <span className="w-8 h-8 rounded-lg bg-[#f59e0b]/20 flex items-center justify-center text-sm">6</span>
+            Embed on Your Site
+          </h2>
+
+          <div className="space-y-6">
+            <div className="bg-[#12121a] rounded-xl p-6 border border-[#1a1a2e]">
+              <h3 className="text-lg font-semibold text-white mb-4">Quick Start</h3>
+              <p className="text-[#9898a6] mb-4">
+                Embed Rico Maps visualizations directly into your website, dashboard, or app.
+                Simply use the iframe code below with your target address.
+              </p>
+
+              <EmbedCodeGenerator />
+            </div>
+
+            <div className="bg-[#12121a] rounded-xl p-6 border border-[#1a1a2e]">
+              <h3 className="text-lg font-semibold text-white mb-4">URL Parameters</h3>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-[#2a2a4a]">
+                      <th className="text-left py-2 text-[#9898a6] font-medium">Parameter</th>
+                      <th className="text-left py-2 text-[#9898a6] font-medium">Description</th>
+                      <th className="text-left py-2 text-[#9898a6] font-medium">Default</th>
+                    </tr>
+                  </thead>
+                  <tbody className="text-[#e0e0e0]">
+                    <tr className="border-b border-[#1a1a2e]">
+                      <td className="py-2"><code className="text-[#4a9eff]">address</code></td>
+                      <td className="py-2">Solana wallet or token mint address</td>
+                      <td className="py-2 text-[#6b7280]">required</td>
+                    </tr>
+                    <tr className="border-b border-[#1a1a2e]">
+                      <td className="py-2"><code className="text-[#4a9eff]">view</code></td>
+                      <td className="py-2">Visualization style: <code className="text-[#c3e88d]">forensic</code> or <code className="text-[#c3e88d]">bubble</code></td>
+                      <td className="py-2 text-[#6b7280]">forensic</td>
+                    </tr>
+                    <tr>
+                      <td className="py-2"><code className="text-[#4a9eff]">hideWatermark</code></td>
+                      <td className="py-2">Hide the &quot;Powered by RicoMaps&quot; badge</td>
+                      <td className="py-2 text-[#6b7280]">false</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="bg-[#12121a] rounded-xl p-6 border border-[#1a1a2e]">
+              <h3 className="text-lg font-semibold text-white mb-4">Example Embeds</h3>
+              <div className="space-y-4 text-[#9898a6]">
+                <div>
+                  <p className="mb-2">Token Analysis (forensic view):</p>
+                  <code className="block bg-[#0a0a0a] rounded p-3 text-[#c3e88d] text-xs overflow-x-auto">
+                    {`<iframe src="https://ricomaps.com/embed?address=TOKEN_MINT&view=forensic" width="100%" height="500"></iframe>`}
+                  </code>
+                </div>
+                <div>
+                  <p className="mb-2">Wallet Trace (bubble view):</p>
+                  <code className="block bg-[#0a0a0a] rounded p-3 text-[#c3e88d] text-xs overflow-x-auto">
+                    {`<iframe src="https://ricomaps.com/embed?address=WALLET_ADDRESS&view=bubble" width="100%" height="600"></iframe>`}
+                  </code>
+                </div>
+              </div>
+            </div>
           </div>
         </section>
 

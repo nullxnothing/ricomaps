@@ -71,8 +71,8 @@ export function findLinkedComponents(
 
   // Union connected nodes
   links.forEach(link => {
-    const sourceId = typeof link.source === 'string' ? link.source : link.source;
-    const targetId = typeof link.target === 'string' ? link.target : link.target;
+    const sourceId = typeof link.source === 'string' ? link.source : String(link.source);
+    const targetId = typeof link.target === 'string' ? link.target : String(link.target);
     uf.union(sourceId, targetId);
   });
 
@@ -99,8 +99,8 @@ export function calculateDegreeCentrality(
 
   // Count connections
   links.forEach(link => {
-    const sourceId = typeof link.source === 'string' ? link.source : link.source;
-    const targetId = typeof link.target === 'string' ? link.target : link.target;
+    const sourceId = typeof link.source === 'string' ? link.source : String(link.source);
+    const targetId = typeof link.target === 'string' ? link.target : String(link.target);
 
     degreeMap.set(sourceId, (degreeMap.get(sourceId) || 0) + 1);
     degreeMap.set(targetId, (degreeMap.get(targetId) || 0) + 1);

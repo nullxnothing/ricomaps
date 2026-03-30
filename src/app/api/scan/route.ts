@@ -4,6 +4,7 @@ import { mapTokenHolders } from '@/lib/holder-mapper';
 import { isTokenMint } from '@/lib/helius';
 import { isValidSolanaAddress } from '@/lib/address-utils';
 import { ScanResponse, AppMode } from '@/lib/types';
+import { getCachedTokenScan, setCachedTokenScan } from '@/lib/db-cache';
 
 export async function POST(request: NextRequest) {
   try {
@@ -27,11 +28,34 @@ export async function POST(request: NextRequest) {
     console.log(`Detected mode: ${mode}`);
 
     if (mode === 'token') {
+      // CHECK DATABASE CACHE FIRST - saves API calls!
+      const cached = await getCachedTokenScan(address);
+      if (cached) {
+        console.log(`[CACHE HIT] Returning cached result for ${address.slice(0, 8)}...`);
+        return NextResponse.json<ScanResponse>({
+          success: true,
+          mode,
+          data: cached.data,
+          stats: cached.stats as ScanResponse['stats'],
+          tokenSecurity: cached.tokenSecurity,
+          tokenMetadata: cached.tokenMetadata,
+        });
+      }
+
       // Token mode - map holder connections
       const result = await mapTokenHolders(address, {
-        topN: 50,
-        fundersPerHolder: 5,
+        topN: 50,  // Match closer to Bubblemaps coverage
+        fundersPerHolder: 1,
       });
+
+      // STORE IN DATABASE CACHE for future requests
+      setCachedTokenScan(
+        address,
+        result.data,
+        result.stats as Record<string, unknown>,
+        result.tokenSecurity,
+        result.tokenMetadata
+      ).catch(err => console.error('Cache store error:', err));
 
       return NextResponse.json<ScanResponse>({
         success: true,
@@ -42,11 +66,11 @@ export async function POST(request: NextRequest) {
         tokenMetadata: result.tokenMetadata,
       });
     } else {
-      // Wallet mode - trace funding chain
+      // Wallet mode - trace funding chain (reduced params to conserve API)
       const data = await traceFundingChain(address, {
-        maxDepth: 2,
-        maxNodesPerLevel: 20,
-        minAmount: 0.001,
+        maxDepth: 1,  // Reduced from 2
+        maxNodesPerLevel: 10,  // Reduced from 20
+        minAmount: 0.01,  // Increased from 0.001
       });
 
       return NextResponse.json<ScanResponse>({
@@ -56,7 +80,7 @@ export async function POST(request: NextRequest) {
         stats: {
           nodesFound: data.nodes.length,
           linksFound: data.links.length,
-          scanDepth: 2,
+          scanDepth: 1,
         },
       });
     }

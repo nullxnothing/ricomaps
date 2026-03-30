@@ -5,24 +5,24 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 /**
- * Lightweight poll endpoint for real-time updates
- * Client polls every 5-10s, server returns any new holder changes
- * Works on Vercel serverless — no WebSockets needed
+ * Poll current token holders — returns top holders with balances.
+ * Client polls every 10s, diffs against previous state to detect changes.
+ * getTokenAccounts is 10 credits, cached server-side.
  */
 export async function GET(request: NextRequest) {
   const mint = request.nextUrl.searchParams.get('mint');
+  const limit = parseInt(request.nextUrl.searchParams.get('limit') || '50', 10);
 
   if (!mint) {
     return NextResponse.json({ error: 'mint required' }, { status: 400 });
   }
 
   try {
-    // Get current top holders — lightweight, cached
-    const holders = await getAllTokenHolders(mint, 1); // Just first page
+    const holders = await getAllTokenHolders(mint, 1);
     const topHolders = holders
       .filter(h => h.amount > 0)
       .sort((a, b) => b.amount - a.amount)
-      .slice(0, 30)
+      .slice(0, limit)
       .map(h => ({
         owner: h.owner,
         amount: h.amount,
@@ -30,10 +30,13 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       holders: topHolders,
+      totalHolders: holders.filter(h => h.amount > 0).length,
       timestamp: Date.now(),
+    }, {
+      headers: { 'Cache-Control': 'no-store, max-age=0' },
     });
   } catch (error) {
-    console.error('Stream poll error:', error);
-    return NextResponse.json({ error: 'Failed to fetch updates' }, { status: 500 });
+    console.error('Poll error:', error);
+    return NextResponse.json({ error: 'Failed to fetch holders' }, { status: 500 });
   }
 }

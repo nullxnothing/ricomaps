@@ -1,20 +1,15 @@
 'use client';
 
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import {
   GraphData,
   AppMode,
-  TraceResponse,
-  TokenResponse,
   ExpandResponse,
   ScanResponse,
-  HeliusTransaction,
-  GraphUpdate,
   TokenSecurityInfo,
   TokenMetadata,
 } from '@/lib/types';
-import { mergeGraphUpdate } from '@/lib/transaction-processor';
-import { useTransactionStream } from './useTransactionStream';
+import { useHolderPolling } from './useHolderPolling';
 
 interface Stats {
   nodesFound?: number;
@@ -22,20 +17,15 @@ interface Stats {
   scanDepth?: number;
   totalHolders?: number;
   analyzedHolders?: number;
+  analysisIncomplete?: boolean;
   cabalConnectionsFound?: number;
   suspiciousWallets?: string[];
   dexFundedHolders?: number;
   freshWalletFunders?: number;
-}
-
-interface StreamTransaction {
-  id: string;
-  signature: string;
-  from: string;
-  to: string;
-  amount: number;
-  timestamp: number;
-  type: 'incoming' | 'outgoing' | 'internal';
+  snipersDetected?: number;
+  sniperWallets?: string[];
+  bundleClustersDetected?: number;
+  bundledWallets?: string[];
 }
 
 interface StreamingStats {
@@ -43,7 +33,7 @@ interface StreamingStats {
   isConnecting: boolean;
   watchedAddresses: string[];
   transactionCount: number;
-  transactions: StreamTransaction[];
+  transactions: never[];
   error: string | null;
 }
 
@@ -74,103 +64,86 @@ export function useGraphData(): UseGraphDataReturn {
   const [isLoading, setIsLoading] = useState(false);
   const [isDetecting, setIsDetecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [watchedAddresses, setWatchedAddresses] = useState<string[]>([]);
-  const [streamTransactions, setStreamTransactions] = useState<StreamTransaction[]>([]);
+  const [scannedMint, setScannedMint] = useState<string | null>(null);
 
-  // Use ref to avoid stale closure in handleNewTransaction
   const dataRef = useRef<GraphData | null>(null);
   dataRef.current = data;
-  const watchedRef = useRef<string[]>([]);
-  watchedRef.current = watchedAddresses;
 
-  // Handle new transactions from the stream - uses ref to avoid dependency on data
-  const handleNewTransaction = useCallback(
-    (tx: HeliusTransaction, update: GraphUpdate) => {
+  // Handle holder balance diffs from polling
+  const handleHolderDiff = useCallback(
+    (diff: { added: { owner: string; amount: number }[]; removed: string[]; changed: { owner: string; amount: number }[] }) => {
       const currentData = dataRef.current;
       if (!currentData) return;
 
-      // Merge new nodes and links into existing data
-      const merged = mergeGraphUpdate(currentData.nodes, currentData.links, update);
+      let nodes = [...currentData.nodes];
+      const links = [...currentData.links];
+      let hasChanges = false;
 
-      setData({
-        nodes: merged.nodes,
-        links: merged.links,
-      });
-
-      setStats((prev) => ({
-        ...prev,
-        nodesFound: merged.nodes.length,
-        linksFound: merged.links.length,
-      }));
-
-      // Extract transaction info for the feed
-      const watched = new Set(watchedRef.current);
-      if (tx.nativeTransfers && tx.nativeTransfers.length > 0) {
-        for (const transfer of tx.nativeTransfers) {
-          const from = transfer.fromUserAccount;
-          const to = transfer.toUserAccount;
-          const amount = transfer.amount / 1e9;
-
-          if (amount > 0.0001) {
-            const txType: 'incoming' | 'outgoing' | 'internal' =
-              watched.has(from) && watched.has(to) ? 'internal' :
-              watched.has(to) ? 'incoming' : 'outgoing';
-
-            // Use unique ID with index to handle multiple transfers in same tx
-            const uniqueId = `${tx.signature}_${from.slice(0,8)}_${to.slice(0,8)}_${Date.now()}_${Math.random().toString(36).slice(2,7)}`;
-
-            setStreamTransactions(prev => {
-              // Check if this exact transfer already exists
-              const exists = prev.some(p =>
-                p.signature === tx.signature &&
-                p.from === from &&
-                p.to === to
-              );
-              if (exists) return prev;
-
-              return [{
-                id: uniqueId,
-                signature: tx.signature,
-                from,
-                to,
-                amount,
-                timestamp: tx.timestamp || Math.floor(Date.now() / 1000),
-                type: txType,
-              }, ...prev].slice(0, 50);
-            });
-          }
+      // Update changed holder balances
+      for (const h of diff.changed) {
+        const idx = nodes.findIndex(n => n.id === h.owner);
+        if (idx !== -1) {
+          nodes[idx] = { ...nodes[idx], tokenAmount: h.amount };
+          hasChanges = true;
         }
       }
 
-      console.log('[useGraphData] Merged update:', {
-        newNodes: update.newNodes.length,
-        newLinks: update.newLinks.length,
-        totalNodes: merged.nodes.length,
-        totalLinks: merged.links.length,
-      });
+      // Remove holders that sold everything
+      if (diff.removed.length > 0) {
+        const removedSet = new Set(diff.removed);
+        nodes = nodes.filter(n => !removedSet.has(n.id));
+        hasChanges = true;
+        console.log(`[Poll] Removed ${diff.removed.length} holders (sold)`);
+      }
+
+      // Add new holders as basic nodes
+      for (const h of diff.added) {
+        if (!nodes.some(n => n.id === h.owner)) {
+          nodes.push({
+            id: h.owner,
+            label: h.owner.slice(0, 4) + '...' + h.owner.slice(-4),
+            val: 5,
+            color: '#5BFFB0',
+            type: 'holder',
+            depth: 1,
+            tokenAmount: h.amount,
+            expanded: false,
+          });
+          hasChanges = true;
+        }
+      }
+
+      if (hasChanges) {
+        setData({ nodes, links });
+        setStats(prev => ({
+          ...prev,
+          nodesFound: nodes.length,
+          linksFound: links.length,
+        }));
+      }
     },
-    [] // No dependencies - uses ref instead
+    []
   );
 
-  // Initialize transaction stream
+  // Holder polling — polls /api/poll every 10s, diffs against current graph
   const {
-    isConnected,
-    isConnecting,
-    error: streamError,
-    transactionCount,
-    connect,
-    disconnect,
-  } = useTransactionStream(data?.nodes || [], {
-    onNewTransaction: handleNewTransaction,
-    onConnect: (addresses) => {
-      console.log('[useGraphData] Stream connected to:', addresses);
-    },
-    onError: (err, address) => {
-      console.error('[useGraphData] Stream error:', err, address);
-    },
-  });
+    isPolling,
+    pollCount,
+    error: pollError,
+    start: startPoll,
+    stop: stopPoll,
+  } = useHolderPolling(scannedMint, data, handleHolderDiff);
+
+  // Auto-start polling when we have a token scan
+  useEffect(() => {
+    if (scannedMint && data && detectedMode === 'token') {
+      startPoll();
+    }
+    return () => { stopPoll(); };
+  }, [scannedMint, detectedMode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const scan = useCallback(async (address: string, mode: AppMode) => {
+    stopPoll();
     setIsLoading(true);
     setError(null);
 
@@ -186,7 +159,7 @@ export function useGraphData(): UseGraphDataReturn {
         body: JSON.stringify(body),
       });
 
-      const result: TraceResponse | TokenResponse = await response.json();
+      const result = await response.json();
 
       if (!result.success || !result.data) {
         throw new Error(result.error || 'Scan failed');
@@ -194,14 +167,14 @@ export function useGraphData(): UseGraphDataReturn {
 
       setData(result.data);
       setStats(result.stats || null);
-      setTokenSecurity((result as TokenResponse).tokenSecurity || null);
-      setTokenMetadata((result as TokenResponse).tokenMetadata || null);
+      setTokenSecurity(result.tokenSecurity || null);
+      setTokenMetadata(result.tokenMetadata || null);
       setDetectedMode(mode);
 
-      const addressesToWatch = result.data.nodes
-        .slice(0, 10)
-        .map((n) => n.id);
-      setWatchedAddresses(addressesToWatch);
+      // Store mint for polling (only for token mode)
+      if (mode === 'token') {
+        setScannedMint(address);
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Scan failed';
       setError(message);
@@ -209,9 +182,10 @@ export function useGraphData(): UseGraphDataReturn {
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [stopPoll]);
 
   const scanWithAutoDetect = useCallback(async (address: string): Promise<AppMode | null> => {
+    stopPoll();
     setIsDetecting(true);
     setIsLoading(true);
     setError(null);
@@ -235,10 +209,10 @@ export function useGraphData(): UseGraphDataReturn {
       setTokenMetadata(result.tokenMetadata || null);
       setDetectedMode(result.mode || null);
 
-      const addressesToWatch = result.data.nodes
-        .slice(0, 10)
-        .map((n) => n.id);
-      setWatchedAddresses(addressesToWatch);
+      // Store mint for polling (only for token mode)
+      if (result.mode === 'token') {
+        setScannedMint(address);
+      }
 
       return result.mode || null;
     } catch (err) {
@@ -250,7 +224,7 @@ export function useGraphData(): UseGraphDataReturn {
       setIsDetecting(false);
       setIsLoading(false);
     }
-  }, []);
+  }, [stopPoll]);
 
   const expandNode = useCallback(async (nodeId: string, mode: 'funding' | 'funded') => {
     const currentData = dataRef.current;
@@ -296,9 +270,6 @@ export function useGraphData(): UseGraphDataReturn {
             n.id === nodeId ? { ...n, expanded: true } : n
           );
 
-          const allNodeIds = [...updatedNodes, ...newNodes].map(n => n.id);
-          setWatchedAddresses(allNodeIds.slice(0, 10));
-
           return {
             nodes: [...updatedNodes, ...newNodes],
             links: [...prev.links, ...newLinks],
@@ -321,26 +292,23 @@ export function useGraphData(): UseGraphDataReturn {
   }, []);
 
   const reset = useCallback(() => {
-    disconnect();
+    stopPoll();
     setData(null);
     setStats(null);
     setTokenSecurity(null);
     setTokenMetadata(null);
     setDetectedMode(null);
     setError(null);
-    setWatchedAddresses([]);
-    setStreamTransactions([]);
-  }, [disconnect]);
+    setScannedMint(null);
+  }, [stopPoll]);
 
   const startStreaming = useCallback(() => {
-    if (watchedAddresses.length > 0) {
-      connect(watchedAddresses);
-    }
-  }, [connect, watchedAddresses]);
+    startPoll();
+  }, [startPoll]);
 
   const stopStreaming = useCallback(() => {
-    disconnect();
-  }, [disconnect]);
+    stopPoll();
+  }, [stopPoll]);
 
   return {
     data,
@@ -356,12 +324,12 @@ export function useGraphData(): UseGraphDataReturn {
     expandNode,
     reset,
     streaming: {
-      isStreaming: isConnected,
-      isConnecting,
-      watchedAddresses,
-      transactionCount,
-      transactions: streamTransactions,
-      error: streamError,
+      isStreaming: isPolling,
+      isConnecting: false,
+      watchedAddresses: scannedMint ? [scannedMint] : [],
+      transactionCount: pollCount,
+      transactions: [],
+      error: pollError,
     },
     startStreaming,
     stopStreaming,

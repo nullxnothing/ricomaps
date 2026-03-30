@@ -1,9 +1,22 @@
 import type { Metadata } from "next";
+import { Inter, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
+
+const inter = Inter({
+  subsets: ["latin"],
+  variable: "--font-sans",
+  display: "swap",
+});
+
+const jetbrainsMono = JetBrains_Mono({
+  subsets: ["latin"],
+  variable: "--font-mono",
+  display: "swap",
+});
 
 export const metadata: Metadata = {
   title: "RicoMaps",
-  description: "Bubble Maps. Real-time. Click to Scan Any CA.",
+  description: "Solana forensic intelligence. Trace wallet funding chains and expose hidden cabal connections.",
   icons: {
     icon: [
       { url: '/favicon.png', sizes: '32x32', type: 'image/png' },
@@ -13,13 +26,13 @@ export const metadata: Metadata = {
   },
   openGraph: {
     title: "RicoMaps",
-    description: "Bubble Maps. Real-time. Click to Scan Any CA.",
+    description: "Solana forensic intelligence. Trace wallet funding chains and expose hidden cabal connections.",
     images: [
       {
         url: '/og-image.png',
         width: 1200,
         height: 675,
-        alt: 'RicoMaps - Bubble Maps Real-time',
+        alt: 'RicoMaps - Solana Forensic Intelligence',
       },
     ],
     type: 'website',
@@ -27,7 +40,7 @@ export const metadata: Metadata = {
   twitter: {
     card: 'summary_large_image',
     title: "RicoMaps",
-    description: "Bubble Maps. Real-time. Click to Scan Any CA.",
+    description: "Solana forensic intelligence. Trace wallet funding chains and expose hidden cabal connections.",
     images: ['/og-image.png'],
   },
 };
@@ -38,8 +51,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className="dark">
-      <body className="antialiased bg-[#0a0a0a] text-[#e8e8ed]" style={{ fontFamily: "'JetBrains Mono', 'Fira Code', 'Consolas', monospace" }}>
+    <html lang="en" className={`dark ${inter.variable} ${jetbrainsMono.variable}`}>
+      <body className="antialiased font-sans">
         {children}
       </body>
     </html>

@@ -1,17 +1,18 @@
-import { getTransactionsForAddress } from './helius';
-import { GraphNode, GraphLink, GraphData, FunderInfo, NODE_COLORS } from './types';
+import { getWalletTransfers, getWalletFundedBy, batchIdentifyWallets, getWalletBalances } from './helius';
+import { GraphNode, GraphLink, GraphData, NODE_COLORS } from './types';
 import { truncateAddress, shouldFilterAddress } from './address-utils';
+import { getWalletLabel } from './wallet-labels';
 
 interface TraceOptions {
   maxDepth?: number;
   maxNodesPerLevel?: number;
-  minAmount?: number;  // Minimum SOL amount to track (filter dust)
+  minAmount?: number;
 }
 
 const DEFAULT_OPTIONS: TraceOptions = {
   maxDepth: 2,
-  maxNodesPerLevel: 20,
-  minAmount: 0.001,  // 0.001 SOL minimum
+  maxNodesPerLevel: 15,
+  minAmount: 0.01,
 };
 
 function createNode(
@@ -20,95 +21,32 @@ function createNode(
   type: GraphNode['type'],
   amount?: number
 ): GraphNode {
+  const label = getWalletLabel(address);
+  const walletLabel = label ? {
+    name: label.name,
+    category: label.category,
+    verified: label.verified,
+    risk: label.risk,
+  } : undefined;
+
   return {
     id: address,
-    label: truncateAddress(address),
-    val: Math.max(5, Math.log10((amount || 1) + 1) * 10),  // Size based on amount
+    label: label ? label.name : truncateAddress(address),
+    val: Math.max(5, Math.log10((amount || 1) + 1) * 10),
     color: NODE_COLORS[type] || NODE_COLORS.default,
     type,
     depth,
     solBalance: amount,
     expanded: false,
-    metadata: {
-      fundedBy: [],
-      funded: [],
-    },
+    walletLabel,
+    metadata: { fundedBy: [], funded: [] },
   };
 }
 
-function createLink(
-  source: string,
-  target: string,
-  amount: number,
-  txSignature?: string,
-  timestamp?: number,
-  suspicious?: boolean
-): GraphLink {
-  return {
-    source,
-    target,
-    value: amount,
-    txSignature,
-    timestamp,
-    suspicious,
-  };
-}
-
-function extractFunders(tx: {
-  signature: string;
-  timestamp: number;
-  nativeTransfers?: Array<{ fromUserAccount: string; toUserAccount: string; amount: number }>;
-  accountData?: Array<{ account: string; nativeBalanceChange: number }>;
-}, targetWallet: string, minAmount: number): FunderInfo[] {
-  const funders: FunderInfo[] = [];
-
-  // Check native transfers first (more reliable)
-  if (tx.nativeTransfers) {
-    for (const transfer of tx.nativeTransfers) {
-      if (transfer.toUserAccount === targetWallet && transfer.amount > 0) {
-        const amountSol = transfer.amount / 1e9;
-        if (amountSol >= minAmount && !shouldFilterAddress(transfer.fromUserAccount)) {
-          funders.push({
-            address: transfer.fromUserAccount,
-            amount: amountSol,
-            timestamp: tx.timestamp,
-            txSignature: tx.signature,
-          });
-        }
-      }
-    }
-  }
-
-  // Fallback to accountData if no native transfers found
-  if (funders.length === 0 && tx.accountData) {
-    // Find the target account's positive balance change
-    const targetAccount = tx.accountData.find(
-      a => a.account === targetWallet && a.nativeBalanceChange > 0
-    );
-
-    if (targetAccount) {
-      // Find who sent it (account with negative balance change)
-      const senders = tx.accountData.filter(
-        a => a.nativeBalanceChange < 0 && a.account !== targetWallet
-      );
-
-      for (const sender of senders) {
-        const amountSol = Math.abs(sender.nativeBalanceChange) / 1e9;
-        if (amountSol >= minAmount && !shouldFilterAddress(sender.account)) {
-          funders.push({
-            address: sender.account,
-            amount: amountSol,
-            timestamp: tx.timestamp,
-            txSignature: tx.signature,
-          });
-        }
-      }
-    }
-  }
-
-  return funders;
-}
-
+/**
+ * Trace funding chain using Wallet API /transfers + /funded-by
+ * BFS traversal from target wallet, mapping all funding relationships
+ */
 export async function traceFundingChain(
   targetWallet: string,
   options: TraceOptions = {}
@@ -119,83 +57,153 @@ export async function traceFundingChain(
   const links: GraphLink[] = [];
   const queue: { wallet: string; depth: number }[] = [{ wallet: targetWallet, depth: 0 }];
 
-  // Add target node
   const targetNode = createNode(targetWallet, 0, 'target');
   nodes.push(targetNode);
   visited.add(targetWallet);
 
   while (queue.length > 0) {
     const { wallet, depth } = queue.shift()!;
-
-    // Stop if we've reached max depth
     if (depth >= (opts.maxDepth || 2)) continue;
 
     try {
-      // Get earliest transactions (funding sources)
-      const txs = await getTransactionsForAddress(wallet, {
-        sortOrder: 'asc',
-        limit: 50,
-      });
+      // Use Wallet API /transfers — returns clean counterparty data
+      const transfersResult = await getWalletTransfers(wallet, { limit: 100 });
+      if (!transfersResult?.data) continue;
+
+      // Also get funded-by for the initial funder
+      const fundedBy = await getWalletFundedBy(wallet);
 
       let nodesAddedThisLevel = 0;
+      const SOL_MINT = 'So11111111111111111111111111111111111111112';
 
-      // Analyze each transaction for incoming SOL
-      for (const tx of txs) {
-        if (nodesAddedThisLevel >= (opts.maxNodesPerLevel || 20)) break;
+      // Process incoming SOL transfers (who funded this wallet)
+      const incomingSOL = transfersResult.data.filter(
+        t => t.direction === 'in' && t.mint === SOL_MINT && t.amount >= (opts.minAmount || 0.01)
+      );
 
-        const funders = extractFunders(tx, wallet, opts.minAmount || 0.001);
-
-        for (const funder of funders) {
-          if (nodesAddedThisLevel >= (opts.maxNodesPerLevel || 20)) break;
-
-          // Create link even if node already exists (shows the connection)
-          const existingLink = links.find(
-            l => l.source === funder.address && l.target === wallet
-          );
-
-          if (!existingLink) {
-            links.push(createLink(
-              funder.address,
-              wallet,
-              funder.amount,
-              funder.txSignature,
-              funder.timestamp
-            ));
-          }
-
-          if (!visited.has(funder.address)) {
-            visited.add(funder.address);
-            nodesAddedThisLevel++;
-
-            // Create funder node
-            const funderNode = createNode(
-              funder.address,
-              depth + 1,
-              'funder',
-              funder.amount
-            );
-            nodes.push(funderNode);
-
-            // Add to queue for next level
-            queue.push({ wallet: funder.address, depth: depth + 1 });
-          }
+      // Dedupe by counterparty, sum amounts
+      const funderAmounts = new Map<string, { total: number; count: number; firstSig: string; firstTs: number }>();
+      for (const transfer of incomingSOL) {
+        if (shouldFilterAddress(transfer.counterparty)) continue;
+        const existing = funderAmounts.get(transfer.counterparty);
+        if (existing) {
+          existing.total += transfer.amount;
+          existing.count++;
+        } else {
+          funderAmounts.set(transfer.counterparty, {
+            total: transfer.amount,
+            count: 1,
+            firstSig: transfer.signature,
+            firstTs: transfer.timestamp,
+          });
         }
       }
 
-      // Mark current node as expanded
+      // Sort by total amount (biggest funders first)
+      const sortedFunders = Array.from(funderAmounts.entries())
+        .sort((a, b) => b[1].total - a[1].total);
+
+      for (const [funderAddr, info] of sortedFunders) {
+        if (nodesAddedThisLevel >= (opts.maxNodesPerLevel || 15)) break;
+
+        // Add link
+        const existingLink = links.find(l => l.source === funderAddr && l.target === wallet);
+        if (!existingLink) {
+          links.push({
+            source: funderAddr,
+            target: wallet,
+            value: info.total,
+            txSignature: info.firstSig,
+            timestamp: info.firstTs,
+          });
+        }
+
+        if (!visited.has(funderAddr)) {
+          visited.add(funderAddr);
+          nodesAddedThisLevel++;
+
+          const funderNode = createNode(funderAddr, depth + 1, 'funder', info.total);
+
+          // Enrich with funded-by identity if this is the primary funder
+          if (fundedBy && fundedBy.address === funderAddr && fundedBy.txSource !== 'UNKNOWN') {
+            funderNode.fundingSource = {
+              funderAddress: fundedBy.address,
+              funderName: null,
+              funderType: fundedBy.txSource,
+              amount: fundedBy.amount,
+              timestamp: fundedBy.timestamp,
+              signature: fundedBy.txSignature,
+            };
+          }
+
+          nodes.push(funderNode);
+          queue.push({ wallet: funderAddr, depth: depth + 1 });
+        }
+      }
+
+      // Also track outgoing transfers (who did this wallet fund)
+      const outgoingSOL = transfersResult.data.filter(
+        t => t.direction === 'out' && t.mint === SOL_MINT && t.amount >= (opts.minAmount || 0.01)
+      );
+
+      const fundedAmounts = new Map<string, { total: number; firstSig: string }>();
+      for (const transfer of outgoingSOL) {
+        if (shouldFilterAddress(transfer.counterparty)) continue;
+        const existing = fundedAmounts.get(transfer.counterparty);
+        if (existing) {
+          existing.total += transfer.amount;
+        } else {
+          fundedAmounts.set(transfer.counterparty, {
+            total: transfer.amount,
+            firstSig: transfer.signature,
+          });
+        }
+      }
+
+      // Store metadata on the current node
       const currentNode = nodes.find(n => n.id === wallet);
       if (currentNode) {
         currentNode.expanded = true;
+        currentNode.metadata = {
+          ...currentNode.metadata,
+          totalTransfers: transfersResult.data.length,
+          transferPatterns: {
+            totalIn: incomingSOL.reduce((sum, t) => sum + t.amount, 0),
+            totalOut: outgoingSOL.reduce((sum, t) => sum + t.amount, 0),
+            uniqueCounterparties: new Set(transfersResult.data.map(t => t.counterparty)).size,
+          },
+        };
       }
     } catch (error) {
       console.error(`Error tracing wallet ${wallet}:`, error);
-      // Continue with other wallets
+    }
+  }
+
+  // Batch identify all discovered wallets (1 API call for up to 100)
+  const allAddresses = nodes.map(n => n.id);
+  const identities = await batchIdentifyWallets(allAddresses);
+
+  for (const node of nodes) {
+    const identity = identities.get(node.id);
+    if (identity) {
+      node.identity = {
+        name: identity.name,
+        category: identity.category,
+        type: identity.type,
+        tags: identity.tags,
+      };
+      if (identity.name) {
+        node.label = identity.name;
+      }
     }
   }
 
   return { nodes, links };
 }
 
+/**
+ * Expand a node on-demand — uses /transfers API
+ */
 export async function expandNode(
   wallet: string,
   mode: 'funding' | 'funded',
@@ -205,41 +213,56 @@ export async function expandNode(
   const newLinks: GraphLink[] = [];
 
   try {
-    const txs = await getTransactionsForAddress(wallet, {
-      sortOrder: mode === 'funding' ? 'asc' : 'desc',
-      limit: 50,
-    });
+    const transfersResult = await getWalletTransfers(wallet, { limit: 100 });
+    if (!transfersResult?.data) return { newNodes, newLinks };
 
+    const SOL_MINT = 'So11111111111111111111111111111111111111112';
     const seenAddresses = new Set<string>();
 
-    for (const tx of txs) {
-      if (newNodes.length >= 10) break;  // Limit expansion
+    const relevantTransfers = transfersResult.data.filter(t =>
+      t.mint === SOL_MINT &&
+      t.amount >= 0.01 &&
+      (mode === 'funding' ? t.direction === 'in' : t.direction === 'out')
+    );
+
+    // Dedupe and sum
+    const counterpartyAmounts = new Map<string, { total: number; sig: string }>();
+    for (const t of relevantTransfers) {
+      if (shouldFilterAddress(t.counterparty)) continue;
+      const existing = counterpartyAmounts.get(t.counterparty);
+      if (existing) {
+        existing.total += t.amount;
+      } else {
+        counterpartyAmounts.set(t.counterparty, { total: t.amount, sig: t.signature });
+      }
+    }
+
+    const sorted = Array.from(counterpartyAmounts.entries())
+      .sort((a, b) => b[1].total - a[1].total)
+      .slice(0, 15);
+
+    for (const [addr, info] of sorted) {
+      if (existingNodeIds.has(addr) || seenAddresses.has(addr)) continue;
+      seenAddresses.add(addr);
+
+      const nodeType = mode === 'funding' ? 'funder' : 'funded';
+      newNodes.push(createNode(addr, 0, nodeType, info.total));
 
       if (mode === 'funding') {
-        // Find funders (same as traceFundingChain)
-        const funders = extractFunders(tx, wallet, 0.001);
-        for (const funder of funders) {
-          if (!existingNodeIds.has(funder.address) && !seenAddresses.has(funder.address)) {
-            seenAddresses.add(funder.address);
-            newNodes.push(createNode(funder.address, 0, 'funder', funder.amount));
-            newLinks.push(createLink(funder.address, wallet, funder.amount, funder.txSignature));
-          }
-        }
+        newLinks.push({ source: addr, target: wallet, value: info.total, txSignature: info.sig });
       } else {
-        // Find funded wallets (who did this wallet send to)
-        if (tx.nativeTransfers) {
-          for (const transfer of tx.nativeTransfers) {
-            if (transfer.fromUserAccount === wallet && transfer.amount > 0) {
-              const recipient = transfer.toUserAccount;
-              const amountSol = transfer.amount / 1e9;
+        newLinks.push({ source: wallet, target: addr, value: info.total, txSignature: info.sig });
+      }
+    }
 
-              if (!existingNodeIds.has(recipient) && !seenAddresses.has(recipient) && !shouldFilterAddress(recipient) && amountSol >= 0.001) {
-                seenAddresses.add(recipient);
-                newNodes.push(createNode(recipient, 0, 'funded', amountSol));
-                newLinks.push(createLink(wallet, recipient, amountSol, tx.signature));
-              }
-            }
-          }
+    // Batch identify new nodes
+    if (newNodes.length > 0) {
+      const identities = await batchIdentifyWallets(newNodes.map(n => n.id));
+      for (const node of newNodes) {
+        const identity = identities.get(node.id);
+        if (identity?.name) {
+          node.identity = { name: identity.name, category: identity.category, type: identity.type, tags: identity.tags };
+          node.label = identity.name;
         }
       }
     }

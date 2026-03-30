@@ -16,11 +16,11 @@ export function LoadingOverlay({ isLoading, mode, message }: LoadingOverlayProps
     : 'Mapping token holders...';
 
   return (
-    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50">
+    <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50" style={{ WebkitBackdropFilter: 'blur(4px)', backdropFilter: 'blur(4px)' }}>
       <div className="text-center">
         <div className="spinner-lg mx-auto mb-4" />
-        <p className="text-[#e34946] text-lg mb-2">Scanning</p>
-        <p className="text-[#9898a6] text-sm">{message || defaultMessage}</p>
+        <p className="text-lg mb-2" style={{ color: 'var(--green-primary)' }}>Scanning</p>
+        <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>{message || defaultMessage}</p>
       </div>
     </div>
   );

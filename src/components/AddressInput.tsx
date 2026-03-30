@@ -34,9 +34,9 @@ export function AddressInput({ onSubmit, isLoading, isDetecting, size = 'normal'
   }, [address, onSubmit]);
 
   const isLarge = size === 'large';
-  const containerClass = isLarge ? 'w-full max-w-2xl' : 'w-full max-w-xl';
-  const inputClass = isLarge ? 'input input-large flex-1' : 'input flex-1';
-  const buttonClass = isLarge ? 'btn-primary btn-large whitespace-nowrap' : 'btn-primary whitespace-nowrap';
+  const containerClass = isLarge ? 'w-full max-w-2xl' : 'w-full';
+  const inputClass = isLarge ? 'input input-large flex-1 min-w-0 text-sm sm:text-base' : 'input flex-1 min-w-0 text-xs';
+  const buttonClass = isLarge ? 'btn-primary btn-large whitespace-nowrap flex-shrink-0' : 'btn-primary whitespace-nowrap flex-shrink-0 text-xs px-2.5 sm:px-3 py-1.5';
 
   const getButtonText = () => {
     if (isDetecting) {
@@ -69,7 +69,7 @@ export function AddressInput({ onSubmit, isLoading, isDetecting, size = 'normal'
               setAddress(e.target.value);
               setError(null);
             }}
-            placeholder="Search Tokens or Wallets (Name, Ticker, Address)"
+            placeholder={isLarge ? "Search Tokens or Wallets (Name, Ticker, Address)" : "Search address..."}
             className={inputClass}
             disabled={isLoading || isDetecting}
           />
@@ -82,7 +82,7 @@ export function AddressInput({ onSubmit, isLoading, isDetecting, size = 'normal'
           </button>
         </div>
         {error && (
-          <p className="text-[#ff3366] text-xs">{error}</p>
+          <p className="text-xs" style={{ color: 'var(--red-primary)' }}>{error}</p>
         )}
       </div>
     </form>

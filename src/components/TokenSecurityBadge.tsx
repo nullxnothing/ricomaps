@@ -9,7 +9,7 @@ interface TokenSecurityBadgeProps {
 }
 
 export function TokenSecurityBadge({ security, compact = false }: TokenSecurityBadgeProps) {
-  const [expanded, setExpanded] = useState(true); // Default expanded
+  const [expanded, setExpanded] = useState(false); // Collapsed by default — saves space
 
   if (!security) {
     return (
