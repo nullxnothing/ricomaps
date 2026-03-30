@@ -144,7 +144,6 @@ export function BubbleMap({ data, onNodeClick }: BubbleMapProps) {
   if (nodeCount > 0) prevNodeCountRef.current = nodeCount;
   if (isNewScan) {
     dataVersionRef.current++;
-    revealedRef.current = false; // Hide until auto-fit completes
   }
   const dataVersion = dataVersionRef.current;
 
@@ -385,7 +384,6 @@ export function BubbleMap({ data, onNodeClick }: BubbleMapProps) {
             k: targetK,
           };
         }
-        revealedRef.current = true;
       }
 
       // Stop simulation once fully settled
@@ -413,12 +411,6 @@ export function BubbleMap({ data, onNodeClick }: BubbleMapProps) {
       ctx.clearRect(0, 0, w, h);
       ctx.fillStyle = BG_COLOR;
       ctx.fillRect(0, 0, w, h);
-
-      // Don't draw anything until auto-fit has positioned the viewport
-      if (!revealedRef.current) {
-        animRef.current = requestAnimationFrame(draw);
-        return;
-      }
 
       ctx.save();
       ctx.translate(t.x, t.y);
