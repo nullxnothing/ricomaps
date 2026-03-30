@@ -113,6 +113,8 @@ export function BubbleMap({ data, onNodeClick }: BubbleMapProps) {
   // Track data identity to avoid restarting sim on poll updates
   const prevNodeCountRef = useRef(0);
   const dataVersionRef = useRef(0);
+  // Hide graph until auto-fit completes — prevents double-load visual
+  const revealedRef = useRef(false);
 
   // Tooltip is the only piece of React state — it drives the overlay DOM
   const [tooltip, setTooltip] = useState<TooltipData | null>(null);
@@ -140,7 +142,10 @@ export function BubbleMap({ data, onNodeClick }: BubbleMapProps) {
   const prevCount = prevNodeCountRef.current;
   const isNewScan = prevCount === 0 || Math.abs(nodeCount - prevCount) > prevCount * 0.2;
   if (nodeCount > 0) prevNodeCountRef.current = nodeCount;
-  if (isNewScan) dataVersionRef.current++;
+  if (isNewScan) {
+    dataVersionRef.current++;
+    revealedRef.current = false; // Hide until auto-fit completes
+  }
   const dataVersion = dataVersionRef.current;
 
   // Incremental update — update node data in-place, NO radius recalc, NO sim reheat
@@ -385,24 +390,10 @@ export function BubbleMap({ data, onNodeClick }: BubbleMapProps) {
       const targetX = width / 2 - graphCx * targetK;
       const targetY = height / 2 - graphCy * targetK;
 
-      // Smooth interpolation over ~500ms using rAF
-      const startTransform = { ...transformRef.current };
-      const duration = 500;
-      const startTime = performance.now();
-
-      function animateFit(now: number) {
-        const elapsed = now - startTime;
-        const progress = Math.min(elapsed / duration, 1);
-        // Ease-out cubic
-        const t = 1 - Math.pow(1 - progress, 3);
-        transformRef.current = {
-          x: startTransform.x + (targetX - startTransform.x) * t,
-          y: startTransform.y + (targetY - startTransform.y) * t,
-          k: startTransform.k + (targetK - startTransform.k) * t,
-        };
-        if (progress < 1) requestAnimationFrame(animateFit);
-      }
-      requestAnimationFrame(animateFit);
+      // Set transform instantly — graph was hidden until now
+      transformRef.current = { x: targetX, y: targetY, k: targetK };
+      // Reveal the graph
+      revealedRef.current = true;
     });
 
     // Helper: get link key for particle lookup
@@ -424,6 +415,12 @@ export function BubbleMap({ data, onNodeClick }: BubbleMapProps) {
       ctx.clearRect(0, 0, w, h);
       ctx.fillStyle = BG_COLOR;
       ctx.fillRect(0, 0, w, h);
+
+      // Don't draw anything until auto-fit has positioned the viewport
+      if (!revealedRef.current) {
+        animRef.current = requestAnimationFrame(draw);
+        return;
+      }
 
       ctx.save();
       ctx.translate(t.x, t.y);
