@@ -352,48 +352,47 @@ export function BubbleMap({ data, onNodeClick }: BubbleMapProps) {
 
     simRef.current = sim;
 
-    // Stop simulation once fully settled — no infinite running
-    sim.on('tick.stop', () => {
-      if (sim.alpha() < 0.001) {
+    // Combined tick handler: auto-fit when settled, then stop
+    let hasFitted = false;
+    sim.on('tick', () => {
+      const alpha = sim.alpha();
+
+      // Auto-fit + reveal when layout is stable enough
+      if (!hasFitted && alpha < 0.15) {
+        hasFitted = true;
+
+        // Compute bounding box
+        let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+        for (const node of bubbleNodes) {
+          if (node.x == null || node.y == null) continue;
+          const r = node.radius;
+          minX = Math.min(minX, node.x - r);
+          maxX = Math.max(maxX, node.x + r);
+          minY = Math.min(minY, node.y - r);
+          maxY = Math.max(maxY, node.y + r);
+        }
+        const graphW = maxX - minX;
+        const graphH = maxY - minY;
+        if (graphW > 0 && graphH > 0) {
+          const padding = 60;
+          const scaleX = (width - padding * 2) / graphW;
+          const scaleY = (height - padding * 2) / graphH;
+          const targetK = Math.min(scaleX, scaleY, 0.9);
+          const graphCx = (minX + maxX) / 2;
+          const graphCy = (minY + maxY) / 2;
+          transformRef.current = {
+            x: width / 2 - graphCx * targetK,
+            y: height / 2 - graphCy * targetK,
+            k: targetK,
+          };
+        }
+        revealedRef.current = true;
+      }
+
+      // Stop simulation once fully settled
+      if (alpha < 0.001) {
         sim.stop();
       }
-    });
-
-    // Auto-fit: smooth animated zoom once layout stabilizes
-    let hasFitted = false;
-    sim.on('tick.autofit', () => {
-      if (hasFitted || sim.alpha() >= 0.1) return;
-      hasFitted = true;
-      // Remove this listener — only fires once
-      sim.on('tick.autofit', null);
-
-      // Compute bounding box
-      let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-      for (const node of bubbleNodes) {
-        if (node.x == null || node.y == null) continue;
-        const r = node.radius;
-        minX = Math.min(minX, node.x - r);
-        maxX = Math.max(maxX, node.x + r);
-        minY = Math.min(minY, node.y - r);
-        maxY = Math.max(maxY, node.y + r);
-      }
-      const graphW = maxX - minX;
-      const graphH = maxY - minY;
-      if (graphW <= 0 || graphH <= 0) return;
-
-      const padding = 60;
-      const scaleX = (width - padding * 2) / graphW;
-      const scaleY = (height - padding * 2) / graphH;
-      const targetK = Math.min(scaleX, scaleY, 0.9); // Cap at 0.9x for clean look
-      const graphCx = (minX + maxX) / 2;
-      const graphCy = (minY + maxY) / 2;
-      const targetX = width / 2 - graphCx * targetK;
-      const targetY = height / 2 - graphCy * targetK;
-
-      // Set transform instantly — graph was hidden until now
-      transformRef.current = { x: targetX, y: targetY, k: targetK };
-      // Reveal the graph
-      revealedRef.current = true;
     });
 
     // Helper: get link key for particle lookup
