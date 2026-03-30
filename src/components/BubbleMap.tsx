@@ -352,16 +352,15 @@ export function BubbleMap({ data, onNodeClick }: BubbleMapProps) {
 
     simRef.current = sim;
 
-    // Combined tick handler: auto-fit when settled, then stop
-    let hasFitted = false;
+    // Auto-fit after enough ticks for layout to stabilize, then stop sim later
+    let tickCount = 0;
+    const REVEAL_AFTER_TICKS = 80; // ~1.3s at 60fps — layout is stable by then
+
     sim.on('tick', () => {
-      const alpha = sim.alpha();
+      tickCount++;
 
-      // Auto-fit + reveal when layout is stable enough
-      if (!hasFitted && alpha < 0.15) {
-        hasFitted = true;
-
-        // Compute bounding box
+      // Fit viewport + reveal after layout stabilizes
+      if (tickCount === REVEAL_AFTER_TICKS) {
         let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
         for (const node of bubbleNodes) {
           if (node.x == null || node.y == null) continue;
@@ -390,7 +389,7 @@ export function BubbleMap({ data, onNodeClick }: BubbleMapProps) {
       }
 
       // Stop simulation once fully settled
-      if (alpha < 0.001) {
+      if (sim.alpha() < 0.001) {
         sim.stop();
       }
     });
