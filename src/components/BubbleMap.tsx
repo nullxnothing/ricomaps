@@ -110,6 +110,9 @@ export function BubbleMap({ data, onNodeClick }: BubbleMapProps) {
   // 3 particles per edge, each at a different position along the path
   const particlesRef = useRef<Map<string, { t: number }[]>>(new Map());
   const lastFrameTimeRef = useRef(0);
+  // Track data identity to avoid restarting sim on poll updates
+  const prevNodeCountRef = useRef(0);
+  const dataVersionRef = useRef(0);
 
   // Tooltip is the only piece of React state — it drives the overlay DOM
   const [tooltip, setTooltip] = useState<TooltipData | null>(null);
@@ -132,7 +135,44 @@ export function BubbleMap({ data, onNodeClick }: BubbleMapProps) {
     return null;
   }, []);
 
-  // ── Simulation + render loop (only depends on `data`) ──
+  // Detect full scan vs incremental poll update
+  // Only restart simulation on significant changes (>20% node count diff = new scan)
+  const nodeCount = data?.nodes.length || 0;
+  const prevCount = prevNodeCountRef.current;
+  const isNewScan = prevCount === 0 || Math.abs(nodeCount - prevCount) > prevCount * 0.2;
+  if (nodeCount > 0) prevNodeCountRef.current = nodeCount;
+  if (isNewScan) dataVersionRef.current++;
+  const dataVersion = dataVersionRef.current;
+
+  // Incremental update — just update node token amounts in-place (no sim restart)
+  useEffect(() => {
+    if (!data || isNewScan) return;
+    const nodes = nodesRef.current;
+    for (const node of nodes) {
+      const updated = data.nodes.find(n => n.id === node.id);
+      if (updated) {
+        node.originalNode = updated;
+        // Recalculate radius if token amount changed
+        if (updated.tokenAmount !== undefined) {
+          const holders = data.nodes.filter(n => n.type !== 'token');
+          const maxAmount = Math.max(...holders.map(n => n.tokenAmount || n.solBalance || 0), 1);
+          const amount = updated.tokenAmount || 0;
+          const ratio = Math.sqrt(amount / maxAmount);
+          node.radius = 8 + ratio * (80 - 8);
+          node.supplyPct = computeSupplyPct(updated, holders.reduce((sum, n) => sum + (n.tokenAmount || n.solBalance || 0), 0));
+        }
+      }
+    }
+    // Remove nodes that are no longer in data
+    const dataIds = new Set(data.nodes.map(n => n.id));
+    nodesRef.current = nodes.filter(n => dataIds.has(n.id));
+    // Gently reheat sim for repositioning
+    if (simRef.current && simRef.current.alpha() < 0.05) {
+      simRef.current.alpha(0.05).restart();
+    }
+  }, [data]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Simulation + render loop (only on new scan, not poll updates) ──
   useEffect(() => {
     if (!data || data.nodes.length === 0 || !canvasRef.current || !containerRef.current) return;
 
@@ -574,7 +614,7 @@ export function BubbleMap({ data, onNodeClick }: BubbleMapProps) {
       cancelAnimationFrame(animRef.current);
       resizeObserver.disconnect();
     };
-  }, [data]); // Only re-run when data changes — NOT on hover/tooltip
+  }, [dataVersion]); // Only restart sim on new scan — poll updates handled incrementally
 
   // ── Mouse move: update hover ref + tooltip state ──
   const handleMouseMove = useCallback((e: React.MouseEvent) => {

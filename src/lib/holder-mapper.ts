@@ -70,7 +70,14 @@ export async function mapTokenHolders(mintAddress: string, options: MapOptions =
     description: asset.content?.metadata?.description,
   } : null;
 
-  const filteredHolders = allHolders.filter(h => h.amount > 0 && !shouldFilterAddress(h.owner));
+  // Filter out programs, the mint itself, and the biggest holder if it holds >50% (likely LP/bonding curve)
+  const preFiltered = allHolders.filter(h => h.amount > 0 && !shouldFilterAddress(h.owner) && h.owner !== mintAddress);
+  const totalAmount = preFiltered.reduce((sum, h) => sum + h.amount, 0);
+  const filteredHolders = preFiltered.filter(h => {
+    // Skip any single holder that owns >40% — almost certainly LP/bonding curve
+    if (totalAmount > 0 && (h.amount / totalAmount) > 0.4) return false;
+    return true;
+  });
   const filteredOutCount = allHolders.length - filteredHolders.length;
   const topHolders = filteredHolders.sort((a, b) => b.amount - a.amount).slice(0, opts.topN || 30);
   const holderSet = new Set(topHolders.map(h => h.owner));
