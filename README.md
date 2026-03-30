@@ -30,8 +30,8 @@ Solana forensic intelligence tool. Trace wallet funding chains, detect cabal fun
 ## Setup
 
 ```bash
-git clone https://github.com/Nullxnothing/cabal-visualizer.git
-cd cabal-visualizer
+git clone https://github.com/Nullxnothing/ricomaps.git
+cd ricomaps
 npm install
 ```
 
