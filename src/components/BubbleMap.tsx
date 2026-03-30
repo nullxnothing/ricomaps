@@ -136,7 +136,6 @@ export function BubbleMap({ data, onNodeClick }: BubbleMapProps) {
   }, []);
 
   // Detect full scan vs incremental poll update
-  // Only restart simulation on significant changes (>20% node count diff = new scan)
   const nodeCount = data?.nodes.length || 0;
   const prevCount = prevNodeCountRef.current;
   const isNewScan = prevCount === 0 || Math.abs(nodeCount - prevCount) > prevCount * 0.2;
@@ -144,31 +143,82 @@ export function BubbleMap({ data, onNodeClick }: BubbleMapProps) {
   if (isNewScan) dataVersionRef.current++;
   const dataVersion = dataVersionRef.current;
 
-  // Incremental update — just update node token amounts in-place (no sim restart)
+  // Incremental update — update node data in-place, NO radius recalc, NO sim reheat
+  // This runs on poll diffs only (isNewScan=false). The render loop reads from refs
+  // so updated originalNode/supplyPct values are picked up automatically.
   useEffect(() => {
-    if (!data || isNewScan) return;
-    const nodes = nodesRef.current;
-    for (const node of nodes) {
-      const updated = data.nodes.find(n => n.id === node.id);
+    if (!data || isNewScan || nodesRef.current.length === 0) return;
+
+    const existingNodes = nodesRef.current;
+    const dataNodeMap = new Map(data.nodes.map(n => [n.id, n]));
+    const existingIds = new Set(existingNodes.map(n => n.id));
+
+    // Update existing nodes — only originalNode and supplyPct, NOT radius
+    // Keeping radius stable prevents collision force cascades
+    const holders = data.nodes.filter(n => n.type !== 'token');
+    const totalSupply = holders.reduce((sum, n) => sum + (n.tokenAmount || n.solBalance || 0), 0);
+
+    for (const node of existingNodes) {
+      const updated = dataNodeMap.get(node.id);
       if (updated) {
         node.originalNode = updated;
-        // Recalculate radius if token amount changed
-        if (updated.tokenAmount !== undefined) {
-          const holders = data.nodes.filter(n => n.type !== 'token');
-          const maxAmount = Math.max(...holders.map(n => n.tokenAmount || n.solBalance || 0), 1);
-          const amount = updated.tokenAmount || 0;
-          const ratio = Math.sqrt(amount / maxAmount);
-          node.radius = 8 + ratio * (80 - 8);
-          node.supplyPct = computeSupplyPct(updated, holders.reduce((sum, n) => sum + (n.tokenAmount || n.solBalance || 0), 0));
-        }
+        node.supplyPct = computeSupplyPct(updated, totalSupply);
       }
     }
-    // Remove nodes that are no longer in data
-    const dataIds = new Set(data.nodes.map(n => n.id));
-    nodesRef.current = nodes.filter(n => dataIds.has(n.id));
-    // Gently reheat sim for repositioning
-    if (simRef.current && simRef.current.alpha() < 0.05) {
-      simRef.current.alpha(0.05).restart();
+
+    // Remove nodes that sold (no longer in data) — just filter, no sim restart
+    const removedIds = new Set<string>();
+    for (const node of existingNodes) {
+      if (!dataNodeMap.has(node.id)) removedIds.add(node.id);
+    }
+    if (removedIds.size > 0) {
+      nodesRef.current = existingNodes.filter(n => !removedIds.has(n.id));
+      // Also remove links involving removed nodes
+      linksRef.current = linksRef.current.filter(l => {
+        const src = (l.source as BubbleNode).id;
+        const tgt = (l.target as BubbleNode).id;
+        return !removedIds.has(src) && !removedIds.has(tgt);
+      });
+    }
+
+    // Add new nodes — spawn near the graph centroid (not random)
+    const newDataNodes = data.nodes.filter(n => !existingIds.has(n.id) && n.type !== 'token');
+    if (newDataNodes.length > 0) {
+      // Find centroid of existing nodes for natural spawn position
+      let cx = 0, cy = 0, count = 0;
+      for (const n of nodesRef.current) {
+        if (n.x != null && n.y != null) { cx += n.x; cy += n.y; count++; }
+      }
+      if (count > 0) { cx /= count; cy /= count; }
+      else { cx = sizeRef.current.width / 2; cy = sizeRef.current.height / 2; }
+
+      const maxAmount = Math.max(...holders.map(n => n.tokenAmount || n.solBalance || 0), 1);
+
+      for (const node of newDataNodes) {
+        const amount = node.tokenAmount || node.solBalance || 0;
+        const ratio = Math.sqrt(amount / maxAmount);
+        const radius = 8 + ratio * (80 - 8);
+        const bubbleNode: BubbleNode = {
+          id: node.id,
+          label: node.label,
+          type: node.type,
+          radius,
+          supplyPct: computeSupplyPct(node, totalSupply),
+          clusterId: -1, // New poll nodes are unlinked
+          originalNode: node,
+          // Spawn near centroid with small jitter — not random across viewport
+          x: cx + (Math.random() - 0.5) * 60,
+          y: cy + (Math.random() - 0.5) * 60,
+        };
+        nodesRef.current.push(bubbleNode);
+        // Add to simulation
+        simRef.current?.nodes(nodesRef.current);
+      }
+    }
+
+    // Very gentle reheat only if nodes were added/removed
+    if ((removedIds.size > 0 || newDataNodes.length > 0) && simRef.current) {
+      simRef.current.alpha(Math.max(simRef.current.alpha(), 0.03)).restart();
     }
   }, [data]); // eslint-disable-line react-hooks/exhaustive-deps
 
