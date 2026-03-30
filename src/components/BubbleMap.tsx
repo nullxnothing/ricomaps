@@ -213,7 +213,7 @@ export function BubbleMap({ data, onNodeClick }: BubbleMapProps) {
     const totalSupply = holders.reduce((sum, n) => sum + (n.tokenAmount || n.solBalance || 0), 0);
     const clusterMap = assignClusters(data.nodes, data.links);
 
-    const minR = 8, maxR = 80;
+    const minR = 6, maxR = 45;
     const maxAmount = Math.max(...holders.map(n => n.tokenAmount || n.solBalance || 0), 1);
 
     const bubbleNodes: BubbleNode[] = data.nodes
@@ -351,26 +351,26 @@ export function BubbleMap({ data, onNodeClick }: BubbleMapProps) {
       boundaryForce(alpha);
     }
 
-    // ── Force simulation — cluster grouping + separation ──
+    // ── Force simulation — tight clusters, clear separation, fast settle ──
     const sim = forceSimulation(bubbleNodes)
       .force('link', forceLink<BubbleNode, BubbleLink>(bubbleLinks)
         .id(d => d.id)
         .distance(d => {
           const src = d.source as BubbleNode;
           const tgt = d.target as BubbleNode;
-          return src.radius + tgt.radius + 5;
+          return src.radius + tgt.radius + 4;
         })
-        .strength(0.8)
+        .strength(1.0)
       )
       .force('charge', forceManyBody()
-        .strength(-40)
-        .distanceMax(250)
+        .strength(-50)
+        .distanceMax(300)
       )
       .force('cluster', clusterForce)
-      .force('center', forceCenter(width / 2, height / 2).strength(0.12)) // Strong gravity — nothing escapes viewport
-      .force('collide', forceCollide<BubbleNode>().radius(d => d.radius + 3).strength(1).iterations(3))
-      .alphaDecay(0.012)   // Slow decay — needs time for cluster separation
-      .velocityDecay(0.35);
+      .force('center', forceCenter(width / 2, height / 2).strength(0.06))
+      .force('collide', forceCollide<BubbleNode>().radius(d => d.radius + 4).strength(1).iterations(3))
+      .alphaDecay(0.028)   // Faster settle — stops jittering sooner
+      .velocityDecay(0.45); // More friction — less oscillation
 
     simRef.current = sim;
 
@@ -392,10 +392,10 @@ export function BubbleMap({ data, onNodeClick }: BubbleMapProps) {
         const graphW = maxX - minX;
         const graphH = maxY - minY;
         if (graphW > 0 && graphH > 0) {
-          const padding = 40;
+          const padding = 60;
           const scaleX = (width - padding * 2) / graphW;
           const scaleY = (height - padding * 2) / graphH;
-          const k = Math.min(scaleX, scaleY, 1.5); // Cap zoom at 1.5x
+          const k = Math.min(scaleX, scaleY, 1.0); // Never zoom in past 1x
           const cx = (minX + maxX) / 2;
           const cy = (minY + maxY) / 2;
           transformRef.current = {
@@ -586,7 +586,7 @@ export function BubbleMap({ data, onNodeClick }: BubbleMapProps) {
         ctx.stroke();
 
         // Supply % label
-        if (node.radius > 20 && node.supplyPct >= 0.1) {
+        if (node.radius > 14 && node.supplyPct >= 0.5) {
           ctx.fillStyle = 'rgba(255,255,255,0.85)';
           ctx.font = `${Math.max(9, Math.min(14, node.radius * 0.35))}px -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif`;
           ctx.textAlign = 'center';
