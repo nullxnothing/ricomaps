@@ -230,8 +230,8 @@ export function BubbleMap({ data, onNodeClick }: BubbleMapProps) {
           supplyPct: computeSupplyPct(node, totalSupply),
           clusterId: clusterMap.get(node.id) ?? -1,
           originalNode: node,
-          x: width / 2 + (Math.random() - 0.5) * width * 0.5,
-          y: height / 2 + (Math.random() - 0.5) * height * 0.5,
+          x: width / 2 + (Math.random() - 0.5) * Math.min(width, height) * 0.5,
+          y: height / 2 + (Math.random() - 0.5) * Math.min(width, height) * 0.5,
         };
       });
 
@@ -262,7 +262,7 @@ export function BubbleMap({ data, onNodeClick }: BubbleMapProps) {
     particlesRef.current = particles;
     lastFrameTimeRef.current = 0;
 
-    // ── Compute cluster centroids for cluster grouping force ──
+    // ── Compute cluster membership for cluster force ──
     const clusterNodes = new Map<number, BubbleNode[]>();
     for (const node of bubbleNodes) {
       if (node.clusterId < 0) continue;
@@ -271,12 +271,10 @@ export function BubbleMap({ data, onNodeClick }: BubbleMapProps) {
       clusterNodes.set(node.clusterId, arr);
     }
 
-    // Precompute cluster centroids
-    interface ClusterCentroid { cx: number; cy: number; count: number; totalRadius: number; }
-    const centroids = new Map<number, ClusterCentroid>();
-
-    function updateCentroids() {
-      centroids.clear();
+    // Single combined cluster force: attract members + repel overlapping centroids
+    function clusterForce(alpha: number) {
+      // 1. Compute centroids
+      const centroids = new Map<number, { cx: number; cy: number; count: number; totalRadius: number }>();
       for (const [cid, members] of clusterNodes) {
         let cx = 0, cy = 0, totalR = 0;
         for (const m of members) { cx += m.x || 0; cy += m.y || 0; totalR += m.radius; }
@@ -284,40 +282,32 @@ export function BubbleMap({ data, onNodeClick }: BubbleMapProps) {
         cy /= members.length;
         centroids.set(cid, { cx, cy, count: members.length, totalRadius: totalR });
       }
-    }
 
-    // Force 1: Pull same-cluster nodes toward their centroid (tight clusters)
-    function clusterAttract(alpha: number) {
-      updateCentroids();
-      const strength = alpha * 0.6;
+      // 2. Pull members toward their centroid
+      const attractStrength = alpha * 0.3;
       for (const [cid, members] of clusterNodes) {
         if (members.length < 2) continue;
         const c = centroids.get(cid)!;
         for (const m of members) {
-          m.vx = (m.vx || 0) + (c.cx - (m.x || 0)) * strength;
-          m.vy = (m.vy || 0) + (c.cy - (m.y || 0)) * strength;
+          m.vx = (m.vx || 0) + (c.cx - (m.x || 0)) * attractStrength;
+          m.vy = (m.vy || 0) + (c.cy - (m.y || 0)) * attractStrength;
         }
       }
-    }
 
-    // Force 2: Push different cluster centroids away from each other
-    function clusterRepel(alpha: number) {
+      // 3. Push centroids apart only when overlapping
       const ids = Array.from(centroids.keys());
-      const strength = alpha * 200;
       for (let i = 0; i < ids.length; i++) {
         for (let j = i + 1; j < ids.length; j++) {
           const a = centroids.get(ids[i])!;
           const b = centroids.get(ids[j])!;
-          let dx = a.cx - b.cx;
-          let dy = a.cy - b.cy;
-          let dist = Math.sqrt(dx * dx + dy * dy) || 1;
-          const minDist = a.totalRadius + b.totalRadius + 30;
+          const dx = a.cx - b.cx;
+          const dy = a.cy - b.cy;
+          const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+          const minDist = a.totalRadius + b.totalRadius + 20;
           if (dist < minDist) {
-            // Capped force — prevents clusters from launching off screen
-            const rawForce = strength * (minDist - dist) / dist;
-            const cappedForce = Math.min(rawForce, 8);
-            const nx = dx / dist * cappedForce;
-            const ny = dy / dist * cappedForce;
+            const force = Math.min(alpha * 0.5 * (minDist - dist) / dist, 3);
+            const nx = (dx / dist) * force;
+            const ny = (dy / dist) * force;
             const membersA = clusterNodes.get(ids[i])!;
             const membersB = clusterNodes.get(ids[j])!;
             for (const m of membersA) { m.vx = (m.vx || 0) + nx / membersA.length; m.vy = (m.vy || 0) + ny / membersA.length; }
@@ -327,84 +317,92 @@ export function BubbleMap({ data, onNodeClick }: BubbleMapProps) {
       }
     }
 
-    // Force 3: Hard boundary — push nodes back if they drift too far from center
-    function boundaryForce(alpha: number) {
-      const padX = width * 0.42;
-      const padY = height * 0.42;
-      const cx = width / 2, cy = height / 2;
-      for (const node of bubbleNodes) {
-        const dx = (node.x || 0) - cx;
-        const dy = (node.y || 0) - cy;
-        if (Math.abs(dx) > padX) {
-          node.vx = (node.vx || 0) - dx * alpha * 0.5;
-        }
-        if (Math.abs(dy) > padY) {
-          node.vy = (node.vy || 0) - dy * alpha * 0.5;
-        }
-      }
-    }
+    // ── Force simulation — adapts to graph density ──
+    const nNodes = bubbleNodes.length;
+    const nLinks = bubbleLinks.length;
+    // Charge scales: sparse graphs get light repulsion, dense get more
+    const chargeStr = nLinks > 10 ? -60 : -25;
+    // Center gravity: sparse graphs need stronger pull to stay compact
+    const centerStr = nLinks > 20 ? 0.05 : 0.12;
 
-    // Combined cluster force
-    function clusterForce(alpha: number) {
-      clusterAttract(alpha);
-      clusterRepel(alpha);
-      boundaryForce(alpha);
-    }
-
-    // ── Force simulation — tight clusters, clear separation, fast settle ──
     const sim = forceSimulation(bubbleNodes)
       .force('link', forceLink<BubbleNode, BubbleLink>(bubbleLinks)
         .id(d => d.id)
         .distance(d => {
           const src = d.source as BubbleNode;
           const tgt = d.target as BubbleNode;
-          return src.radius + tgt.radius + 4;
+          return src.radius + tgt.radius + 8;
         })
-        .strength(1.0)
+        .strength(0.8)
       )
       .force('charge', forceManyBody()
-        .strength(-50)
-        .distanceMax(300)
+        .strength(chargeStr)
+        .distanceMax(250)
       )
       .force('cluster', clusterForce)
-      .force('center', forceCenter(width / 2, height / 2).strength(0.06))
-      .force('collide', forceCollide<BubbleNode>().radius(d => d.radius + 4).strength(1).iterations(3))
-      .alphaDecay(0.028)   // Faster settle — stops jittering sooner
-      .velocityDecay(0.45); // More friction — less oscillation
+      .force('center', forceCenter(width / 2, height / 2).strength(centerStr))
+      .force('collide', forceCollide<BubbleNode>().radius(d => d.radius + 3).strength(0.8).iterations(2))
+      .alphaDecay(0.0228)
+      .velocityDecay(0.4);
 
     simRef.current = sim;
 
-    // Auto-fit: once simulation settles, zoom/pan to fit all nodes in viewport
-    let hasFitted = false;
-    sim.on('tick', () => {
-      if (!hasFitted && sim.alpha() < 0.05) {
-        hasFitted = true;
-        // Compute bounding box of all nodes
-        let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-        for (const node of bubbleNodes) {
-          if (node.x == null || node.y == null) continue;
-          const r = node.radius;
-          minX = Math.min(minX, node.x - r);
-          maxX = Math.max(maxX, node.x + r);
-          minY = Math.min(minY, node.y - r);
-          maxY = Math.max(maxY, node.y + r);
-        }
-        const graphW = maxX - minX;
-        const graphH = maxY - minY;
-        if (graphW > 0 && graphH > 0) {
-          const padding = 60;
-          const scaleX = (width - padding * 2) / graphW;
-          const scaleY = (height - padding * 2) / graphH;
-          const k = Math.min(scaleX, scaleY, 1.0); // Never zoom in past 1x
-          const cx = (minX + maxX) / 2;
-          const cy = (minY + maxY) / 2;
-          transformRef.current = {
-            x: width / 2 - cx * k,
-            y: height / 2 - cy * k,
-            k,
-          };
-        }
+    // Stop simulation once fully settled — no infinite running
+    sim.on('tick.stop', () => {
+      if (sim.alpha() < 0.001) {
+        sim.stop();
       }
+    });
+
+    // Auto-fit: smooth animated zoom once layout stabilizes
+    let hasFitted = false;
+    sim.on('tick.autofit', () => {
+      if (hasFitted || sim.alpha() >= 0.1) return;
+      hasFitted = true;
+      // Remove this listener — only fires once
+      sim.on('tick.autofit', null);
+
+      // Compute bounding box
+      let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+      for (const node of bubbleNodes) {
+        if (node.x == null || node.y == null) continue;
+        const r = node.radius;
+        minX = Math.min(minX, node.x - r);
+        maxX = Math.max(maxX, node.x + r);
+        minY = Math.min(minY, node.y - r);
+        maxY = Math.max(maxY, node.y + r);
+      }
+      const graphW = maxX - minX;
+      const graphH = maxY - minY;
+      if (graphW <= 0 || graphH <= 0) return;
+
+      const padding = 60;
+      const scaleX = (width - padding * 2) / graphW;
+      const scaleY = (height - padding * 2) / graphH;
+      const targetK = Math.min(scaleX, scaleY, 0.9); // Cap at 0.9x for clean look
+      const graphCx = (minX + maxX) / 2;
+      const graphCy = (minY + maxY) / 2;
+      const targetX = width / 2 - graphCx * targetK;
+      const targetY = height / 2 - graphCy * targetK;
+
+      // Smooth interpolation over ~500ms using rAF
+      const startTransform = { ...transformRef.current };
+      const duration = 500;
+      const startTime = performance.now();
+
+      function animateFit(now: number) {
+        const elapsed = now - startTime;
+        const progress = Math.min(elapsed / duration, 1);
+        // Ease-out cubic
+        const t = 1 - Math.pow(1 - progress, 3);
+        transformRef.current = {
+          x: startTransform.x + (targetX - startTransform.x) * t,
+          y: startTransform.y + (targetY - startTransform.y) * t,
+          k: startTransform.k + (targetK - startTransform.k) * t,
+        };
+        if (progress < 1) requestAnimationFrame(animateFit);
+      }
+      requestAnimationFrame(animateFit);
     });
 
     // Helper: get link key for particle lookup
@@ -611,9 +609,8 @@ export function BubbleMap({ data, onNodeClick }: BubbleMapProps) {
     // Handle resize
     const resizeObserver = new ResizeObserver(() => {
       resize();
-      // Re-center after resize
-      sim.force('center', forceCenter(sizeRef.current.width / 2, sizeRef.current.height / 2).strength(0.05));
-      sim.alpha(0.1).restart();
+      // Update center force target but don't reheat — nodes stay in place
+      sim.force('center', forceCenter(sizeRef.current.width / 2, sizeRef.current.height / 2).strength(0.03));
     });
     resizeObserver.observe(container);
 

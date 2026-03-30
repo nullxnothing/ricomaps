@@ -126,13 +126,16 @@ export function useGraphData(): UseGraphDataReturn {
     stop: stopPoll,
   } = useHolderPolling(scannedMint, data, handleHolderDiff);
 
-  // Auto-start polling when we have a token scan
+  // Auto-start polling disabled — call startStreaming() manually if needed
+  // useEffect(() => {
+  //   if (scannedMint && data && detectedMode === 'token') {
+  //     startPoll();
+  //   }
+  //   return () => { stopPoll(); };
+  // }, [scannedMint, detectedMode]);
   useEffect(() => {
-    if (scannedMint && data && detectedMode === 'token') {
-      startPoll();
-    }
     return () => { stopPoll(); };
-  }, [scannedMint, detectedMode]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const scan = useCallback(async (address: string, mode: AppMode) => {
     stopPoll();
