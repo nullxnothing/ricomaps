@@ -44,7 +44,7 @@
   /* Text — neutral grays, NOT green */
   --text-primary: #f0f0f0;
   --text-secondary: #b8b8b8;
-  --text-tertiary: #737373;
+  --text-tertiary: #8a8a8a;
 
   /* Borders — barely visible, cool-tinted */
   --border-base: #1c1c28;
@@ -62,6 +62,41 @@
 @theme inline {
   --color-background: var(--bg-base);
   --color-foreground: var(--text-primary);
+
+  /* Backgrounds */
+  --color-bg-void: var(--bg-void);
+  --color-bg-base: var(--bg-base);
+  --color-bg-surface: var(--bg-surface);
+  --color-bg-elevated: var(--bg-elevated);
+  --color-bg-hover: var(--bg-hover);
+  --color-bg-input: var(--bg-input);
+
+  /* Text */
+  --color-text-primary: var(--text-primary);
+  --color-text-secondary: var(--text-secondary);
+  --color-text-tertiary: var(--text-tertiary);
+
+  /* Borders */
+  --color-border-base: var(--border-base);
+  --color-border-hover: var(--border-hover);
+
+  /* Accents */
+  --color-green-primary: var(--green-primary);
+  --color-green-dim: var(--green-dim);
+  --color-green-ghost: var(--green-ghost);
+  --color-red-primary: var(--red-primary);
+  --color-red-dim: var(--red-dim);
+  --color-red-ghost: var(--red-ghost);
+  --color-amber-primary: var(--amber-primary);
+  --color-amber-ghost: var(--amber-ghost);
+  --color-blue-primary: var(--blue-primary);
+  --color-blue-ghost: var(--blue-ghost);
+  --color-cyan-primary: var(--cyan-primary);
+  --color-cyan-ghost: var(--cyan-ghost);
+  --color-purple-primary: var(--purple-primary);
+  --color-purple-dim: var(--purple-dim);
+  --color-purple-ghost: var(--purple-ghost);
+
   --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
 }
@@ -146,6 +181,54 @@
   backdrop-filter: blur(24px);
   box-shadow: 0 8px 32px rgba(0,0,0,0.5), 0 0 0 1px rgba(239,68,68,0.06) inset;
   animation: fadeIn 0.2s ease-out;
+}
+
+/* Floating glass panel — used for header bar, token identity card, wallet card, historical indicator */
+.glass-panel-floating {
+  background: rgba(9, 9, 14, 0.72);
+  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.4);
+}
+
+.glass-panel-floating-amber {
+  background: rgba(9, 9, 14, 0.72);
+  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(20px);
+  border: 1px solid rgba(245, 158, 11, 0.25);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.4), 0 0 24px rgba(245, 158, 11, 0.08);
+}
+
+/* Stats item button variant — for clickable filter rows */
+.stats-item-btn {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  padding: 0.5rem 0.25rem;
+  margin: 0 -0.25rem;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+  transition: background 0.1s, border-color 0.1s;
+}
+
+.stats-item-btn:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.stats-item-btn[aria-pressed="true"] {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.stats-item-btn:focus-visible {
+  outline: 2px solid var(--green-primary);
+  outline-offset: 2px;
 }
 
 .cluster-card {
@@ -451,6 +534,36 @@
 @keyframes fadeIn {
   from { opacity: 0; }
   to { opacity: 1; }
+}
+
+/* Magic UI — AnimatedShinyText */
+@keyframes shiny-text {
+  0%, 90%, 100% {
+    background-position: calc(-100% - var(--shiny-width)) 0;
+  }
+  30%, 60% {
+    background-position: calc(100% + var(--shiny-width)) 0;
+  }
+}
+.animate-shiny-text {
+  animation: shiny-text 8s infinite;
+}
+
+/* Magic UI — ShimmerButton */
+@keyframes shimmer-slide {
+  to { transform: translate(calc(100cqw - 100%), 0); }
+}
+.animate-shimmer-slide {
+  animation: shimmer-slide var(--speed) ease-in-out infinite alternate;
+}
+@keyframes spin-around {
+  0%   { transform: translateZ(0) rotate(0); }
+  15%, 35% { transform: translateZ(0) rotate(90deg); }
+  65%, 85% { transform: translateZ(0) rotate(270deg); }
+  100% { transform: translateZ(0) rotate(360deg); }
+}
+.animate-spin-around {
+  animation: spin-around calc(var(--speed) * 2) infinite linear;
 }
 
 .spinner {

@@ -5,9 +5,12 @@ import { forceSimulation, forceLink, forceManyBody, forceCenter, forceCollide, S
 import { GraphData, GraphNode, GraphLink, NODE_COLORS, NodeType } from '@/lib/types';
 import { THREAT_COLORS } from '@/lib/threat-scorer';
 
+export type BubbleMapFilter = 'cabal' | 'snipers' | 'bundles' | null;
+
 interface BubbleMapProps {
   data: GraphData;
   onNodeClick?: (node: GraphNode) => void;
+  filter?: BubbleMapFilter;
 }
 
 interface BubbleNode extends SimulationNodeDatum {
@@ -111,7 +114,7 @@ function assignClusters(nodes: GraphNode[], links: GraphLink[]): Map<string, num
   return result;
 }
 
-export function BubbleMap({ data, onNodeClick }: BubbleMapProps) {
+export function BubbleMap({ data, onNodeClick, filter = null }: BubbleMapProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const nodesRef = useRef<BubbleNode[]>([]);
@@ -143,6 +146,23 @@ export function BubbleMap({ data, onNodeClick }: BubbleMapProps) {
   const [heatmapMode, setHeatmapMode] = useState(false);
   const heatmapRef = useRef(false);
   heatmapRef.current = heatmapMode;
+  const filterRef = useRef<BubbleMapFilter>(null);
+  filterRef.current = filter;
+
+  // Summary for screen readers — recomputes only when graph changes
+  const ariaSummary = useMemo(() => {
+    const nodes = data?.nodes ?? [];
+    const cabalCount = nodes.filter(n => n.type === 'cabal-funder').length;
+    const sniperCount = nodes.filter(n => n.metadata?.isSniper).length;
+    const tokenCount = nodes.filter(n => n.type === 'token').length;
+    const parts = [
+      `Network graph with ${nodes.length} nodes and ${data?.links?.length ?? 0} connections`,
+    ];
+    if (cabalCount) parts.push(`${cabalCount} cabal funder${cabalCount === 1 ? '' : 's'}`);
+    if (sniperCount) parts.push(`${sniperCount} sniper${sniperCount === 1 ? '' : 's'}`);
+    if (tokenCount) parts.push(`${tokenCount} token${tokenCount === 1 ? '' : 's'}`);
+    return parts.join(', ');
+  }, [data]);
 
   // Legend types derived from data (state-driven so legend renders on initial load)
   const legendTypes = useMemo(() => {
@@ -462,6 +482,18 @@ export function BubbleMap({ data, onNodeClick }: BubbleMapProps) {
         }
       }
 
+      // Stats-filter matching: dim everything that doesn't match
+      const activeFilter = filterRef.current;
+      const matchesFilter = (n: BubbleNode): boolean => {
+        if (!activeFilter) return true;
+        const t = n.originalNode.type;
+        const meta = n.originalNode.metadata;
+        if (activeFilter === 'cabal') return t === 'cabal-funder';
+        if (activeFilter === 'snipers') return Boolean(meta?.isSniper);
+        if (activeFilter === 'bundles') return n.clusterId >= 0;
+        return true;
+      };
+
       // ── Links ──
       for (const link of linksRef.current) {
         const src = link.source as BubbleNode;
@@ -471,6 +503,7 @@ export function BubbleMap({ data, onNodeClick }: BubbleMapProps) {
         const key = linkKey(link);
         const isConnected = connectedEdges.has(key);
         const isDimmed = hovered && !isConnected;
+        const filterDim = activeFilter && !(matchesFilter(src) && matchesFilter(tgt));
 
         // Determine link style based on hover state
         let alpha: number;
@@ -482,6 +515,7 @@ export function BubbleMap({ data, onNodeClick }: BubbleMapProps) {
           alpha = isDimmed ? 0.1 : isConnected ? 0.5 : 0.15;
           lineW = isDimmed ? 0.7 : isConnected ? 1.8 : 0.8;
         }
+        if (filterDim) alpha *= 0.15;
 
         ctx.beginPath();
         ctx.moveTo(src.x, src.y);
@@ -523,8 +557,9 @@ export function BubbleMap({ data, onNodeClick }: BubbleMapProps) {
           const tx = src.x + (tgt.x - src.x) * trailT;
           const ty = src.y + (tgt.y - src.y) * trailT;
 
+          const particleFilterDim = activeFilter && !(matchesFilter(src) && matchesFilter(tgt));
           ctx.save();
-          ctx.globalAlpha = isDimmed ? 0.3 : isConnected ? 1 : 0.7;
+          ctx.globalAlpha = (isDimmed ? 0.3 : isConnected ? 1 : 0.7) * (particleFilterDim ? 0.15 : 1);
 
           // Gradient trail
           const trailGrad = ctx.createLinearGradient(tx, ty, px, py);
@@ -578,8 +613,10 @@ export function BubbleMap({ data, onNodeClick }: BubbleMapProps) {
             : UNLINKED_COLOR;
         }
 
+        const nodeFilterDim = activeFilter && !matchesFilter(node);
         ctx.save();
         if (isDimmed) ctx.globalAlpha = 0.65;
+        if (nodeFilterDim) ctx.globalAlpha = (ctx.globalAlpha || 1) * 0.18;
 
         // Threat ring — drawn OUTSIDE the node for medium+ threats
         if (!isHeatmap && threatLevel && threatScore >= 30) {
@@ -922,8 +959,8 @@ export function BubbleMap({ data, onNodeClick }: BubbleMapProps) {
 
   if (!data || data.nodes.length === 0) {
     return (
-      <div className="w-full h-full flex items-center justify-center" style={{ background: BG_COLOR }}>
-        <div className="text-sm" style={{ color: 'var(--text-tertiary)' }}>No data</div>
+      <div className="w-full h-full flex items-center justify-center bg-black">
+        <div className="text-sm text-text-tertiary">No data</div>
       </div>
     );
   }
@@ -933,6 +970,9 @@ export function BubbleMap({ data, onNodeClick }: BubbleMapProps) {
       <canvas
         ref={canvasRef}
         className="w-full h-full"
+        role="img"
+        aria-label={ariaSummary}
+        tabIndex={0}
         onMouseMove={handleMouseMove}
         onMouseDown={handleMouseDown}
         onMouseUp={handleMouseUp}
@@ -943,6 +983,15 @@ export function BubbleMap({ data, onNodeClick }: BubbleMapProps) {
         onTouchEnd={handleTouchEnd}
         style={{ cursor: 'grab', touchAction: 'none' }}
       />
+
+      {/* Screen-reader-only mirror of nodes */}
+      <ul className="sr-only" aria-label="Graph nodes">
+        {data.nodes.slice(0, 100).map(n => (
+          <li key={n.id}>
+            {n.type}: {n.identity?.name || n.label || n.id}
+          </li>
+        ))}
+      </ul>
 
       {/* Tooltip — clamped to viewport edges */}
       {tooltip && (() => {
@@ -1030,15 +1079,15 @@ export function BubbleMap({ data, onNodeClick }: BubbleMapProps) {
 
       {/* Risk Heatmap toggle */}
       <button
-        className="absolute bottom-4 left-4 z-10 flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[10px] font-medium transition-all duration-150 pointer-events-auto"
+        className="absolute bottom-4 left-4 z-10 flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[10px] font-medium transition-all duration-150 pointer-events-auto backdrop-blur-md"
         style={{
           background: heatmapMode ? 'rgba(255,136,0,0.12)' : 'rgba(255,255,255,0.04)',
           border: `1px solid ${heatmapMode ? 'rgba(255,136,0,0.25)' : 'rgba(255,255,255,0.08)'}`,
           color: heatmapMode ? '#ff8800' : '#888',
-          backdropFilter: 'blur(12px)',
-          WebkitBackdropFilter: 'blur(12px)',
         }}
         onClick={() => setHeatmapMode(!heatmapMode)}
+        aria-label="Toggle risk heatmap"
+        aria-pressed={heatmapMode}
       >
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
           <circle cx="12" cy="12" r="10" />
@@ -1048,53 +1097,43 @@ export function BubbleMap({ data, onNodeClick }: BubbleMapProps) {
       </button>
 
       {/* Color legend overlay */}
-      <div
-        className="absolute bottom-16 left-4 z-10 pointer-events-none"
-        style={{
-          background: 'rgba(0,0,0,0.7)',
-          border: '1px solid rgba(255,255,255,0.06)',
-          borderRadius: 8,
-          padding: '8px 12px',
-          backdropFilter: 'blur(12px)',
-          WebkitBackdropFilter: 'blur(12px)',
-        }}
+      <ul
+        className="absolute bottom-16 left-4 z-10 pointer-events-none flex flex-col gap-1 rounded-lg backdrop-blur-md bg-black/70 border border-white/[0.06] px-3 py-2"
+        role="list"
+        aria-label={heatmapMode ? 'Threat level legend' : 'Node type legend'}
       >
-        <div className="flex flex-col gap-1">
-          {heatmapMode ? (
-            // Threat level legend
-            <>
-              {([
-                ['critical', 'Critical (70-100)'],
-                ['high', 'High (50-69)'],
-                ['medium', 'Medium (30-49)'],
-                ['low', 'Low (15-29)'],
-                ['safe', 'Safe (0-14)'],
-              ] as const).map(([level, label]) => (
-                <div key={level} className="flex items-center gap-2">
-                  <div
-                    className="w-2.5 h-2.5 rounded-full flex-shrink-0"
-                    style={{ background: THREAT_COLORS[level] }}
-                  />
-                  <span className="text-[10px]" style={{ color: 'var(--text-tertiary)' }}>{label}</span>
-                </div>
-              ))}
-            </>
-          ) : (
-            // Normal type legend
-            LEGEND_ENTRIES
-              .filter(entry => legendTypes.has(entry.type))
-              .map(entry => (
-                <div key={entry.type} className="flex items-center gap-2">
-                  <div
-                    className="w-2.5 h-2.5 rounded-full flex-shrink-0"
-                    style={{ background: NODE_COLORS[entry.type] }}
-                  />
-                  <span className="text-[10px]" style={{ color: 'var(--text-tertiary)' }}>{entry.label}</span>
-                </div>
-              ))
-          )}
-        </div>
-      </div>
+        {heatmapMode ? (
+          ([
+            ['critical', 'Critical (70-100)'],
+            ['high', 'High (50-69)'],
+            ['medium', 'Medium (30-49)'],
+            ['low', 'Low (15-29)'],
+            ['safe', 'Safe (0-14)'],
+          ] as const).map(([level, label]) => (
+            <li key={level} className="flex items-center gap-2">
+              <span
+                className="w-2.5 h-2.5 rounded-full flex-shrink-0"
+                style={{ background: THREAT_COLORS[level] }}
+                aria-hidden="true"
+              />
+              <span className="text-[10px] text-text-tertiary">{label}</span>
+            </li>
+          ))
+        ) : (
+          LEGEND_ENTRIES
+            .filter(entry => legendTypes.has(entry.type))
+            .map(entry => (
+              <li key={entry.type} className="flex items-center gap-2">
+                <span
+                  className="w-2.5 h-2.5 rounded-full flex-shrink-0"
+                  style={{ background: NODE_COLORS[entry.type] }}
+                  aria-hidden="true"
+                />
+                <span className="text-[10px] text-text-tertiary">{entry.label}</span>
+              </li>
+            ))
+        )}
+      </ul>
     </div>
   );
 }
