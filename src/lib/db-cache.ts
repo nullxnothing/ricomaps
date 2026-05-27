@@ -1,24 +1,7 @@
-import { Pool } from 'pg';
 import { GraphData, TokenSecurityInfo, TokenMetadata } from './types';
+import { getPool } from './db-pool';
 
-// PostgreSQL connection using Railway
-if (!process.env.DATABASE_URL) {
-  console.warn('[DB Cache] DATABASE_URL not set — caching disabled');
-}
-
-const pool = process.env.DATABASE_URL
-  ? new Pool({
-      connectionString: process.env.DATABASE_URL,
-      ssl: { rejectUnauthorized: false },
-      max: 5,
-      idleTimeoutMillis: 30000,
-      connectionTimeoutMillis: 10000,
-    })
-  : null;
-
-pool?.on('error', (err) => {
-  console.error('[DB Cache] Pool error:', err.message);
-});
+const pool = getPool();
 
 // Cache TTL: 2 hours for token scans
 const CACHE_TTL_SECONDS = 2 * 60 * 60;
@@ -51,7 +34,6 @@ export async function initCacheTable(): Promise<void> {
 
       CREATE INDEX IF NOT EXISTS idx_token_cache_expires ON token_scan_cache(expires_at);
     `);
-    console.log('[DB Cache] Table initialized');
   } catch (error) {
     console.error('[DB Cache] Failed to initialize table:', error);
   }
@@ -75,7 +57,6 @@ export async function getCachedTokenScan(address: string): Promise<CachedTokenSc
     }
 
     const row = result.rows[0];
-    console.log(`[DB Cache] HIT for ${address.slice(0, 8)}...`);
 
     return {
       address,
@@ -116,7 +97,6 @@ export async function setCachedTokenScan(
          expires_at = NOW() + make_interval(secs => $6)`,
       [address, JSON.stringify(data), JSON.stringify(stats), JSON.stringify(tokenSecurity), JSON.stringify(tokenMetadata), CACHE_TTL_SECONDS]
     );
-    console.log(`[DB Cache] Stored ${address.slice(0, 8)}...`);
   } catch (error) {
     console.error('[DB Cache] Set error:', error);
   }
@@ -131,11 +111,7 @@ export async function cleanupExpiredCache(): Promise<number> {
     const result = await pool.query(
       `DELETE FROM token_scan_cache WHERE expires_at < NOW()`
     );
-    const deleted = result.rowCount || 0;
-    if (deleted > 0) {
-      console.log(`[DB Cache] Cleaned up ${deleted} expired entries`);
-    }
-    return deleted;
+    return result.rowCount || 0;
   } catch (error) {
     console.error('[DB Cache] Cleanup error:', error);
     return 0;

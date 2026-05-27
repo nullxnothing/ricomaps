@@ -1,123 +1,208 @@
-import { DexScreenerBoostToken, DexScreenerPair, EnrichedToken } from './types';
+import { EnrichedToken, TokenMetadata } from './types';
 
-const DEXSCREENER_API = 'https://api.dexscreener.com';
-const DEXSCREENER_CDN = 'https://dd.dexscreener.com/ds-data/tokens';
+const GECKO_API = 'https://api.geckoterminal.com/api/v2';
 
-function formatIconUrl(icon: string | undefined, chainId: string, tokenAddress: string): string {
-  // If no icon provided or it's just a hash, use the CDN URL with token address
-  if (!icon || !icon.startsWith('http')) {
-    return `${DEXSCREENER_CDN}/${chainId}/${tokenAddress}.png`;
-  }
-  return icon;
+interface GeckoPool {
+  id: string;
+  attributes: {
+    name: string;
+    address: string;
+    base_token_price_usd: string;
+    quote_token_price_usd: string;
+    fdv_usd: string;
+    market_cap_usd: string | null;
+    reserve_in_usd: string;
+    pool_created_at: string;
+    price_change_percentage: {
+      h1: string;
+      h6: string;
+      h24: string;
+    };
+    volume_usd: {
+      h1: string;
+      h6: string;
+      h24: string;
+    };
+    transactions: {
+      h1: { buys: number; sells: number };
+      h24: { buys: number; sells: number };
+    };
+  };
+  relationships: {
+    base_token: { data: { id: string } };
+    dex: { data: { id: string } };
+  };
 }
 
-export async function getTopBoostedTokens(): Promise<DexScreenerBoostToken[]> {
-  const response = await fetch(`${DEXSCREENER_API}/token-boosts/top/v1`, {
-    headers: { 'Accept': 'application/json' },
-  });
-
-  if (!response.ok) {
-    throw new Error(`DexScreener API error: ${response.status}`);
-  }
-
-  const data: DexScreenerBoostToken[] = await response.json();
-
-  // Filter for Solana tokens only
-  return data.filter(token => token.chainId === 'solana');
+interface GeckoToken {
+  id: string;
+  attributes: {
+    address: string;
+    name: string;
+    symbol: string;
+    decimals: number;
+    image_url: string | null;
+  };
 }
 
-export async function getTokenPairs(address: string): Promise<DexScreenerPair[]> {
-  const response = await fetch(
-    `${DEXSCREENER_API}/token-pairs/v1/solana/${address}`,
-    { headers: { 'Accept': 'application/json' } }
-  );
-
-  if (!response.ok) {
-    throw new Error(`DexScreener API error: ${response.status}`);
-  }
-
-  const data: DexScreenerPair[] = await response.json();
-  return data;
-}
-
-export async function enrichTokenData(
-  boostTokens: DexScreenerBoostToken[]
-): Promise<EnrichedToken[]> {
-  const enrichedTokens: EnrichedToken[] = [];
-
-  // Process tokens in batches to avoid rate limiting
-  const batchSize = 5;
-  for (let i = 0; i < boostTokens.length; i += batchSize) {
-    const batch = boostTokens.slice(i, i + batchSize);
-
-    const enrichedBatch = await Promise.all(
-      batch.map(async (token) => {
-        try {
-          const pairs = await getTokenPairs(token.tokenAddress);
-
-          // Get the pair with highest liquidity
-          const bestPair = pairs
-            .filter(p => p.liquidity?.usd && p.liquidity.usd > 0)
-            .sort((a, b) => (b.liquidity?.usd || 0) - (a.liquidity?.usd || 0))[0];
-
-          if (!bestPair) return null;
-
-          // Validate required data
-          const priceUsd = parseFloat(bestPair.priceUsd);
-          const volume24h = bestPair.volume?.h24 || 0;
-          const marketCap = bestPair.marketCap || bestPair.fdv || 0;
-          const liquidity = bestPair.liquidity?.usd || 0;
-          const icon = formatIconUrl(token.icon, token.chainId, token.tokenAddress);
-
-          // Filter: must have price, volume > 0, marketCap > 0
-          if (!priceUsd || volume24h <= 0 || marketCap <= 0) {
-            return null;
-          }
-
-          return {
-            address: token.tokenAddress,
-            name: bestPair.baseToken.name,
-            symbol: bestPair.baseToken.symbol,
-            icon,
-            priceUsd,
-            priceChange24h: bestPair.priceChange?.h24 || 0,
-            volume24h,
-            marketCap,
-            liquidity,
-            boostAmount: token.totalAmount,
-          } as EnrichedToken;
-        } catch (err) {
-          console.error(`Failed to enrich token ${token.tokenAddress}:`, err);
-          return null;
-        }
-      })
-    );
-
-    enrichedTokens.push(
-      ...enrichedBatch.filter((t): t is EnrichedToken => t !== null)
-    );
-
-    // Small delay between batches to respect rate limits
-    if (i + batchSize < boostTokens.length) {
-      await new Promise(resolve => setTimeout(resolve, 200));
-    }
-  }
-
-  return enrichedTokens;
+interface GeckoResponse {
+  data: GeckoPool[];
+  included?: GeckoToken[];
 }
 
 export async function getTrendingAndFeaturedTokens(): Promise<{
   trending: EnrichedToken[];
   featured: EnrichedToken[];
 }> {
-  const boostTokens = await getTopBoostedTokens();
-  const enrichedTokens = await enrichTokenData(boostTokens.slice(0, 30)); // Get top 30 to ensure 20 valid
+  // Fetch trending pools + new pools in parallel
+  const [trendingRes, newRes] = await Promise.all([
+    fetch(`${GECKO_API}/networks/solana/trending_pools?page=1&include=base_token`, {
+      headers: { Accept: 'application/json' },
+      next: { revalidate: 30 },
+    }),
+    fetch(`${GECKO_API}/networks/solana/new_pools?page=1&include=base_token`, {
+      headers: { Accept: 'application/json' },
+      next: { revalidate: 30 },
+    }),
+  ]);
 
-  // Split into trending (top 10) and featured (next 10)
-  const validTokens = enrichedTokens.slice(0, 20);
+  if (!trendingRes.ok) throw new Error(`GeckoTerminal trending error: ${trendingRes.status}`);
+  if (!newRes.ok) throw new Error(`GeckoTerminal new pools error: ${newRes.status}`);
+
+  const trendingData: GeckoResponse = await trendingRes.json();
+  const newData: GeckoResponse = await newRes.json();
+
+  const trendingTokens = parseGeckoResponse(trendingData).slice(0, 10);
+  const featuredTokens = parseGeckoResponse(newData).slice(0, 10);
+
+  // Dedupe: remove featured tokens that are already in trending
+  const trendingAddresses = new Set(trendingTokens.map(t => t.address));
+  const dedupedFeatured = featuredTokens.filter(t => !trendingAddresses.has(t.address));
 
   return {
-    trending: validTokens.slice(0, 10),
-    featured: validTokens.slice(10, 20),
+    trending: trendingTokens,
+    featured: dedupedFeatured.length >= 10 ? dedupedFeatured.slice(0, 10) : dedupedFeatured,
   };
+}
+
+function parseGeckoResponse(data: GeckoResponse): EnrichedToken[] {
+  const tokenMap = new Map<string, GeckoToken>();
+
+  for (const token of data.included ?? []) {
+    tokenMap.set(token.id, token);
+  }
+
+  const results: EnrichedToken[] = [];
+  const seenAddresses = new Set<string>();
+
+  for (const pool of data.data) {
+    const attrs = pool.attributes;
+    const baseTokenId = pool.relationships.base_token.data.id;
+    const tokenInfo = tokenMap.get(baseTokenId);
+
+    if (!tokenInfo) continue;
+
+    const address = tokenInfo.attributes.address;
+    if (seenAddresses.has(address)) continue;
+    seenAddresses.add(address);
+
+    const priceUsd = parseFloat(attrs.base_token_price_usd) || 0;
+    const volume24h = parseFloat(attrs.volume_usd.h24) || 0;
+    const marketCap = parseFloat(attrs.market_cap_usd ?? attrs.fdv_usd) || 0;
+    const liquidity = parseFloat(attrs.reserve_in_usd) || 0;
+    const priceChange24h = parseFloat(attrs.price_change_percentage.h24) || 0;
+
+    if (priceUsd <= 0 || volume24h <= 0) continue;
+
+    const icon = tokenInfo.attributes.image_url
+      || `https://dd.dexscreener.com/ds-data/tokens/solana/${address}.png`;
+
+    results.push({
+      address,
+      name: tokenInfo.attributes.name,
+      symbol: tokenInfo.attributes.symbol,
+      icon,
+      priceUsd,
+      priceChange24h,
+      volume24h,
+      marketCap,
+      liquidity,
+    });
+  }
+
+  return results;
+}
+
+// ─── DexScreener token pairs API ───────────────────────────────────────────
+interface DexPairInfo {
+  imageUrl?: string;
+  websites?: { label: string; url: string }[];
+  socials?: { type: string; url: string }[];
+}
+
+interface DexPair {
+  chainId: string;
+  dexId: string;
+  url: string;
+  pairAddress: string;
+  priceUsd?: string;
+  priceChange?: { h24?: number };
+  volume?: { h24?: number };
+  liquidity?: { usd?: number };
+  fdv?: number;
+  marketCap?: number;
+  info?: DexPairInfo;
+}
+
+interface DexTokenResponse {
+  pairs?: DexPair[];
+}
+
+/**
+ * Fetch market data + social links for a Solana token from DexScreener.
+ * Returns a partial TokenMetadata — merged into the main metadata after DAS fetch.
+ */
+export async function fetchTokenMarketData(mint: string): Promise<Partial<TokenMetadata> | null> {
+  try {
+    const res = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${mint}`, {
+      headers: { Accept: 'application/json' },
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!res.ok) return null;
+
+    const data: DexTokenResponse = await res.json();
+    const pairs = data.pairs?.filter(p => p.chainId === 'solana') ?? [];
+    if (pairs.length === 0) return null;
+
+    // Pick highest-liquidity pair as the canonical one
+    const best = pairs.sort((a, b) => (b.liquidity?.usd ?? 0) - (a.liquidity?.usd ?? 0))[0];
+    const info = best.info;
+
+    const result: Partial<TokenMetadata> = {
+      priceUsd: best.priceUsd ? parseFloat(best.priceUsd) : undefined,
+      priceChange24h: best.priceChange?.h24,
+      volume24h: best.volume?.h24,
+      liquidity: best.liquidity?.usd,
+      fdv: best.fdv,
+      marketCap: best.marketCap,
+      dexUrl: best.url,
+      pairAddress: best.pairAddress,
+    };
+
+    if (info) {
+      const website = info.websites?.[0]?.url;
+      if (website) result.website = website;
+
+      for (const social of info.socials ?? []) {
+        const t = social.type?.toLowerCase();
+        if (t === 'twitter' || t === 'x') result.twitter = social.url;
+        else if (t === 'telegram') result.telegram = social.url;
+        else if (t === 'discord') result.discord = social.url;
+      }
+    }
+
+    return result;
+  } catch {
+    return null;
+  }
 }

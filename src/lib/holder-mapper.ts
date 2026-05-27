@@ -1,11 +1,17 @@
-import { getAllTokenHolders, getTokenSecurity, getAsset, getTokenLaunchInfo, getWalletFundedBy, batchIdentifyWallets, batchGetEarlyTransactions, checkSniperFromTransactions } from './helius';
-import { GraphNode, GraphLink, GraphData, NODE_COLORS, TokenSecurityInfo, TokenMetadata, EnrichedFunderInfo } from './types';
-import { truncateAddress, shouldFilterAddress } from './address-utils';
-import { getWalletLabel } from './wallet-labels';
+import {
+  getTokenLargestAccounts, getMultipleAccountsParsed, getMintEarlyTransactions,
+  getAsset, deriveTokenSecurity, batchIdentifyWallets, batchGetEarlyTransactions,
+  batchGetFirstIncomingSolTransfers,
+} from './helius';
+import { GraphNode, GraphLink, GraphData, NODE_COLORS, TokenSecurityInfo, TokenMetadata, EnrichedFunderInfo, BundleCluster } from './types';
+import { computeThreatScore, getThreatLevel } from './threat-scorer';
+import { shouldFilterAddress } from './address-utils';
+import { createNode } from './graph-utils';
 import { detectBundleClusters } from './bundle-detector';
+import { generateClusterId, persistBundleClusters } from './db-blacklist';
+import { fetchTokenMarketData } from './dexscreener';
 
 const SNIPER_BLOCK_THRESHOLD = 10;
-const SNIPER_SECONDS_THRESHOLD = 60;
 
 interface MapOptions {
   topN?: number;
@@ -14,26 +20,37 @@ interface MapOptions {
 
 const DEFAULT_OPTIONS: MapOptions = { topN: 20, fundersPerHolder: 1 };
 
-function createNode(address: string, depth: number, type: GraphNode['type'], amount?: number, metadata?: GraphNode['metadata']): GraphNode {
-  const label = getWalletLabel(address);
-  const walletLabel = label ? { name: label.name, category: label.category, verified: label.verified, risk: label.risk } : undefined;
-  return {
-    id: address,
-    label: label ? label.name : truncateAddress(address),
-    val: Math.max(5, Math.log10((amount || 1) + 1) * 10),
-    color: NODE_COLORS[type] || NODE_COLORS.default,
-    type, depth,
-    tokenAmount: type === 'holder' || type === 'token' ? amount : undefined,
-    solBalance: type !== 'holder' && type !== 'token' ? amount : undefined,
-    expanded: false, walletLabel, metadata,
-  };
-}
-
 function createLink(source: string, target: string, amount: number, txSig?: string, opts?: { suspicious?: boolean }): GraphLink {
   return { source, target, value: amount, txSignature: txSig, suspicious: opts?.suspicious };
 }
 
-/** Extract first SOL funder from transfer data (replaces funded-by API) */
+function mergeBundleClusters(clusters: BundleCluster[]): BundleCluster[] {
+  const byId = new Map<string, BundleCluster>();
+
+  for (const cluster of clusters) {
+    const existing = byId.get(cluster.id);
+    if (!existing) {
+      byId.set(cluster.id, { ...cluster, tokens: [...cluster.tokens] });
+      continue;
+    }
+
+    const existingMints = new Set(existing.tokens.map(t => t.mint));
+    existing.tokens.push(...cluster.tokens.filter(t => !existingMints.has(t.mint)));
+    existing.totalAppearances = existing.tokens.length;
+    existing.confidence = Math.max(existing.confidence, cluster.confidence);
+    existing.firstSeenTimestamp = Math.min(existing.firstSeenTimestamp, cluster.firstSeenTimestamp);
+    existing.lastSeenTimestamp = Math.max(existing.lastSeenTimestamp, cluster.lastSeenTimestamp);
+    existing.sharedFunder = existing.sharedFunder || cluster.sharedFunder;
+    existing.metadata = {
+      avgClusterSize: Math.max(existing.metadata?.avgClusterSize ?? 0, cluster.metadata?.avgClusterSize ?? 0),
+      maxSameSlotCount: Math.max(existing.metadata?.maxSameSlotCount ?? 0, cluster.metadata?.maxSameSlotCount ?? 0),
+    };
+  }
+
+  return Array.from(byId.values());
+}
+
+/** Optimized token scan pipeline — ~25 API calls in <1s */
 export async function mapTokenHolders(mintAddress: string, options: MapOptions = {}): Promise<{
   data: GraphData;
   stats: {
@@ -52,70 +69,90 @@ export async function mapTokenHolders(mintAddress: string, options: MapOptions =
   const links: GraphLink[] = [];
 
   // ═══════════════════════════════════════════════════════════
-  // PHASE 1: All initial data in parallel (dedicated RPC — free, ~50ms)
+  // PHASE 1: Three parallel calls (~200ms)
   // ═══════════════════════════════════════════════════════════
-  console.time('phase1');
-  const [tokenSecurity, asset, allHolders, launchInfo] = await Promise.all([
-    getTokenSecurity(mintAddress),
+  const p1Start = Date.now();
+  const [largestAccounts, asset, mintEarlyTxs, dexMarketData] = await Promise.all([
+    getTokenLargestAccounts(mintAddress),
     getAsset(mintAddress),
-    getAllTokenHolders(mintAddress, 1),
-    getTokenLaunchInfo(mintAddress),
+    getMintEarlyTransactions(mintAddress, 100),
+    fetchTokenMarketData(mintAddress),
   ]);
-  console.timeEnd('phase1');
+  console.error(`[PERF] Phase 1: ${Date.now() - p1Start}ms`);
+
+  // Derive security + metadata from asset (CPU only, zero API calls)
+  const tokenSecurity = asset ? deriveTokenSecurity(asset) : null;
 
   const tokenMetadata: TokenMetadata | null = asset ? {
     name: asset.content?.metadata?.name,
     symbol: asset.content?.metadata?.symbol,
     image: asset.content?.links?.image || asset.content?.files?.[0]?.uri,
     description: asset.content?.metadata?.description,
+    website: asset.content?.links?.external_url,
+    ...dexMarketData,
+  } : dexMarketData ?? null;
+
+  // Derive launch info from first mint tx (CPU only)
+  const launchInfo = mintEarlyTxs.length > 0 ? {
+    mintTimestamp: mintEarlyTxs[0].blockTime || 0,
+    mintSlot: mintEarlyTxs[0].slot,
   } : null;
 
-  // Filter out programs, the mint itself, and the biggest holder if it holds >50% (likely LP/bonding curve)
-  const preFiltered = allHolders.filter(h => h.amount > 0 && !shouldFilterAddress(h.owner) && h.owner !== mintAddress);
+  // ═══════════════════════════════════════════════════════════
+  // PHASE 1b: Resolve token accounts → owner wallets (~80ms)
+  // ═══════════════════════════════════════════════════════════
+  const p1bStart = Date.now();
+  const tokenAccountAddresses = largestAccounts.map(a => a.address);
+  const accountDetails = await getMultipleAccountsParsed(tokenAccountAddresses);
+  console.error(`[PERF] Phase 1b: ${Date.now() - p1bStart}ms`);
+
+  // Build holder list from resolved accounts
+  const rawHolders: { owner: string; amount: number; tokenAccount: string }[] = [];
+  for (const la of largestAccounts) {
+    const detail = accountDetails.get(la.address);
+    if (detail && detail.owner) {
+      rawHolders.push({
+        owner: detail.owner,
+        amount: detail.amount > 0 ? detail.amount : la.amount,
+        tokenAccount: la.address,
+      });
+    }
+  }
+
+  // Filter: programs, mint itself, LP/bonding curve holders (>40%)
+  const preFiltered = rawHolders.filter(h => h.amount > 0 && !shouldFilterAddress(h.owner) && h.owner !== mintAddress);
   const totalAmount = preFiltered.reduce((sum, h) => sum + h.amount, 0);
+  const LP_THRESHOLD_RATIO = 0.4;
   const filteredHolders = preFiltered.filter(h => {
-    // Skip any single holder that owns >40% — almost certainly LP/bonding curve
-    if (totalAmount > 0 && (h.amount / totalAmount) > 0.4) return false;
+    if (totalAmount > 0 && (h.amount / totalAmount) > LP_THRESHOLD_RATIO) return false;
     return true;
   });
-  const filteredOutCount = allHolders.length - filteredHolders.length;
+  const filteredOutCount = rawHolders.length - filteredHolders.length;
   const topHolders = filteredHolders.sort((a, b) => b.amount - a.amount).slice(0, opts.topN || 30);
   const holderSet = new Set(topHolders.map(h => h.owner));
   const holderAddresses = topHolders.map(h => h.owner);
 
-  nodes.push(createNode(mintAddress, 0, 'token', allHolders.reduce((sum, h) => sum + h.amount, 0)));
+  nodes.push(createNode(mintAddress, 0, 'token', rawHolders.reduce((sum, h) => sum + h.amount, 0)));
 
   // ═══════════════════════════════════════════════════════════
-  // PHASE 2: ALL parallel — funded-by + identities + early txs
-  // Business+ tier: all fire simultaneously, no rate limit concern
+  // PHASE 2: Fetch early txs for launch clustering and first incoming SOL funders
   // ═══════════════════════════════════════════════════════════
-  console.time('phase2');
-
-  const [fundedByResults, identities, holderEarlyTxs] = await Promise.all([
-    // Wallet API /funded-by for each holder (1 REST call each, parallel)
-    Promise.all(topHolders.map(async (h) => {
-      try {
-        const funder = await getWalletFundedBy(h.owner);
-        return { owner: h.owner, funder };
-      } catch { return { owner: h.owner, funder: null }; }
-    })),
-    // 1 batch identity call
-    batchIdentifyWallets(holderAddresses),
-    // Early txs for sniper + bundle detection (Enhanced API, parallel)
-    batchGetEarlyTransactions(holderAddresses, 10),
+  const p2Start = Date.now();
+  const [holderEarlyTxs, firstFunders] = await Promise.all([
+    batchGetEarlyTransactions(holderAddresses, 5),
+    batchGetFirstIncomingSolTransfers(holderAddresses, { fallbackToFundedBy: true, concurrency: 8 }),
   ]);
+  console.error(`[PERF] Phase 2: ${Date.now() - p2Start}ms (${holderAddresses.length} holders)`);
 
-  console.timeEnd('phase2');
-
-  // ═══════════════════════════════════════════════════════════
-  // PHASE 3: Process results — funder connections, snipers, bundles
-  // (zero API calls, pure CPU except funder identity batch)
-  // ═══════════════════════════════════════════════════════════
-  console.time('phase3');
+  const fundedByResults = topHolders.map(h => ({
+    owner: h.owner,
+    funder: firstFunders.get(h.owner) ?? null,
+  }));
 
   const funderMap = new Map<string, string[]>();
   const funderAmounts = new Map<string, number>();
   const funderInfo = new Map<string, EnrichedFunderInfo>();
+  const funderHolderLinks = new Map<string, EnrichedFunderInfo>();
 
   function addLink(funderAddr: string, holderAddr: string, amount: number, info?: EnrichedFunderInfo) {
     if (shouldFilterAddress(funderAddr) || funderAddr === holderAddr) return;
@@ -127,73 +164,148 @@ export async function mapTokenHolders(mintAddress: string, options: MapOptions =
     if (!funderMap.get(funderAddr)!.includes(holderAddr)) {
       funderMap.get(funderAddr)!.push(holderAddr);
       funderAmounts.set(funderAddr, (funderAmounts.get(funderAddr) || 0) + amount);
+      if (info) funderHolderLinks.set(`${funderAddr}->${holderAddr}`, info);
     }
   }
 
-  // Build funder connections from funded-by results
   for (const { owner, funder } of fundedByResults) {
     if (!funder) continue;
     addLink(funder.address, owner, funder.amount, funder);
-
-    // Also detect: holder's funder IS another holder (direct circle)
     if (holderSet.has(funder.address)) {
       addLink(funder.address, owner, funder.amount, funder);
     }
   }
 
-  // ── Sniper detection (uses already-fetched launchInfo + early txs) ──
+  // ═══════════════════════════════════════════════════════════
+  // PHASE 2b: Sniper + bundle detection from mint txs (CPU only, ~5ms)
+  // ═══════════════════════════════════════════════════════════
+
+  // Sniper detection: wallets that received tokens within first N blocks of mint
   const sniperWallets: string[] = [];
-  const sniperBuyInfo = new Map<string, { blocksAfterLaunch: number; secondsAfterLaunch: number }>();
+  const sniperBuyInfo = new Map<string, { blocksAfterLaunch: number }>();
 
   if (launchInfo && launchInfo.mintTimestamp > 0) {
-    for (const holder of topHolders) {
-      const earlyTxs = holderEarlyTxs.get(holder.owner);
-      if (!earlyTxs || earlyTxs.length === 0) continue;
-
-      const buyInfo = checkSniperFromTransactions(
-        earlyTxs, holder.owner, mintAddress,
-        launchInfo.mintSlot, launchInfo.mintTimestamp
-      );
-
-      if (buyInfo &&
-        buyInfo.blocksAfterLaunch <= SNIPER_BLOCK_THRESHOLD &&
-        buyInfo.secondsAfterLaunch <= SNIPER_SECONDS_THRESHOLD
-      ) {
-        sniperWallets.push(holder.owner);
-        sniperBuyInfo.set(holder.owner, {
-          blocksAfterLaunch: buyInfo.blocksAfterLaunch,
-          secondsAfterLaunch: buyInfo.secondsAfterLaunch,
-        });
+    const mintSlot = launchInfo.mintSlot;
+    for (const tx of mintEarlyTxs) {
+      if (tx.slot - mintSlot > SNIPER_BLOCK_THRESHOLD) break;
+      const postBalances = tx.meta?.postTokenBalances ?? [];
+      for (const bal of postBalances) {
+        if (bal.mint === mintAddress && bal.owner && bal.uiTokenAmount.uiAmount && bal.uiTokenAmount.uiAmount > 0) {
+          if (holderSet.has(bal.owner) && !sniperWallets.includes(bal.owner)) {
+            sniperWallets.push(bal.owner);
+            sniperBuyInfo.set(bal.owner, { blocksAfterLaunch: tx.slot - mintSlot });
+          }
+        }
       }
-    }
-    if (sniperWallets.length > 0) {
-      console.log(`Detected ${sniperWallets.length} snipers (within ${SNIPER_BLOCK_THRESHOLD} blocks)`);
     }
   }
 
-  // ── Bundle detection (uses already-fetched early txs, zero API calls) ──
-  const bundleClusters = detectBundleClusters(holderEarlyTxs, {
+  // Bundle detection: group early buyers by slot — 2+ wallets in same slot = bundle
+  const holderTxBundleClusters = detectBundleClusters(holderEarlyTxs, {
     mintAddress,
     tokenName: tokenMetadata?.name,
     tokenSymbol: tokenMetadata?.symbol,
     funderMap,
   });
 
+  // Also detect bundles from mint txs (wallets buying in same slot)
+  const mintSlotBuyers = new Map<number, string[]>();
+  for (const tx of mintEarlyTxs) {
+    const postBalances = tx.meta?.postTokenBalances ?? [];
+    for (const bal of postBalances) {
+      if (bal.mint === mintAddress && bal.owner && holderSet.has(bal.owner)) {
+        if (!mintSlotBuyers.has(tx.slot)) mintSlotBuyers.set(tx.slot, []);
+        const buyers = mintSlotBuyers.get(tx.slot)!;
+        if (!buyers.includes(bal.owner)) buyers.push(bal.owner);
+      }
+    }
+  }
+
+  const mintSlotBundleClusters: BundleCluster[] = [];
+  for (const [slot, buyers] of mintSlotBuyers) {
+    const wallets = [...new Set(buyers)].sort();
+    let sharedFunder: string | undefined;
+    for (const [funder, fundedHolders] of funderMap) {
+      const overlap = wallets.filter(wallet => fundedHolders.includes(wallet));
+      if (overlap.length >= 2) {
+        sharedFunder = funder;
+        break;
+      }
+    }
+
+    if (wallets.length < 2) continue;
+    if (wallets.length < 3 && !sharedFunder) continue;
+    if (wallets.length > 5 && !sharedFunder) continue;
+
+    const slotTxs = mintEarlyTxs.filter(tx => tx.slot === slot);
+    const timestamps = slotTxs
+      .map(tx => tx.blockTime || 0)
+      .filter((timestamp): timestamp is number => timestamp > 0);
+    const timestamp = timestamps.length > 0 ? Math.min(...timestamps) : Math.floor(Date.now() / 1000);
+
+    mintSlotBundleClusters.push({
+      id: generateClusterId(wallets),
+      wallets,
+      tokens: [{
+        mint: mintAddress,
+        tokenName: tokenMetadata?.name,
+        tokenSymbol: tokenMetadata?.symbol,
+        slot,
+        timestamp,
+        walletCount: wallets.length,
+        transactionSignatures: [...new Set(slotTxs.flatMap(tx => {
+          const transaction = tx.transaction as { signatures?: string[] };
+          return transaction.signatures ?? [];
+        }))],
+      }],
+      totalAppearances: 1,
+      firstSeenTimestamp: timestamp,
+      lastSeenTimestamp: timestamps.length > 0 ? Math.max(...timestamps) : timestamp,
+      confidence: Math.min(100, 35 + Math.min(25, (wallets.length - 2) * 8) + (sharedFunder ? 30 : 0)),
+      sharedFunder,
+      metadata: {
+        avgClusterSize: wallets.length,
+        maxSameSlotCount: wallets.length,
+      },
+    });
+  }
+
+  const bundleClusters = mergeBundleClusters([...holderTxBundleClusters, ...mintSlotBundleClusters]);
+
+  if (bundleClusters.length > 0) {
+    try {
+      await persistBundleClusters(bundleClusters);
+    } catch (error) {
+      console.error('[Blacklist] Failed to persist bundle clusters:', error);
+    }
+  }
+
   const bundledWalletSet = new Set<string>();
+  // From holder-tx-based bundle detection
   for (const cluster of bundleClusters) {
     for (const wallet of cluster.wallets) {
       bundledWalletSet.add(wallet);
     }
   }
-  if (bundleClusters.length > 0) {
-    console.log(`Detected ${bundleClusters.length} bundle clusters (${bundledWalletSet.size} wallets)`);
+  // From mint-tx-based bundle detection
+  for (const [, buyers] of mintSlotBuyers) {
+    if (buyers.length >= 2) {
+      buyers.forEach(b => bundledWalletSet.add(b));
+    }
   }
 
-  // Batch identify funder wallets (1 keyed API call)
-  const funderAddresses = Array.from(funderMap.keys()).filter(a => !holderSet.has(a));
-  const funderIdentities = funderAddresses.length > 0 ? await batchIdentifyWallets(funderAddresses) : new Map();
+  // ═══════════════════════════════════════════════════════════
+  // PHASE 3: Build funder connections + single merged identity call
+  // ═══════════════════════════════════════════════════════════
+  // Single merged identity call for all addresses
+  const funderAddresses = [...new Set(
+    fundedByResults.filter(r => r.funder).map(r => r.funder!.address)
+  )].filter(a => !holderSet.has(a));
+  const allIdentityAddresses = [...new Set([...holderAddresses, ...funderAddresses])];
 
-  console.timeEnd('phase3');
+  const p3Start = Date.now();
+  const identities = await batchIdentifyWallets(allIdentityAddresses);
+  console.error(`[PERF] Phase 3 identity: ${Date.now() - p3Start}ms (${allIdentityAddresses.length} addresses)`);
 
   // ═══════════════════════════════════════════════════════════
   // PHASE 4: Build graph — ALL connections (zero API calls)
@@ -201,10 +313,9 @@ export async function mapTokenHolders(mintAddress: string, options: MapOptions =
 
   const sniperSet = new Set(sniperWallets);
   const existingNodeIds = new Set(nodes.map(n => n.id));
-  const linkSet = new Set<string>(); // Dedupe links
+  const linkSet = new Set<string>();
 
-  // 4-pre: Detect LP/bonding curve/pool addresses — any address that interacts
-  // with a large % of holders is a pool, not a real wallet connection
+  // 4-pre: Detect LP/bonding curve/pool addresses
   const counterpartyCount = new Map<string, number>();
   for (const [holderAddr, txs] of holderEarlyTxs) {
     if (!holderSet.has(holderAddr)) continue;
@@ -227,13 +338,12 @@ export async function mapTokenHolders(mintAddress: string, options: MapOptions =
       counterpartyCount.set(cp, (counterpartyCount.get(cp) || 0) + 1);
     }
   }
-  const lpThreshold = Math.max(3, Math.floor(topHolders.length * 0.3));
+  const LP_COUNTERPARTY_MIN = 3;
+  const LP_COUNTERPARTY_RATIO = 0.3;
+  const lpThreshold = Math.max(LP_COUNTERPARTY_MIN, Math.floor(topHolders.length * LP_COUNTERPARTY_RATIO));
   const poolAddresses = new Set<string>();
   for (const [addr, count] of counterpartyCount) {
     if (count >= lpThreshold) poolAddresses.add(addr);
-  }
-  if (poolAddresses.size > 0) {
-    console.log(`Filtered ${poolAddresses.size} pool/LP addresses (threshold: ${lpThreshold}+ holders)`);
   }
 
   // 4a: Create holder nodes
@@ -256,7 +366,7 @@ export async function mapTokenHolders(mintAddress: string, options: MapOptions =
     }
 
     if (funderResult?.funder) {
-      const fi = funderIdentities.get(funderResult.funder.address) || identities.get(funderResult.funder.address);
+      const fi = identities.get(funderResult.funder.address);
       holderNode.fundingSource = {
         funderAddress: funderResult.funder.address,
         funderName: fi?.name || null,
@@ -271,13 +381,12 @@ export async function mapTokenHolders(mintAddress: string, options: MapOptions =
     existingNodeIds.add(holder.owner);
   }
 
-  // 4b: Create ALL funder nodes + funder→holder links (not just shared funders)
-  // Skip any funder that is actually a pool/LP address
+  // 4b: Create ALL funder nodes + funder->holder links
   const suspiciousWallets: string[] = [];
   let cabalConnectionsFound = 0;
 
   for (const [funder, fundedHolders] of funderMap) {
-    if (poolAddresses.has(funder)) continue; // Skip LP/bonding curve
+    if (poolAddresses.has(funder)) continue;
     const isShared = fundedHolders.length > 1;
 
     if (isShared) {
@@ -289,9 +398,8 @@ export async function mapTokenHolders(mintAddress: string, options: MapOptions =
     if (isShared && sniperWallets.some(s => fundedHolders.includes(s))) confidence += 15;
     if (isShared && bundledWalletSet.has(funder)) confidence += 10;
 
-    // Create funder node if not already a holder
     if (!existingNodeIds.has(funder)) {
-      const fi = funderIdentities.get(funder);
+      const fi = identities.get(funder);
       const funderType = isShared ? 'cabal-funder' : 'funder';
       const funderNode = createNode(funder, 2, funderType, funderAmounts.get(funder) || 0,
         isShared ? { suspicious: true, fundedCount: fundedHolders.length, cabalConfidence: Math.min(100, confidence) } : undefined
@@ -303,7 +411,6 @@ export async function mapTokenHolders(mintAddress: string, options: MapOptions =
       nodes.push(funderNode);
       existingNodeIds.add(funder);
     } else if (isShared) {
-      // Upgrade existing node to cabal-funder
       const idx = nodes.findIndex(n => n.id === funder);
       if (idx !== -1) {
         nodes[idx] = { ...nodes[idx], type: 'cabal-funder', color: NODE_COLORS['cabal-funder'],
@@ -312,23 +419,29 @@ export async function mapTokenHolders(mintAddress: string, options: MapOptions =
       }
     }
 
-    // Create funder→holder links for ALL connections
     for (const holder of fundedHolders) {
       const key = `${funder}->${holder}`;
       if (!linkSet.has(key)) {
         linkSet.add(key);
-        links.push(createLink(funder, holder, funderAmounts.get(funder) || 0, undefined, { suspicious: isShared }));
+        const linkInfo = funderHolderLinks.get(key);
+        links.push(createLink(
+          funder,
+          holder,
+          linkInfo?.amount ?? 0,
+          linkInfo?.txSignature,
+          { suspicious: isShared },
+        ));
       }
     }
   }
 
-  // 4c: Detect direct holder-to-holder transfers, skipping pools and programs
+  // 4c: Detect direct holder-to-holder transfers
   for (const [holderAddr, txs] of holderEarlyTxs) {
     if (!holderSet.has(holderAddr)) continue;
     for (const tx of txs) {
       if (tx.nativeTransfers) {
         for (const transfer of tx.nativeTransfers) {
-          if (transfer.amount < 10000) continue; // Skip dust
+          if (transfer.amount < 10000) continue;
           const from = transfer.fromUserAccount;
           const to = transfer.toUserAccount;
           if (poolAddresses.has(from) || poolAddresses.has(to)) continue;
@@ -364,7 +477,7 @@ export async function mapTokenHolders(mintAddress: string, options: MapOptions =
     }
   }
 
-  // 4d: Bundle cluster links — connect wallets that bought in the same slot
+  // 4d: Bundle cluster links
   for (const cluster of bundleClusters) {
     const wallets = cluster.wallets.filter(w => existingNodeIds.has(w));
     for (let i = 0; i < wallets.length; i++) {
@@ -394,12 +507,16 @@ export async function mapTokenHolders(mintAddress: string, options: MapOptions =
     }
   }
 
-  console.log(`Scan: ${suspiciousWallets.length} cabal, ${sniperWallets.length} snipers, ${links.length} links, ${nodes.length} nodes`);
+  // Compute threat scores for all nodes
+  for (const node of nodes) {
+    const score = computeThreatScore(node);
+    node.metadata = { ...node.metadata, threatScore: score, threatLevel: getThreatLevel(score) };
+  }
 
   return {
     data: { nodes, links },
     stats: {
-      totalHolders: filteredHolders.length, rawHolderCount: allHolders.length, filteredOut: filteredOutCount,
+      totalHolders: filteredHolders.length, rawHolderCount: rawHolders.length, filteredOut: filteredOutCount,
       analyzedHolders: topHolders.length, analysisIncomplete: false,
       cabalConnectionsFound, suspiciousWallets,
       dexFundedHolders: 0, freshWalletFunders: 0,

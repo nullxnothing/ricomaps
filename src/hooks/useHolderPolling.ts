@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { GraphData, GraphNode } from '@/lib/types';
+import { GraphData } from '@/lib/types';
 
 interface HolderSnapshot {
   owner: string;
@@ -10,8 +10,11 @@ interface HolderSnapshot {
 
 interface PollResponse {
   holders: HolderSnapshot[];
+  removed?: string[];
   totalHolders: number;
   timestamp: number;
+  lastSlot?: number;
+  isIncremental?: boolean;
 }
 
 interface HolderDiff {
@@ -35,7 +38,7 @@ const POLL_INTERVAL = 10_000; // 10 seconds
 export function useHolderPolling(
   mint: string | null,
   data: GraphData | null,
-  onDiff: (diff: HolderDiff, newHolders: HolderSnapshot[]) => void,
+  onDiff: (diff: HolderDiff) => void,
 ): UseHolderPollingReturn {
   const [isPolling, setIsPolling] = useState(false);
   const [lastPollTime, setLastPollTime] = useState<number | null>(null);
@@ -47,6 +50,7 @@ export function useHolderPolling(
   const dataRef = useRef<GraphData | null>(null);
   const onDiffRef = useRef(onDiff);
   const activeRef = useRef(false);
+  const lastSlotRef = useRef<number | undefined>(undefined);
 
   dataRef.current = data;
   onDiffRef.current = onDiff;
@@ -55,10 +59,16 @@ export function useHolderPolling(
     if (!mint || !dataRef.current) return;
 
     try {
-      const res = await fetch(`/api/poll?mint=${mint}&limit=50`);
+      const pollUrl = lastSlotRef.current !== undefined
+        ? `/api/poll?mint=${mint}&limit=50&sinceSlot=${lastSlotRef.current}`
+        : `/api/poll?mint=${mint}&limit=50`;
+      const res = await fetch(pollUrl);
       if (!res.ok) throw new Error(`Poll failed: ${res.status}`);
 
-      const { holders, timestamp }: PollResponse = await res.json();
+      const { holders, removed: removedFromServer = [], timestamp, lastSlot, isIncremental }: PollResponse = await res.json();
+      if (lastSlot !== undefined) {
+        lastSlotRef.current = lastSlot;
+      }
       setLastPollTime(timestamp);
       setPollCount(prev => prev + 1);
       setError(null);
@@ -84,6 +94,11 @@ export function useHolderPolling(
 
       // New or changed holders
       for (const h of holders) {
+        if (h.amount <= 0) {
+          if (currentHolders.has(h.owner)) removed.push(h.owner);
+          continue;
+        }
+
         const prev = currentHolders.get(h.owner);
         if (prev === undefined) {
           added.push(h);
@@ -93,10 +108,16 @@ export function useHolderPolling(
         }
       }
 
-      // Removed holders (were in graph, now have 0 or not in top holders)
-      for (const [owner] of currentHolders) {
-        if (!newHolderMap.has(owner)) {
-          removed.push(owner);
+      for (const owner of removedFromServer) {
+        if (currentHolders.has(owner) && !removed.includes(owner)) removed.push(owner);
+      }
+
+      if (!isIncremental) {
+        // Removed holders (were in graph, now have 0 or not in top holders)
+        for (const [owner] of currentHolders) {
+          if (!newHolderMap.has(owner)) {
+            removed.push(owner);
+          }
         }
       }
 
@@ -105,11 +126,8 @@ export function useHolderPolling(
       if (hasDiff) {
         const d: HolderDiff = { added, removed, changed };
         setDiff(d);
-        onDiffRef.current(d, holders);
+        onDiffRef.current(d);
 
-        if (added.length > 0 || removed.length > 0) {
-          console.log(`[Poll] +${added.length} holders, -${removed.length} removed, ~${changed.length} changed`);
-        }
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Poll failed';
@@ -123,8 +141,6 @@ export function useHolderPolling(
     activeRef.current = true;
     setIsPolling(true);
     setError(null);
-    console.log('[Poll] Started polling', mint.slice(0, 8) + '...');
-
     // First poll after a short delay (let scan settle)
     const timeout = setTimeout(() => {
       poll();
@@ -143,7 +159,6 @@ export function useHolderPolling(
       clearTimeout(intervalRef.current as unknown as NodeJS.Timeout);
       intervalRef.current = null;
     }
-    console.log('[Poll] Stopped');
   }, []);
 
   // Cleanup on unmount

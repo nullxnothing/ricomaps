@@ -47,7 +47,7 @@ export function StatsPanel({ data, mode, stats, tokenSecurity }: StatsPanelProps
   const cabalHolders = data.nodes.filter(n => n.type === 'connected' || (n.metadata?.sharedFunderGroup));
 
   return (
-    <div className="glass-panel w-44 sm:w-52 md:w-56 max-h-[40vh] sm:max-h-[60vh] overflow-y-auto themed-scrollbar p-2.5 sm:p-3.5">
+    <div className="glass-panel w-full md:w-56 xl:w-64 2xl:w-72 max-h-[40vh] sm:max-h-[60vh] overflow-y-auto themed-scrollbar p-2.5 sm:p-3.5">
       {/* Security badge (compact) */}
       {mode === 'token' && (
         <div className="mb-3">
@@ -88,8 +88,8 @@ export function StatsPanel({ data, mode, stats, tokenSecurity }: StatsPanelProps
         {/* Cabal line */}
         {cabalFunders.length > 0 && (
           <div className="stats-item">
-            <span className="stats-label" style={{ color: '#ef4444' }}>Cabal</span>
-            <span className="stats-value" style={{ color: '#ef4444' }}>
+            <span className="stats-label" style={{ color: 'var(--red-primary)' }}>Cabal</span>
+            <span className="stats-value" style={{ color: 'var(--red-primary)' }}>
               {cabalFunders.length} &rarr; {cabalHolders.length}
             </span>
           </div>
@@ -99,7 +99,7 @@ export function StatsPanel({ data, mode, stats, tokenSecurity }: StatsPanelProps
         {mode === 'token' && stats.snipersDetected !== undefined && stats.snipersDetected > 0 && (
           <div className="stats-item">
             <span className="stats-label">Snipers</span>
-            <span className="stats-value" style={{ color: '#22d3ee' }}>{stats.snipersDetected}</span>
+            <span className="stats-value" style={{ color: 'var(--cyan-primary)' }}>{stats.snipersDetected}</span>
           </div>
         )}
 

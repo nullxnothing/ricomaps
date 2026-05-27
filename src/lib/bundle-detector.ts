@@ -42,11 +42,15 @@ export function detectBundleClusters(
     slotGroups.set(buyTx.slot, entries);
   }
 
-  // Step 2: Filter to slot groups with 2+ distinct wallets
+  // Step 2: Filter to slot groups with meaningful coordination evidence.
   const bundleGroups: { slot: number; entries: SlotWalletEntry[] }[] = [];
   for (const [slot, entries] of slotGroups) {
-    const uniqueWallets = new Set(entries.map(e => e.address));
-    if (uniqueWallets.size >= 2) {
+    const uniqueWallets = [...new Set(entries.map(e => e.address))];
+    const sharedFunder = findSharedFunder(uniqueWallets, funderMap);
+    const isProbableBundle = uniqueWallets.length >= 3 || Boolean(sharedFunder);
+    const isNoisyLaunchSlot = uniqueWallets.length > 5 && !sharedFunder;
+
+    if (uniqueWallets.length >= 2 && isProbableBundle && !isNoisyLaunchSlot) {
       bundleGroups.push({ slot, entries });
     }
   }
@@ -74,22 +78,12 @@ export function detectBundleClusters(
     const timestamps = allEntries.map(e => e.timestamp).filter(Boolean);
     const signatures = [...new Set(allEntries.map(e => e.signature))];
 
-    // Check for shared funder
-    let sharedFunder: string | undefined;
-    if (funderMap) {
-      for (const [funder, fundedHolders] of funderMap) {
-        const overlap = wallets.filter(w => fundedHolders.includes(w));
-        if (overlap.length >= 2) {
-          sharedFunder = funder;
-          break;
-        }
-      }
-    }
+    const sharedFunder = findSharedFunder(wallets, funderMap);
 
     // Confidence scoring
-    let confidence = 50; // Base: same-slot is a strong signal
-    confidence += Math.min(30, (wallets.length - 2) * 10); // +10 per extra wallet
-    if (sharedFunder) confidence += 20; // Shared funder confirms coordination
+    let confidence = 35;
+    confidence += Math.min(25, (wallets.length - 2) * 8);
+    if (sharedFunder) confidence += 30;
 
     const tokenAppearance: BundleTokenAppearance = {
       mint: mintAddress,
@@ -118,6 +112,17 @@ export function detectBundleClusters(
   }
 
   return clusters;
+}
+
+function findSharedFunder(wallets: string[], funderMap?: Map<string, string[]>): string | undefined {
+  if (!funderMap) return undefined;
+
+  for (const [funder, fundedHolders] of funderMap) {
+    const overlap = wallets.filter(w => fundedHolders.includes(w));
+    if (overlap.length >= 2) return funder;
+  }
+
+  return undefined;
 }
 
 /**
@@ -181,7 +186,7 @@ function mergeOverlappingClusters(
     for (let i = 0; i < current.length; i++) {
       if (consumed.has(i)) continue;
 
-      let combined = {
+      const combined = {
         wallets: new Set(current[i].wallets),
         slots: [...current[i].slots],
       };

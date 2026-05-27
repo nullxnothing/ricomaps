@@ -9,44 +9,47 @@ interface TokenSecurityBadgeProps {
 }
 
 export function TokenSecurityBadge({ security, compact = false }: TokenSecurityBadgeProps) {
-  const [expanded, setExpanded] = useState(false); // Collapsed by default — saves space
+  const [expanded, setExpanded] = useState(false);
 
   if (!security) {
     return (
-      <div className="flex items-center gap-2 px-3 py-2 rounded bg-[#1a1a24] border border-[#2a2a3a]">
-        <div className="w-4 h-4 border-2 border-[#4a9eff] border-t-transparent rounded-full animate-spin" />
-        <span className="text-xs text-[#6b7280] font-mono">ANALYZING...</span>
+      <div
+        className="flex items-center gap-2 px-3 py-2 rounded"
+        style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-base)' }}
+      >
+        <div className="w-4 h-4 border-2 rounded-full animate-spin" style={{ borderColor: 'var(--blue-primary)', borderTopColor: 'transparent' }} />
+        <span className="text-xs font-mono" style={{ color: 'var(--text-tertiary)' }}>ANALYZING...</span>
       </div>
     );
   }
 
   const riskConfig = {
     low: {
-      color: '#22c55e',
-      bg: 'rgba(34, 197, 94, 0.1)',
-      border: 'rgba(34, 197, 94, 0.3)',
-      icon: '✓',
+      color: 'var(--green-primary)',
+      bg: 'var(--green-ghost)',
+      border: 'rgba(0, 255, 65, 0.2)',
+      icon: '\u2713',
       label: 'LOW RISK',
     },
     medium: {
-      color: '#f59e0b',
-      bg: 'rgba(245, 158, 11, 0.1)',
+      color: 'var(--amber-primary)',
+      bg: 'var(--amber-ghost)',
       border: 'rgba(245, 158, 11, 0.3)',
-      icon: '⚠',
+      icon: '\u26A0',
       label: 'MEDIUM RISK',
     },
     high: {
-      color: '#f97316',
-      bg: 'rgba(249, 115, 22, 0.1)',
-      border: 'rgba(249, 115, 22, 0.4)',
-      icon: '⚠',
+      color: 'var(--red-primary)',
+      bg: 'var(--red-ghost)',
+      border: 'rgba(239, 68, 68, 0.3)',
+      icon: '\u26A0',
       label: 'HIGH RISK',
     },
     critical: {
-      color: '#ef4444',
-      bg: 'rgba(239, 68, 68, 0.15)',
+      color: 'var(--red-primary)',
+      bg: 'var(--red-ghost)',
       border: 'rgba(239, 68, 68, 0.5)',
-      icon: '✕',
+      icon: '\u2715',
       label: 'CRITICAL',
     },
   };
@@ -80,24 +83,27 @@ export function TokenSecurityBadge({ security, compact = false }: TokenSecurityB
     >
       {/* Header */}
       <button
-        className="w-full flex items-center justify-between px-3 py-2 hover:bg-white/5 transition-colors"
+        className="w-full flex items-center justify-between gap-2 px-3 py-2 transition-colors overflow-hidden"
+        style={{ background: 'transparent' }}
+        onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.03)'; }}
+        onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
         onClick={() => setExpanded(!expanded)}
       >
-        <div className="flex items-center gap-2">
-          <span className="text-base" style={{ color: config.color }}>{config.icon}</span>
-          <div className="text-left">
-            <div className="text-xs font-mono font-bold" style={{ color: config.color }}>
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="text-base flex-shrink-0" style={{ color: config.color }}>{config.icon}</span>
+          <div className="text-left min-w-0">
+            <div className="text-xs font-mono font-bold truncate" style={{ color: config.color }}>
               {config.label}
             </div>
-            <div className="text-[10px] text-[#6b7280]">
-              {security.riskFactors.length} risk factor{security.riskFactors.length !== 1 ? 's' : ''}
+            <div className="text-[10px] truncate" style={{ color: 'var(--text-tertiary)' }}>
+              {security.riskFactors.length} factor{security.riskFactors.length !== 1 ? 's' : ''}
             </div>
           </div>
         </div>
 
         {/* Risk meter */}
-        <div className="flex items-center gap-2">
-          <div className="w-16 h-1.5 bg-[#1a1a24] rounded-full overflow-hidden">
+        <div className="flex items-center gap-2 flex-shrink-0 ml-auto overflow-hidden">
+          <div className="w-12 sm:w-16 h-1.5 rounded-full overflow-hidden flex-shrink-0" style={{ background: 'var(--bg-elevated)' }}>
             <div
               className="h-full rounded-full transition-all"
               style={{
@@ -109,7 +115,7 @@ export function TokenSecurityBadge({ security, compact = false }: TokenSecurityB
             />
           </div>
           <svg
-            className={`w-4 h-4 transition-transform ${expanded ? 'rotate-180' : ''}`}
+            className={`w-4 h-4 flex-shrink-0 transition-transform ${expanded ? 'rotate-180' : ''}`}
             style={{ color: config.color }}
             viewBox="0 0 24 24"
             fill="none"
@@ -145,13 +151,14 @@ export function TokenSecurityBadge({ security, compact = false }: TokenSecurityB
 
           {/* Risk factors */}
           {security.riskFactors.length > 0 && (
-            <div className="pt-2 border-t border-[#2a2a3a]">
+            <div className="pt-2" style={{ borderTop: '1px solid var(--border-base)' }}>
               {security.riskFactors.map((factor, i) => (
                 <div
                   key={i}
-                  className="flex items-start gap-2 text-[10px] text-[#9898a6] py-0.5"
+                  className="flex items-start gap-2 text-[10px] py-0.5"
+                  style={{ color: 'var(--text-secondary)' }}
                 >
-                  <span className="text-[#f59e0b] mt-0.5">•</span>
+                  <span style={{ color: 'var(--amber-primary)' }} className="mt-0.5">&bull;</span>
                   <span>{factor}</span>
                 </div>
               ))}
@@ -176,18 +183,18 @@ function SecurityCheck({
     <div className="flex items-center justify-between text-[11px]">
       <div className="flex items-center gap-2">
         {safe ? (
-          <svg className="w-3.5 h-3.5 text-[#22c55e]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+          <svg className="w-3.5 h-3.5" style={{ color: 'var(--green-primary)' }} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
             <path d="M5 13l4 4L19 7" />
           </svg>
         ) : (
-          <svg className="w-3.5 h-3.5 text-[#f59e0b]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+          <svg className="w-3.5 h-3.5" style={{ color: 'var(--amber-primary)' }} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
             <path d="M12 9v4m0 4h.01" />
             <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
           </svg>
         )}
-        <span className={safe ? 'text-[#9898a6]' : 'text-[#f59e0b]'}>{label}</span>
+        <span style={{ color: safe ? 'var(--text-secondary)' : 'var(--amber-primary)' }}>{label}</span>
       </div>
-      <span className={`font-mono ${safe ? 'text-[#22c55e]' : 'text-[#f59e0b]'}`}>
+      <span className="font-mono" style={{ color: safe ? 'var(--green-primary)' : 'var(--amber-primary)' }}>
         {detail}
       </span>
     </div>

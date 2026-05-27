@@ -2,6 +2,8 @@
 
 import { useBlacklist } from '@/hooks/useBlacklist';
 import { ClusterCard } from './ClusterCard';
+import { PageShell } from './layout/PageShell';
+import { Container } from './layout/Container';
 import { useRouter } from 'next/navigation';
 import { useCallback } from 'react';
 
@@ -33,22 +35,24 @@ export function BlacklistView() {
   }, [router]);
 
   return (
-    <div className="min-h-screen" style={{ background: '#000' }}>
-      {/* Header */}
-      <header className="sticky top-0 z-10 px-4 py-3" style={{ background: 'rgba(0,0,0,0.8)', backdropFilter: 'blur(12px)', borderBottom: '1px solid var(--border-base)' }}>
-        <div className="max-w-4xl mx-auto flex items-center justify-between">
+    <PageShell>
+      {/* Page sub-header */}
+      <div
+        className="sticky top-[48px] z-40 py-3"
+        style={{
+          background: 'rgba(9,9,14,0.95)',
+          backdropFilter: 'blur(24px)',
+          WebkitBackdropFilter: 'blur(24px)',
+          borderBottom: '1px solid var(--border-base)',
+        }}
+      >
+        <Container className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <button onClick={() => router.push('/')} className="btn-back" title="Back">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M19 12H5M12 19l-7-7 7-7" />
-              </svg>
-            </button>
-            <h1 className="text-lg font-semibold" style={{ color: 'var(--purple-primary)' }}>Blacklist</h1>
+            <h1 className="text-sm font-semibold" style={{ color: 'var(--purple-primary)' }}>Blacklist</h1>
             <span className="text-xs" style={{ color: 'var(--text-tertiary)' }}>
               {totalClusters} clusters &middot; {totalWallets} wallets
             </span>
           </div>
-
           <div className="flex items-center gap-2">
             <button onClick={refresh} className="btn-ghost text-xs" disabled={isLoading}>
               Refresh
@@ -60,10 +64,10 @@ export function BlacklistView() {
               CSV
             </button>
           </div>
-        </div>
-      </header>
+        </Container>
+      </div>
 
-      <div className="max-w-4xl mx-auto px-4 py-6">
+      <Container className="py-8">
         {/* Controls */}
         <div className="flex items-center gap-3 mb-4">
           <input
@@ -155,7 +159,7 @@ export function BlacklistView() {
             </button>
           </div>
         )}
-      </div>
-    </div>
+      </Container>
+    </PageShell>
   );
 }

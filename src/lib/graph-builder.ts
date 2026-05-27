@@ -1,7 +1,7 @@
-import { getWalletTransfers, getWalletFundedBy, batchIdentifyWallets, getWalletBalances } from './helius';
-import { GraphNode, GraphLink, GraphData, NODE_COLORS } from './types';
-import { truncateAddress, shouldFilterAddress } from './address-utils';
-import { getWalletLabel } from './wallet-labels';
+import { getWalletTransfers, getWalletFundedBy, batchIdentifyWallets, NATIVE_SOL_MINT } from './helius';
+import { GraphNode, GraphLink, GraphData } from './types';
+import { shouldFilterAddress } from './address-utils';
+import { createNode } from './graph-utils';
 
 interface TraceOptions {
   maxDepth?: number;
@@ -15,36 +15,8 @@ const DEFAULT_OPTIONS: TraceOptions = {
   minAmount: 0.01,
 };
 
-function createNode(
-  address: string,
-  depth: number,
-  type: GraphNode['type'],
-  amount?: number
-): GraphNode {
-  const label = getWalletLabel(address);
-  const walletLabel = label ? {
-    name: label.name,
-    category: label.category,
-    verified: label.verified,
-    risk: label.risk,
-  } : undefined;
-
-  return {
-    id: address,
-    label: label ? label.name : truncateAddress(address),
-    val: Math.max(5, Math.log10((amount || 1) + 1) * 10),
-    color: NODE_COLORS[type] || NODE_COLORS.default,
-    type,
-    depth,
-    solBalance: amount,
-    expanded: false,
-    walletLabel,
-    metadata: { fundedBy: [], funded: [] },
-  };
-}
-
 /**
- * Trace funding chain using Wallet API /transfers + /funded-by
+ * Trace funding chain using Helius getTransfersByAddress + /funded-by
  * BFS traversal from target wallet, mapping all funding relationships
  */
 export async function traceFundingChain(
@@ -66,24 +38,34 @@ export async function traceFundingChain(
     if (depth >= (opts.maxDepth || 2)) continue;
 
     try {
-      // Use Wallet API /transfers — returns clean counterparty data
-      const transfersResult = await getWalletTransfers(wallet, { limit: 100 });
-      if (!transfersResult?.data) continue;
+      const [incomingResult, outgoingResult, fundedBy] = await Promise.all([
+        getWalletTransfers(wallet, {
+          limit: 100,
+          direction: 'in',
+          mint: NATIVE_SOL_MINT,
+          sortOrder: 'desc',
+          solMode: 'merged',
+        }),
+        getWalletTransfers(wallet, {
+          limit: 100,
+          direction: 'out',
+          mint: NATIVE_SOL_MINT,
+          sortOrder: 'desc',
+          solMode: 'merged',
+        }),
+        getWalletFundedBy(wallet),
+      ]);
 
-      // Also get funded-by for the initial funder
-      const fundedBy = await getWalletFundedBy(wallet);
+      const incomingSOL = incomingResult?.data ?? [];
+      const outgoingSOL = outgoingResult?.data ?? [];
+      if (incomingSOL.length === 0 && outgoingSOL.length === 0) continue;
 
       let nodesAddedThisLevel = 0;
-      const SOL_MINT = 'So11111111111111111111111111111111111111112';
-
-      // Process incoming SOL transfers (who funded this wallet)
-      const incomingSOL = transfersResult.data.filter(
-        t => t.direction === 'in' && t.mint === SOL_MINT && t.amount >= (opts.minAmount || 0.01)
-      );
+      const minAmount = opts.minAmount || 0.01;
 
       // Dedupe by counterparty, sum amounts
       const funderAmounts = new Map<string, { total: number; count: number; firstSig: string; firstTs: number }>();
-      for (const transfer of incomingSOL) {
+      for (const transfer of incomingSOL.filter(t => t.amount >= minAmount)) {
         if (shouldFilterAddress(transfer.counterparty)) continue;
         const existing = funderAmounts.get(transfer.counterparty);
         if (existing) {
@@ -141,13 +123,8 @@ export async function traceFundingChain(
         }
       }
 
-      // Also track outgoing transfers (who did this wallet fund)
-      const outgoingSOL = transfersResult.data.filter(
-        t => t.direction === 'out' && t.mint === SOL_MINT && t.amount >= (opts.minAmount || 0.01)
-      );
-
       const fundedAmounts = new Map<string, { total: number; firstSig: string }>();
-      for (const transfer of outgoingSOL) {
+      for (const transfer of outgoingSOL.filter(t => t.amount >= minAmount)) {
         if (shouldFilterAddress(transfer.counterparty)) continue;
         const existing = fundedAmounts.get(transfer.counterparty);
         if (existing) {
@@ -166,11 +143,11 @@ export async function traceFundingChain(
         currentNode.expanded = true;
         currentNode.metadata = {
           ...currentNode.metadata,
-          totalTransfers: transfersResult.data.length,
+          totalTransfers: incomingSOL.length + outgoingSOL.length,
           transferPatterns: {
             totalIn: incomingSOL.reduce((sum, t) => sum + t.amount, 0),
             totalOut: outgoingSOL.reduce((sum, t) => sum + t.amount, 0),
-            uniqueCounterparties: new Set(transfersResult.data.map(t => t.counterparty)).size,
+            uniqueCounterparties: new Set([...incomingSOL, ...outgoingSOL].map(t => t.counterparty)).size,
           },
         };
       }
@@ -202,7 +179,7 @@ export async function traceFundingChain(
 }
 
 /**
- * Expand a node on-demand — uses /transfers API
+ * Expand a node on-demand using Helius getTransfersByAddress
  */
 export async function expandNode(
   wallet: string,
@@ -213,16 +190,19 @@ export async function expandNode(
   const newLinks: GraphLink[] = [];
 
   try {
-    const transfersResult = await getWalletTransfers(wallet, { limit: 100 });
+    const transfersResult = await getWalletTransfers(wallet, {
+      limit: 100,
+      direction: mode === 'funding' ? 'in' : 'out',
+      mint: NATIVE_SOL_MINT,
+      sortOrder: 'desc',
+      solMode: 'merged',
+    });
     if (!transfersResult?.data) return { newNodes, newLinks };
 
-    const SOL_MINT = 'So11111111111111111111111111111111111111112';
     const seenAddresses = new Set<string>();
 
     const relevantTransfers = transfersResult.data.filter(t =>
-      t.mint === SOL_MINT &&
-      t.amount >= 0.01 &&
-      (mode === 'funding' ? t.direction === 'in' : t.direction === 'out')
+      t.amount >= 0.01
     );
 
     // Dedupe and sum
@@ -242,11 +222,13 @@ export async function expandNode(
       .slice(0, 15);
 
     for (const [addr, info] of sorted) {
-      if (existingNodeIds.has(addr) || seenAddresses.has(addr)) continue;
+      if (seenAddresses.has(addr)) continue;
       seenAddresses.add(addr);
 
-      const nodeType = mode === 'funding' ? 'funder' : 'funded';
-      newNodes.push(createNode(addr, 0, nodeType, info.total));
+      if (!existingNodeIds.has(addr)) {
+        const nodeType = mode === 'funding' ? 'funder' : 'funded';
+        newNodes.push(createNode(addr, 0, nodeType, info.total));
+      }
 
       if (mode === 'funding') {
         newLinks.push({ source: addr, target: wallet, value: info.total, txSignature: info.sig });

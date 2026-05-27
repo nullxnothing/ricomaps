@@ -10,7 +10,7 @@ const BubbleMap = dynamic(
   {
     ssr: false,
     loading: () => (
-      <div className="w-full h-full flex items-center justify-center" style={{ background: '#04040B' }}>
+      <div className="w-full h-full flex items-center justify-center" style={{ background: 'var(--bg-void)' }}>
         <div className="font-mono text-sm" style={{ color: 'var(--green-primary)' }}>LOADING...</div>
       </div>
     ),
@@ -130,7 +130,7 @@ function EmbedContent() {
             </button>
           </div>
           <a
-            href={`https://solscan.io/account/${selectedNode.id}`}
+            href={`https://orbmarkets.io/address/${selectedNode.id}`}
             target="_blank"
             rel="noopener noreferrer"
             className="font-mono text-xs break-all hover:underline"

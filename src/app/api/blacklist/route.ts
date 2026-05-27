@@ -1,8 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getBundleClusters, getClustersByWallet } from '@/lib/db-blacklist';
+import { checkRateLimit } from '@/lib/rate-limit';
+import { isValidSolanaAddress } from '@/lib/address-utils';
 import { BlacklistResponse } from '@/lib/types';
 
 export async function GET(request: NextRequest) {
+  const ip = request.headers.get('x-forwarded-for')?.split(',')[0].trim() ?? 'unknown';
+  const { allowed, retryAfterMs } = checkRateLimit(ip, 'blacklist');
+  if (!allowed) {
+    return NextResponse.json<BlacklistResponse>(
+      { success: false, clusters: [], totalWallets: 0, totalClusters: 0, page: 1, totalPages: 0, error: 'Too many requests' },
+      { status: 429, headers: { 'Retry-After': String(Math.ceil(retryAfterMs / 1000)) } }
+    );
+  }
+
   try {
     const { searchParams } = new URL(request.url);
     const page = Math.max(1, parseInt(searchParams.get('page') || '1'));
@@ -38,6 +49,15 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  const ip = request.headers.get('x-forwarded-for')?.split(',')[0].trim() ?? 'unknown';
+  const { allowed, retryAfterMs } = checkRateLimit(ip, 'blacklist');
+  if (!allowed) {
+    return NextResponse.json(
+      { success: false, error: 'Too many requests' },
+      { status: 429, headers: { 'Retry-After': String(Math.ceil(retryAfterMs / 1000)) } }
+    );
+  }
+
   try {
     const body = await request.json();
     const { wallets } = body;
@@ -46,7 +66,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'wallets array required' }, { status: 400 });
     }
 
-    const clusters = await getClustersByWallet(wallets.slice(0, 100));
+    const validWallets = wallets
+      .filter((wallet: unknown): wallet is string => typeof wallet === 'string' && isValidSolanaAddress(wallet))
+      .slice(0, 100);
+
+    if (validWallets.length === 0) {
+      return NextResponse.json({ success: false, error: 'valid wallets required' }, { status: 400 });
+    }
+
+    const clusters = await getClustersByWallet(validWallets);
 
     return NextResponse.json({
       success: true,

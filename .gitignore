@@ -43,3 +43,8 @@ next-env.d.ts
 .vercel
 CLAUDE.md
 DESIGN-SPEC.md
+.claude/
+.playwright-mcp/
+.mcp.json
+target/
+/*.png

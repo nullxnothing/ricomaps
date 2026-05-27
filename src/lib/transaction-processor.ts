@@ -4,7 +4,8 @@
  * Converts raw Helius transactions to graph updates for real-time streaming.
  */
 
-import { GraphNode, GraphLink, GraphUpdate, HeliusTransaction, NODE_COLORS } from './types';
+import { GraphNode, GraphLink, GraphUpdate, HeliusTransaction } from './types';
+import { createNode } from './graph-utils';
 
 /**
  * Process a single transaction into graph updates
@@ -39,7 +40,7 @@ export function processTransactionToGraphUpdate(
       // Create node for the other party if not already existing
       if (!existingNodeIds.has(otherAddress)) {
         const nodeType = isWatchedSource ? 'funded' : 'funder';
-        newNodes.push(createNode(otherAddress, solAmount, nodeType));
+        newNodes.push(createNode(otherAddress, 1, nodeType, solAmount, { firstTx: Date.now(), txCount: 1 }));
         existingNodeIds.add(otherAddress);
       }
 
@@ -75,7 +76,7 @@ export function processTransactionToGraphUpdate(
 
         if (counterparty && !existingNodeIds.has(counterparty.account)) {
           const nodeType = isIncoming ? 'funder' : 'funded';
-          newNodes.push(createNode(counterparty.account, solAmount, nodeType));
+          newNodes.push(createNode(counterparty.account, 1, nodeType, solAmount, { firstTx: Date.now(), txCount: 1 }));
           existingNodeIds.add(counterparty.account);
 
           newLinks.push({
@@ -92,38 +93,6 @@ export function processTransactionToGraphUpdate(
   }
 
   return { newNodes, newLinks };
-}
-
-/**
- * Create a new graph node
- */
-function createNode(
-  address: string,
-  amount: number,
-  type: 'funder' | 'funded' | 'holder'
-): GraphNode {
-  return {
-    id: address,
-    label: truncateAddress(address),
-    val: Math.max(1, Math.sqrt(amount) * 2),
-    color: NODE_COLORS[type] || NODE_COLORS.default,
-    type,
-    depth: 1,
-    solBalance: amount,
-    expanded: false,
-    metadata: {
-      firstTx: Date.now(),
-      txCount: 1,
-    },
-  };
-}
-
-/**
- * Truncate address for display
- */
-function truncateAddress(address: string): string {
-  if (address.length <= 12) return address;
-  return `${address.slice(0, 4)}...${address.slice(-4)}`;
 }
 
 /**
@@ -151,11 +120,8 @@ export function mergeGraphUpdate(
   // Filter out duplicate links AND links where source/target doesn't exist
   // This prevents "node not found" crashes in d3-force-3d
   const uniqueNewLinks = update.newLinks.filter(l => {
-    // Skip if already exists
     if (existingLinkKeys.has(`${l.source}->${l.target}`)) return false;
-    // Skip if source or target node doesn't exist
     if (!finalNodeIds.has(l.source) || !finalNodeIds.has(l.target)) {
-      console.warn(`[mergeGraphUpdate] Skipping orphan link: ${l.source} -> ${l.target}`);
       return false;
     }
     return true;

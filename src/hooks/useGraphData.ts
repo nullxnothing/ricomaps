@@ -3,6 +3,7 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import {
   GraphData,
+  GraphNode,
   AppMode,
   ExpandResponse,
   ScanResponse,
@@ -55,6 +56,10 @@ interface UseGraphDataReturn {
   stopStreaming: () => void;
 }
 
+function endpointId(endpoint: string | GraphNode): string {
+  return typeof endpoint === 'string' ? endpoint : endpoint.id;
+}
+
 export function useGraphData(): UseGraphDataReturn {
   const [data, setData] = useState<GraphData | null>(null);
   const [stats, setStats] = useState<Stats | null>(null);
@@ -98,7 +103,6 @@ export function useGraphData(): UseGraphDataReturn {
           const removedSet = new Set(toRemove);
           nodes = nodes.filter(n => !removedSet.has(n.id));
           hasChanges = true;
-          console.log(`[Poll] Removed ${toRemove.length} holders (sold)`);
         }
       }
 
@@ -126,13 +130,6 @@ export function useGraphData(): UseGraphDataReturn {
     stop: stopPoll,
   } = useHolderPolling(scannedMint, data, handleHolderDiff);
 
-  // Auto-start polling disabled — call startStreaming() manually if needed
-  // useEffect(() => {
-  //   if (scannedMint && data && detectedMode === 'token') {
-  //     startPoll();
-  //   }
-  //   return () => { stopPoll(); };
-  // }, [scannedMint, detectedMode]);
   useEffect(() => {
     return () => { stopPoll(); };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -255,10 +252,10 @@ export function useGraphData(): UseGraphDataReturn {
           const newNodes = result.newNodes!.filter(n => !existingIds.has(n.id));
 
           const existingLinkIds = new Set(
-            prev.links.map(l => `${l.source}->${l.target}`)
+            prev.links.map(l => `${endpointId(l.source)}->${endpointId(l.target)}`)
           );
           const newLinks = result.newLinks!.filter(
-            l => !existingLinkIds.has(`${l.source}->${l.target}`)
+            l => !existingLinkIds.has(`${endpointId(l.source)}->${endpointId(l.target)}`)
           );
 
           const updatedNodes = prev.nodes.map(n =>

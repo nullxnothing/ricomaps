@@ -63,6 +63,8 @@ export interface GraphNode {
     sharedFunderGroup?: string;  // ID of the funder cluster this wallet belongs to
     cabalConfidence?: number;    // 0-100 confidence score
     isBundled?: boolean;         // Detected in Jito bundle cluster
+    threatScore?: number;        // Composite threat score 0-100
+    threatLevel?: 'critical' | 'high' | 'medium' | 'low' | 'safe';
     transferPatterns?: {
       totalIn: number;           // Total SOL received
       totalOut: number;          // Total SOL sent
@@ -429,6 +431,20 @@ export interface TokenMetadata {
   symbol?: string;
   image?: string;
   description?: string;
+  // Social links
+  website?: string;
+  twitter?: string;
+  telegram?: string;
+  discord?: string;
+  // Market data (DexScreener)
+  priceUsd?: number;
+  priceChange24h?: number;
+  volume24h?: number;
+  marketCap?: number;
+  liquidity?: number;
+  fdv?: number;
+  dexUrl?: string;
+  pairAddress?: string;
 }
 
 // Enriched funder info with transaction context

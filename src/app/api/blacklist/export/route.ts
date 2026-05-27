@@ -1,7 +1,24 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { getBundleClusters } from '@/lib/db-blacklist';
+import { checkRateLimit } from '@/lib/rate-limit';
 
-export async function GET() {
+function csvCell(value: string | number): string {
+  const raw = String(value);
+  if (/^[=+\-@]/.test(raw)) return `"'${raw.replace(/"/g, '""')}"`;
+  if (/[",\n\r]/.test(raw)) return `"${raw.replace(/"/g, '""')}"`;
+  return raw;
+}
+
+export async function GET(request: NextRequest) {
+  const ip = request.headers.get('x-forwarded-for')?.split(',')[0].trim() ?? 'unknown';
+  const { allowed, retryAfterMs } = checkRateLimit(ip, 'blacklist');
+  if (!allowed) {
+    return NextResponse.json(
+      { error: 'Too many requests' },
+      { status: 429, headers: { 'Retry-After': String(Math.ceil(retryAfterMs / 1000)) } },
+    );
+  }
+
   try {
     const { clusters } = await getBundleClusters({
       limit: 1000,
@@ -19,9 +36,15 @@ export async function GET() {
       const lastSeen = new Date(cluster.lastSeenTimestamp * 1000).toISOString();
 
       for (const wallet of cluster.wallets) {
-        rows.push(
-          `${wallet},${cluster.id},${cluster.wallets.length},${cluster.confidence},${cluster.sharedFunder || ''},${tokenMints},${lastSeen}`
-        );
+        rows.push([
+          wallet,
+          cluster.id,
+          cluster.wallets.length,
+          cluster.confidence,
+          cluster.sharedFunder || '',
+          tokenMints,
+          lastSeen,
+        ].map(csvCell).join(','));
       }
     }
 

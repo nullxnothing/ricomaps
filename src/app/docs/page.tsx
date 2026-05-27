@@ -2,6 +2,11 @@
 
 import Link from 'next/link';
 import { useState, useCallback } from 'react';
+import { PageShell } from '@/components/layout/PageShell';
+import { PageHeader } from '@/components/layout/PageHeader';
+import { Container } from '@/components/layout/Container';
+
+/* ─── Embed Code Generator ─── */
 
 function EmbedCodeGenerator() {
   const [address, setAddress] = useState('');
@@ -10,7 +15,7 @@ function EmbedCodeGenerator() {
   const [height, setHeight] = useState('500px');
   const [copied, setCopied] = useState(false);
 
-  const baseUrl = typeof window !== 'undefined' ? window.location.origin : 'https://ricomaps.com';
+  const baseUrl = typeof window !== 'undefined' ? window.location.origin : 'https://ricomaps.fun';
   const embedUrl = `${baseUrl}/embed?address=${address}&view=${view}`;
   const embedCode = `<iframe
   src="${embedUrl}"
@@ -29,78 +34,75 @@ function EmbedCodeGenerator() {
 
   return (
     <div className="space-y-4">
-      {/* Address Input */}
       <div>
-        <label className="block text-sm text-[#9898a6] mb-2">Wallet or Token Address</label>
+        <label className="block text-[11px] font-mono uppercase tracking-wide mb-2" style={{ color: 'var(--text-tertiary)' }}>Wallet or Token Address</label>
         <input
           type="text"
           value={address}
           onChange={(e) => setAddress(e.target.value)}
           placeholder="Enter Solana address..."
-          className="w-full bg-[#0a0a0a] border border-[#2a2a4a] rounded-lg px-4 py-3 text-white font-mono text-sm focus:border-[#4a9eff] focus:outline-none"
+          className="input w-full"
         />
       </div>
 
-      {/* Options Row */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div>
-          <label className="block text-sm text-[#9898a6] mb-2">View Style</label>
+          <label className="block text-[11px] font-mono uppercase tracking-wide mb-2" style={{ color: 'var(--text-tertiary)' }}>View Style</label>
           <select
             value={view}
             onChange={(e) => setView(e.target.value as 'forensic' | 'bubble')}
-            className="w-full bg-[#0a0a0a] border border-[#2a2a4a] rounded-lg px-3 py-2 text-white text-sm focus:border-[#4a9eff] focus:outline-none"
+            className="input w-full"
           >
             <option value="forensic">Forensic</option>
             <option value="bubble">Bubble</option>
           </select>
         </div>
         <div>
-          <label className="block text-sm text-[#9898a6] mb-2">Width</label>
+          <label className="block text-[11px] font-mono uppercase tracking-wide mb-2" style={{ color: 'var(--text-tertiary)' }}>Width</label>
           <input
             type="text"
             value={width}
             onChange={(e) => setWidth(e.target.value)}
-            className="w-full bg-[#0a0a0a] border border-[#2a2a4a] rounded-lg px-3 py-2 text-white text-sm focus:border-[#4a9eff] focus:outline-none"
+            className="input w-full"
           />
         </div>
         <div>
-          <label className="block text-sm text-[#9898a6] mb-2">Height</label>
+          <label className="block text-[11px] font-mono uppercase tracking-wide mb-2" style={{ color: 'var(--text-tertiary)' }}>Height</label>
           <input
             type="text"
             value={height}
             onChange={(e) => setHeight(e.target.value)}
-            className="w-full bg-[#0a0a0a] border border-[#2a2a4a] rounded-lg px-3 py-2 text-white text-sm focus:border-[#4a9eff] focus:outline-none"
+            className="input w-full"
           />
         </div>
       </div>
 
-      {/* Preview */}
       {address && (
         <div>
-          <label className="block text-sm text-[#9898a6] mb-2">Preview URL</label>
+          <label className="block text-[11px] font-mono uppercase tracking-wide mb-2" style={{ color: 'var(--text-tertiary)' }}>Preview URL</label>
           <a
             href={embedUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-[#4a9eff] hover:underline text-sm break-all"
+            className="text-sm break-all hover:underline font-mono"
+            style={{ color: 'var(--green-primary)' }}
           >
             {embedUrl}
           </a>
         </div>
       )}
 
-      {/* Generated Code */}
       <div>
         <div className="flex items-center justify-between mb-2">
-          <label className="block text-sm text-[#9898a6]">Embed Code</label>
+          <label className="block text-[11px] font-mono uppercase tracking-wide" style={{ color: 'var(--text-tertiary)' }}>Embed Code</label>
           <button
             onClick={copyToClipboard}
-            className="text-xs px-3 py-1 bg-[#4a9eff]/20 text-[#4a9eff] rounded hover:bg-[#4a9eff]/30 transition-colors"
+            className="btn-ghost text-[10px] px-2.5 py-1"
           >
             {copied ? 'Copied!' : 'Copy'}
           </button>
         </div>
-        <pre className="bg-[#0a0a0a] rounded-lg p-4 text-sm text-[#c3e88d] overflow-x-auto font-mono">
+        <pre className="p-4 text-sm text-[#c3e88d] overflow-x-auto font-mono rounded-md" style={{ background: 'var(--bg-void)' }}>
           {embedCode}
         </pre>
       </div>
@@ -108,359 +110,684 @@ function EmbedCodeGenerator() {
   );
 }
 
+/* ─── Section Badge ─── */
+
+function SectionBadge({ number, color }: { number: number; color: string }) {
+  return (
+    <span
+      className="inline-flex items-center justify-center w-8 h-8 rounded-lg text-sm font-bold shrink-0"
+      style={{ backgroundColor: `${color}20`, color }}
+    >
+      {number}
+    </span>
+  );
+}
+
+/* ─── Step Card ─── */
+
+function StepCard({
+  number,
+  title,
+  description,
+  color,
+  icon,
+}: {
+  number: number;
+  title: string;
+  description: string;
+  color: string;
+  icon: React.ReactNode;
+}) {
+  return (
+    <div className="relative">
+      <div
+        className="rounded-lg p-6 border transition-colors"
+        style={{ background: 'var(--bg-surface)', borderColor: 'var(--border-base)', borderLeftColor: color, borderLeftWidth: '3px' }}
+      >
+        <div className="flex items-center gap-3 mb-3">
+          <span
+            className="w-10 h-10 rounded-lg flex items-center justify-center text-lg font-bold"
+            style={{ backgroundColor: `${color}15`, color }}
+          >
+            {number}
+          </span>
+          <h3 className="text-lg font-semibold text-white">{title}</h3>
+        </div>
+        <p className="text-sm leading-relaxed" style={{ color: 'var(--text-tertiary)' }}>{description}</p>
+        <div className="mt-4 flex justify-end opacity-20" style={{ color }}>
+          {icon}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ─── Node Color Dot ─── */
+
+function NodeCard({
+  color,
+  label,
+  description,
+}: {
+  color: string;
+  label: string;
+  description: string;
+}) {
+  return (
+    <div className="rounded-lg p-4 border transition-colors group" style={{ background: 'var(--bg-surface)', borderColor: 'var(--border-base)' }}
+      onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'var(--border-hover)'; }}
+      onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--border-base)'; }}
+    >
+      <div className="flex items-center gap-3 mb-2">
+        <span
+          className="w-3.5 h-3.5 rounded-full shrink-0"
+          style={{ backgroundColor: color, boxShadow: `0 0 8px ${color}60, 0 0 0 2px #12121a, 0 0 0 4px ${color}40` }}
+        />
+        <span className="font-semibold text-white text-sm">{label}</span>
+      </div>
+      <p className="text-xs leading-relaxed" style={{ color: 'var(--text-tertiary)' }}>{description}</p>
+    </div>
+  );
+}
+
+/* ─── Feature Card ─── */
+
+function FeatureCard({
+  title,
+  description,
+  color,
+  icon,
+}: {
+  title: string;
+  description: string;
+  color: string;
+  icon: React.ReactNode;
+}) {
+  return (
+    <div
+      className="rounded-lg p-6 border transition-all"
+      style={{ background: 'var(--bg-surface)', borderColor: 'var(--border-base)', borderLeftColor: color, borderLeftWidth: '3px' }}
+    >
+      <div className="flex items-start gap-3">
+        <div
+          className="w-10 h-10 rounded-lg flex items-center justify-center shrink-0"
+          style={{ backgroundColor: `${color}15`, color }}
+        >
+          {icon}
+        </div>
+        <div>
+          <h3 className="text-white font-semibold mb-1">{title}</h3>
+          <p className="text-sm leading-relaxed" style={{ color: 'var(--text-tertiary)' }}>{description}</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ─── Threat Meter ─── */
+
+function ThreatMeter() {
+  const levels = [
+    { label: 'Safe', range: '0-14', color: '#00cc66', width: '15%' },
+    { label: 'Low', range: '15-29', color: '#ffcc00', width: '15%' },
+    { label: 'Medium', range: '30-49', color: '#ff8800', width: '20%' },
+    { label: 'High', range: '50-69', color: '#ff4444', width: '20%' },
+    { label: 'Critical', range: '70-100', color: '#ff0000', width: '30%' },
+  ];
+
+  return (
+    <div className="space-y-3">
+      <div className="flex rounded-lg overflow-hidden h-3">
+        {levels.map((l) => (
+          <div
+            key={l.label}
+            style={{ width: l.width, backgroundColor: l.color }}
+            className="relative group"
+          />
+        ))}
+      </div>
+      <div className="flex justify-between text-xs">
+        {levels.map((l) => (
+          <div key={l.label} className="text-center" style={{ color: l.color }}>
+            <div className="font-semibold">{l.label}</div>
+            <div style={{ color: 'var(--text-tertiary)' }}>{l.range}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ─── Icons (inline SVGs) ─── */
+
+const icons = {
+  search: (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="11" cy="11" r="8" /><path d="m21 21-4.3-4.3" />
+    </svg>
+  ),
+  network: (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="5" r="3" /><circle cx="5" cy="19" r="3" /><circle cx="19" cy="19" r="3" />
+      <path d="m12 8-4 8M12 8l4 8" />
+    </svg>
+  ),
+  scan: (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2" />
+      <path d="M7 12h10" />
+    </svg>
+  ),
+  eye: (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0" />
+      <circle cx="12" cy="12" r="3" />
+    </svg>
+  ),
+  heatmap: (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" />
+      <rect x="3" y="14" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" />
+    </svg>
+  ),
+  wallet: (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M21 12V7H5a2 2 0 0 1 0-4h14v4" /><path d="M3 5v14a2 2 0 0 0 2 2h16v-5" />
+      <path d="M18 12a2 2 0 0 0 0 4h4v-4Z" />
+    </svg>
+  ),
+  crosshair: (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="10" /><path d="M22 12h-4M6 12H2M12 6V2M12 22v-4" />
+    </svg>
+  ),
+  refresh: (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8" />
+      <path d="M21 3v5h-5" /><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16" />
+      <path d="M8 16H3v5" />
+    </svg>
+  ),
+  trending: (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="22 7 13.5 15.5 8.5 10.5 2 17" /><polyline points="16 7 22 7 22 13" />
+    </svg>
+  ),
+  code: (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="16 18 22 12 16 6" /><polyline points="8 6 2 12 8 18" />
+    </svg>
+  ),
+  shield: (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z" />
+    </svg>
+  ),
+  bolt: (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z" />
+    </svg>
+  ),
+  database: (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <ellipse cx="12" cy="5" rx="9" ry="3" /><path d="M3 5v14a9 3 0 0 0 18 0V5" /><path d="M3 12a9 3 0 0 0 18 0" />
+    </svg>
+  ),
+  alert: (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" />
+      <path d="M12 9v4M12 17h.01" />
+    </svg>
+  ),
+};
+
+/* ─── Main Page ─── */
+
 export default function DocsPage() {
   return (
-    <main className="min-h-screen bg-[#0a0a0a] text-[#e0e0e0]">
-      {/* Header */}
-      <header className="sticky top-0 z-50 bg-[#0a0a0a]/95 backdrop-blur border-b border-[#1a1a2e]">
-        <div className="max-w-4xl mx-auto px-6 py-4 flex items-center justify-between">
-          <Link href="/" className="flex items-center gap-2 hover:opacity-80 transition-opacity">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#e34946" strokeWidth="2">
-              <path d="M15 19l-7-7 7-7" />
-            </svg>
-            <span className="text-[#e34946] font-bold">Rico Maps</span>
-          </Link>
-          <a
-            href="https://x.com/Nullxnothing"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-[#6b7280] hover:text-white transition-colors"
-          >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
-            </svg>
-          </a>
-        </div>
-      </header>
+    <PageShell navFadeIn>
+      <PageHeader
+        eyebrow="Documentation"
+        title={(
+          <>
+            <span style={{ color: 'var(--text-primary)' }}>{"Solana's On-Chain"}</span>
+            <br />
+            <span style={{ color: 'var(--green-primary)' }}>Intelligence Platform</span>
+          </>
+        )}
+        subtitle="Trace wallet funding chains, expose coordinated cabal networks, and score on-chain threats across the Solana ecosystem."
+        actions={(
+          <>
+            <Link href="/" className="btn-cta">Launch App</Link>
+            <a href="#api-access" className="btn-cta-secondary">View API Docs</a>
+          </>
+        )}
+      />
 
-      {/* Content */}
-      <div className="max-w-4xl mx-auto px-6 py-12">
-        {/* Title */}
-        <div className="mb-12">
-          <h1 className="text-4xl font-bold text-white mb-4">Documentation</h1>
-          <p className="text-[#9898a6] text-lg">
-            Understanding how Rico Maps detects coordinated wallet activity and cabal networks.
+      <Container className="py-16 sm:py-20 space-y-20">
+        {/* ─── Section 1: What is Rico Maps? ─── */}
+        <section>
+          <div className="flex items-center gap-3 mb-8">
+            <SectionBadge number={1} color="#e34946" />
+            <h2 className="text-2xl font-bold text-white">What is Rico Maps?</h2>
+          </div>
+          <p className="text-lg leading-relaxed max-w-3xl mb-10" style={{ color: 'var(--text-secondary)' }}>
+            Rico Maps is a forensic intelligence tool that analyzes Solana wallets and tokens to uncover hidden
+            coordination between addresses. Paste any token contract or wallet and get a full network visualization
+            of who funded whom, who sniped, and who&apos;s running together.
           </p>
-        </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="rounded-lg p-6 border transition-colors" style={{ background: 'var(--bg-surface)', borderColor: 'var(--border-base)' }}
+              onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'rgba(255,51,102,0.3)'; }}
+              onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--border-base)'; }}
+            >
+              <div className="w-10 h-10 rounded-lg bg-[#ff3366]/10 flex items-center justify-center text-[#ff3366] mb-4">
+                {icons.network}
+              </div>
+              <h3 className="text-white font-semibold mb-2">Cabal Detection</h3>
+              <p className="text-sm leading-relaxed" style={{ color: 'var(--text-tertiary)' }}>
+                Finds wallets secretly coordinating by tracing shared funding sources across token holders.
+              </p>
+            </div>
+            <div className="rounded-lg p-6 border transition-colors" style={{ background: 'var(--bg-surface)', borderColor: 'var(--border-base)' }}
+              onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'rgba(0,255,204,0.3)'; }}
+              onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--border-base)'; }}
+            >
+              <div className="w-10 h-10 rounded-lg bg-[#00ffcc]/10 flex items-center justify-center text-[#00ffcc] mb-4">
+                {icons.bolt}
+              </div>
+              <h3 className="text-white font-semibold mb-2">Sniper & Bundle Detection</h3>
+              <p className="text-sm leading-relaxed" style={{ color: 'var(--text-tertiary)' }}>
+                Identifies wallets that bought within the first block or used Jito bundles to front-run others.
+              </p>
+            </div>
+            <div className="rounded-lg p-6 border transition-colors" style={{ background: 'var(--bg-surface)', borderColor: 'var(--border-base)' }}
+              onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'rgba(245,158,11,0.3)'; }}
+              onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--border-base)'; }}
+            >
+              <div className="w-10 h-10 rounded-lg bg-[#f59e0b]/10 flex items-center justify-center text-[#f59e0b] mb-4">
+                {icons.shield}
+              </div>
+              <h3 className="text-white font-semibold mb-2">Threat Scoring</h3>
+              <p className="text-sm leading-relaxed" style={{ color: 'var(--text-tertiary)' }}>
+                Assigns 0-100 risk scores based on identity tags, behavior patterns, and wallet age.
+              </p>
+            </div>
+          </div>
+        </section>
 
-        {/* What We Detect */}
-        <section className="mb-12">
-          <h2 className="text-2xl font-bold text-[#e34946] mb-6 flex items-center gap-2">
-            <span className="w-8 h-8 rounded-lg bg-[#e34946]/20 flex items-center justify-center text-sm">1</span>
-            What We Detect
-          </h2>
+        {/* ─── Section 2: How It Works ─── */}
+        <section>
+          <div className="flex items-center gap-3 mb-8">
+            <SectionBadge number={2} color="#4a9eff" />
+            <h2 className="text-2xl font-bold text-white">How It Works</h2>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <StepCard
+              number={1}
+              title="Enter Address"
+              description="Paste any Solana token contract address or wallet address. Rico Maps automatically detects the type and routes to the appropriate analysis pipeline."
+              color="#4a9eff"
+              icon={icons.search}
+            />
+            <StepCard
+              number={2}
+              title="Analyze Holders"
+              description="We fetch the top token holders and trace their funding sources using the Helius Wallet API. Each holder's earliest transactions are inspected for SOL transfers."
+              color="#00FF41"
+              icon={icons.scan}
+            />
+            <StepCard
+              number={3}
+              title="Detect Patterns"
+              description="Our engine cross-references all funding sources to find shared funders, flags first-block snipers, identifies Jito bundle clusters, and computes threat scores."
+              color="#ff3366"
+              icon={icons.crosshair}
+            />
+            <StepCard
+              number={4}
+              title="Visualize"
+              description="An interactive bubble map renders the full network with color-coded nodes and links. Click any node to inspect its wallet profile, portfolio, and risk breakdown."
+              color="#a78bfa"
+              icon={icons.eye}
+            />
+          </div>
+          {/* Flow connector */}
+          <div className="hidden md:flex items-center justify-center mt-6 gap-2">
+            <div className="h-px flex-1 bg-gradient-to-r from-transparent via-[#4a9eff]/30 to-[#00FF41]/30" />
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#737373" strokeWidth="2">
+              <path d="M5 12h14M12 5l7 7-7 7" />
+            </svg>
+            <div className="h-px flex-1 bg-gradient-to-r from-[#ff3366]/30 via-[#a78bfa]/30 to-transparent" />
+          </div>
+        </section>
 
+        {/* ─── Section 3: Node Types & Colors ─── */}
+        <section>
+          <div className="flex items-center gap-3 mb-8">
+            <SectionBadge number={3} color="#22d3ee" />
+            <h2 className="text-2xl font-bold text-white">Node Types & Colors</h2>
+          </div>
+          <p className="text-[#9898a6] mb-6">
+            Each node in the visualization represents a wallet or token, color-coded by its role in the network.
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <NodeCard color="#f59e0b" label="Token" description="The token being analyzed. Center of the graph." />
+            <NodeCard color="#1a7a3a" label="Holder" description="Clean token holders with no detected cabal connections." />
+            <NodeCard color="#ff9f43" label="Connected" description="Holders linked to one or more cabal funders." />
+            <NodeCard color="#ff3366" label="Cabal Funder" description="Wallet that funded multiple token holders." />
+            <NodeCard color="#00ffcc" label="Sniper" description="Bought within the first 10 blocks of trading." />
+            <NodeCard color="#a78bfa" label="Bundled" description="Detected in a Jito bundle cluster transaction." />
+            <NodeCard color="#64b5f6" label="Funder" description="Funding source wallet traced via SOL transfers." />
+            <NodeCard color="#00FF41" label="Target" description="Original wallet being traced in wallet mode." />
+          </div>
+        </section>
+
+        {/* ─── Section 4: Features ─── */}
+        <section>
+          <div className="flex items-center gap-3 mb-8">
+            <SectionBadge number={4} color="#00FF41" />
+            <h2 className="text-2xl font-bold text-white">Features</h2>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <FeatureCard
+              title="Risk Heatmap"
+              description="Toggle heatmap mode to recolor all nodes by threat level. Critical wallets glow red, safe wallets stay green. Instantly spot the highest-risk areas in any network."
+              color="#ff4444"
+              icon={icons.heatmap}
+            />
+            <FeatureCard
+              title="Wallet Profiles"
+              description="Click any node for a full breakdown: portfolio holdings, funding source, recent activity, identity tags, and a threat score with contributing factors."
+              color="#4a9eff"
+              icon={icons.wallet}
+            />
+            <FeatureCard
+              title="Cross-Token Deep Scan"
+              description="Discover what other tokens cabal wallets hold in common. Surface coordinated activity that spans multiple token launches."
+              color="#ff3366"
+              icon={icons.crosshair}
+            />
+            <FeatureCard
+              title="Real-Time Polling"
+              description="Live holder balance tracking with incremental updates. Watch positions change in real time as the chart auto-refreshes."
+              color="#00FF41"
+              icon={icons.refresh}
+            />
+            <FeatureCard
+              title="Trending Discovery"
+              description="Browse trending and featured Solana tokens with market cap, price, and volume data. One click to scan any token."
+              color="#f59e0b"
+              icon={icons.trending}
+            />
+            <FeatureCard
+              title="Embed Integration"
+              description="Embed Rico Maps visualizations on your own site via a simple iframe. Customize view style, dimensions, and target address."
+              color="#a78bfa"
+              icon={icons.code}
+            />
+          </div>
+        </section>
+
+        {/* ─── Section 5: Threat Scoring ─── */}
+        <section>
+          <div className="flex items-center gap-3 mb-8">
+            <SectionBadge number={5} color="#ff4444" />
+            <h2 className="text-2xl font-bold text-white">Threat Scoring</h2>
+          </div>
+          <div className="rounded-lg p-8 border" style={{ background: 'var(--bg-surface)', borderColor: 'var(--border-base)' }}>
+              <p className="mb-6" style={{ color: 'var(--text-secondary)' }}>
+                Every wallet is assigned a threat score from 0 to 100 based on multiple behavioral and identity signals.
+              The score determines the wallet&apos;s risk level and visualization color in heatmap mode.
+            </p>
+            <ThreatMeter />
+            <div className="mt-8">
+              <h3 className="text-white font-semibold mb-4">Contributing Factors</h3>
+              <div className="space-y-3">
+                {[
+                  { label: 'Identity tags (scammer / rugger / hacker via Helius)', score: '+40', color: '#ff0000' },
+                  { label: 'Cabal funder status (funded 2+ holders)', score: '+25', color: '#ff3366' },
+                  { label: 'Sniper detection (first 10 blocks)', score: '+20', color: '#00ffcc' },
+                  { label: 'Bundle membership (Jito bundle cluster)', score: '+15', color: '#a78bfa' },
+                  { label: 'Fresh wallet (created < 7 days ago)', score: '+10', color: '#f59e0b' },
+                ].map((factor) => (
+                  <div
+                    key={factor.label}
+                    className="flex items-center justify-between py-2 px-4 rounded-md border"
+                    style={{ background: 'var(--bg-void)', borderColor: 'var(--border-base)' }}
+                  >
+                    <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>{factor.label}</span>
+                    <span className="font-mono font-bold text-sm" style={{ color: factor.color }}>
+                      {factor.score}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* ─── Section 6: API Access ─── */}
+        <section id="api-access">
+          <div className="flex items-center gap-3 mb-8">
+            <SectionBadge number={6} color="#a78bfa" />
+            <h2 className="text-2xl font-bold text-white">API Access</h2>
+          </div>
           <div className="space-y-6">
-            <div className="bg-[#12121a] rounded-xl p-6 border border-[#1a1a2e]">
-              <h3 className="text-lg font-semibold text-[#ff3366] mb-3">Cabal Networks</h3>
-              <p className="text-[#9898a6] mb-4">
-                A &quot;cabal&quot; is a group of wallets that appear independent but are actually coordinated.
-                We detect this by finding <strong className="text-white">shared funders</strong> - wallets that
-                funded multiple token holders.
+            <div className="rounded-lg p-6 border" style={{ background: 'var(--bg-surface)', borderColor: 'var(--border-base)' }}>
+              <p className="mb-6" style={{ color: 'var(--text-secondary)' }}>
+                Programmatic access to Rico Maps analysis via REST API. Requires an API key set via
+                the <code className="px-2 py-0.5 rounded text-sm font-mono" style={{ background: 'var(--bg-void)', color: 'var(--purple-primary)' }}>RICO_API_KEYS</code> environment variable.
               </p>
-              <div className="bg-[#0a0a0a] rounded-lg p-4 font-mono text-sm">
-                <div className="text-[#6b7280]"># Example: Cabal Detection</div>
-                <div className="text-[#ff6b6b]">Funder A</div>
-                <div className="text-[#9898a6] ml-4">├─ funded → Holder 1</div>
-                <div className="text-[#9898a6] ml-4">├─ funded → Holder 2</div>
-                <div className="text-[#9898a6] ml-4">└─ funded → Holder 3</div>
-                <div className="text-[#ff3366] mt-2">⚠ Cabal detected: 1 wallet funded 3 holders</div>
+
+              <div className="space-y-4">
+                <div className="flex items-center gap-3">
+                  <span className="px-2 py-1 text-[#00FF41] text-xs font-mono rounded font-bold" style={{ background: 'rgba(0,255,65,0.08)' }}>POST</span>
+                  <code className="text-white font-mono text-sm">/api/v1/analyze</code>
+                  <span className="text-sm" style={{ color: 'var(--text-tertiary)' }}>Programmatic cabal analysis</span>
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className="px-2 py-1 text-[#4a9eff] text-xs font-mono rounded font-bold" style={{ background: 'rgba(74,158,255,0.08)' }}>GET</span>
+                  <code className="text-white font-mono text-sm">/api/v1/status</code>
+                  <span className="text-sm" style={{ color: 'var(--text-tertiary)' }}>Health check</span>
+                </div>
               </div>
             </div>
 
-            <div className="bg-[#12121a] rounded-xl p-6 border border-[#1a1a2e]">
-              <h3 className="text-lg font-semibold text-[#f59e0b] mb-3">DEX Obfuscation</h3>
-              <p className="text-[#9898a6]">
-                Some actors route funds through DEXs (Jupiter, Raydium, etc.) to hide the funding source.
-                We flag holders whose initial funding came through a DEX transaction as potentially obfuscated.
-              </p>
+            <div className="rounded-lg border overflow-hidden" style={{ background: 'var(--bg-surface)', borderColor: 'var(--border-base)' }}>
+              <div className="px-6 py-3 flex items-center justify-between" style={{ borderBottom: '1px solid var(--border-base)' }}>
+                <span className="text-xs font-mono" style={{ color: 'var(--text-tertiary)' }}>Example Request</span>
+              </div>
+              <pre className="p-6 text-sm font-mono overflow-x-auto leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
+{`curl -X POST https://ricomaps.fun/api/v1/analyze \\
+  -H "Authorization: Bearer YOUR_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "mint": "So11111111111111111111111111111111111111112",
+    "topHolders": 30
+  }'`}
+              </pre>
             </div>
 
-            <div className="bg-[#12121a] rounded-xl p-6 border border-[#1a1a2e]">
-              <h3 className="text-lg font-semibold text-[#f59e0b] mb-3">Fresh Wallet Funders</h3>
-              <p className="text-[#9898a6]">
-                Wallets less than 7 days old that fund multiple holders are flagged as suspicious.
-                Legitimate actors rarely create new wallets just to distribute tokens.
-              </p>
+            <div className="rounded-lg border overflow-hidden" style={{ background: 'var(--bg-surface)', borderColor: 'var(--border-base)' }}>
+              <div className="px-6 py-3" style={{ borderBottom: '1px solid var(--border-base)' }}>
+                <span className="text-xs font-mono" style={{ color: 'var(--text-tertiary)' }}>Example Response</span>
+              </div>
+              <pre className="p-6 text-sm font-mono overflow-x-auto leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
+{`{
+  "status": "ok",
+  "data": {
+    "nodes": 47,
+    "links": 62,
+    "cabalFunders": 3,
+    "snipers": 5,
+    "bundled": 2,
+    "avgThreatScore": 34.2,
+    "topThreats": [
+      { "wallet": "7xK...mN2", "score": 85, "tags": ["cabal-funder", "fresh"] }
+    ]
+  }
+}`}
+              </pre>
             </div>
           </div>
         </section>
 
-        {/* What We Display */}
-        <section className="mb-12">
-          <h2 className="text-2xl font-bold text-[#4a9eff] mb-6 flex items-center gap-2">
-            <span className="w-8 h-8 rounded-lg bg-[#4a9eff]/20 flex items-center justify-center text-sm">2</span>
-            What We Display
-          </h2>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-            <div className="bg-[#12121a] rounded-xl p-5 border border-[#1a1a2e]">
-              <div className="flex items-center gap-3 mb-3">
-                <span className="w-4 h-4 rounded-full bg-[#ffd54f]"></span>
-                <span className="font-semibold text-white">Token</span>
-              </div>
-              <p className="text-[#9898a6] text-sm">The token being analyzed (center node)</p>
-            </div>
-
-            <div className="bg-[#12121a] rounded-xl p-5 border border-[#1a1a2e]">
-              <div className="flex items-center gap-3 mb-3">
-                <span className="w-4 h-4 rounded-full bg-[#5a7a9a]"></span>
-                <span className="font-semibold text-white">Holders</span>
-              </div>
-              <p className="text-[#9898a6] text-sm">Clean token holders with no detected cabal connections</p>
-            </div>
-
-            <div className="bg-[#12121a] rounded-xl p-5 border border-[#1a1a2e]">
-              <div className="flex items-center gap-3 mb-3">
-                <span className="w-4 h-4 rounded-full bg-[#ff9f43]"></span>
-                <span className="font-semibold text-white">Connected</span>
-              </div>
-              <p className="text-[#9898a6] text-sm">Holders linked to a cabal funder (suspicious)</p>
-            </div>
-
-            <div className="bg-[#12121a] rounded-xl p-5 border border-[#1a1a2e]">
-              <div className="flex items-center gap-3 mb-3">
-                <span className="w-4 h-4 rounded-full bg-[#ff3366]"></span>
-                <span className="font-semibold text-white">Cabal Funder</span>
-              </div>
-              <p className="text-[#9898a6] text-sm">Wallet that funded multiple token holders</p>
-            </div>
+        {/* ─── Section 7: Embed on Your Site ─── */}
+        <section>
+          <div className="flex items-center gap-3 mb-8">
+            <SectionBadge number={7} color="#f59e0b" />
+            <h2 className="text-2xl font-bold text-white">Embed on Your Site</h2>
           </div>
-
-          <div className="bg-[#12121a] rounded-xl p-6 border border-[#1a1a2e]">
-            <h3 className="text-lg font-semibold text-white mb-4">Statistics Panel</h3>
-            <ul className="space-y-2 text-[#9898a6]">
-              <li className="flex items-start gap-2">
-                <span className="text-[#4a9eff] mt-1">•</span>
-                <span><strong className="text-white">Node Breakdown</strong> - Count of each node type</span>
-              </li>
-              <li className="flex items-start gap-2">
-                <span className="text-[#4a9eff] mt-1">•</span>
-                <span><strong className="text-white">Cabal Links</strong> - Total connections between funders and holders</span>
-              </li>
-              <li className="flex items-start gap-2">
-                <span className="text-[#4a9eff] mt-1">•</span>
-                <span><strong className="text-white">Top Cabal Funders</strong> - Ranked by how many holders they funded</span>
-              </li>
-              <li className="flex items-start gap-2">
-                <span className="text-[#4a9eff] mt-1">•</span>
-                <span><strong className="text-white">DEX Funded</strong> - Holders with obfuscated funding sources</span>
-              </li>
-            </ul>
-          </div>
-        </section>
-
-        {/* Technical Implementation */}
-        <section className="mb-12">
-          <h2 className="text-2xl font-bold text-[#22c55e] mb-6 flex items-center gap-2">
-            <span className="w-8 h-8 rounded-lg bg-[#22c55e]/20 flex items-center justify-center text-sm">3</span>
-            Technical Implementation
-          </h2>
-
           <div className="space-y-6">
-            <div className="bg-[#12121a] rounded-xl p-6 border border-[#1a1a2e]">
-              <h3 className="text-lg font-semibold text-white mb-4">Step 1: Fetch Token Holders</h3>
-              <p className="text-[#9898a6] mb-4">
-                We use Helius&apos;s <code className="bg-[#1a1a2e] px-2 py-1 rounded text-[#4a9eff]">getTokenAccounts</code> API
-                to fetch all token holders, sorted by balance. We analyze the top 30 holders by default.
+            <div className="rounded-lg p-6 border" style={{ background: 'var(--bg-surface)', borderColor: 'var(--border-base)' }}>
+              <h3 className="text-lg font-semibold text-white mb-4">Code Generator</h3>
+              <p className="mb-6" style={{ color: 'var(--text-tertiary)' }}>
+                Generate an iframe embed code for any Solana address. Drop it into your site, dashboard, or app.
               </p>
-              <div className="bg-[#0a0a0a] rounded-lg p-4 font-mono text-sm overflow-x-auto">
-                <span className="text-[#6b7280]">// RPC call to Helius</span><br/>
-                <span className="text-[#c792ea]">method:</span> <span className="text-[#c3e88d]">&quot;getTokenAccounts&quot;</span><br/>
-                <span className="text-[#c792ea]">params:</span> {'{'} <span className="text-[#c792ea]">mint</span>, <span className="text-[#c792ea]">limit:</span> <span className="text-[#f78c6c]">1000</span> {'}'}
-              </div>
-            </div>
-
-            <div className="bg-[#12121a] rounded-xl p-6 border border-[#1a1a2e]">
-              <h3 className="text-lg font-semibold text-white mb-4">Step 2: Trace Funding Sources</h3>
-              <p className="text-[#9898a6] mb-4">
-                For each holder, we fetch their earliest transactions using
-                <code className="bg-[#1a1a2e] px-2 py-1 rounded text-[#4a9eff]">getTransactionsForAddress</code> with
-                the <code className="bg-[#1a1a2e] px-2 py-1 rounded text-[#4a9eff]">tokenAccounts: &quot;balanceChanged&quot;</code> filter
-                to capture Associated Token Account (ATA) transactions.
-              </p>
-              <div className="bg-[#0a0a0a] rounded-lg p-4 font-mono text-sm overflow-x-auto">
-                <span className="text-[#6b7280]">// For each holder wallet</span><br/>
-                <span className="text-[#c792ea]">method:</span> <span className="text-[#c3e88d]">&quot;getTransactionsForAddress&quot;</span><br/>
-                <span className="text-[#c792ea]">params:</span> [address, {'{'}<br/>
-                <span className="ml-4 text-[#c792ea]">sortOrder:</span> <span className="text-[#c3e88d]">&quot;asc&quot;</span>, <span className="text-[#6b7280]">// oldest first</span><br/>
-                <span className="ml-4 text-[#c792ea]">filters:</span> {'{'} <span className="text-[#c792ea]">tokenAccounts:</span> <span className="text-[#c3e88d]">&quot;balanceChanged&quot;</span> {'}'}<br/>
-                {'}'}]
-              </div>
-            </div>
-
-            <div className="bg-[#12121a] rounded-xl p-6 border border-[#1a1a2e]">
-              <h3 className="text-lg font-semibold text-white mb-4">Step 3: Build Funder Map</h3>
-              <p className="text-[#9898a6] mb-4">
-                We extract <code className="bg-[#1a1a2e] px-2 py-1 rounded text-[#4a9eff]">nativeTransfers</code> from
-                each transaction to identify who sent SOL to each holder. We build a map of
-                <strong className="text-white"> funder → [list of holders they funded]</strong>.
-              </p>
-              <div className="bg-[#0a0a0a] rounded-lg p-4 font-mono text-sm">
-                <span className="text-[#6b7280]">// Funder map structure</span><br/>
-                <span className="text-[#ff6b6b]">funderMap</span> = {'{'}<br/>
-                <span className="ml-4 text-[#c3e88d]">&quot;FunderWallet1&quot;</span>: [<span className="text-[#f78c6c]">&quot;Holder1&quot;</span>, <span className="text-[#f78c6c]">&quot;Holder2&quot;</span>, <span className="text-[#f78c6c]">&quot;Holder3&quot;</span>],<br/>
-                <span className="ml-4 text-[#c3e88d]">&quot;FunderWallet2&quot;</span>: [<span className="text-[#f78c6c]">&quot;Holder4&quot;</span>],<br/>
-                {'}'}
-              </div>
-            </div>
-
-            <div className="bg-[#12121a] rounded-xl p-6 border border-[#1a1a2e]">
-              <h3 className="text-lg font-semibold text-white mb-4">Step 4: Detect Cabals</h3>
-              <p className="text-[#9898a6] mb-4">
-                Any funder that appears in <strong className="text-white">2 or more holders&apos;</strong> funding history is flagged as a
-                <strong className="text-[#ff3366]"> cabal funder</strong>. The holders they funded are marked as
-                <strong className="text-[#ff9f43]"> connected</strong>.
-              </p>
-              <div className="bg-[#0a0a0a] rounded-lg p-4 font-mono text-sm">
-                <span className="text-[#c792ea]">for</span> (funder, holders) <span className="text-[#c792ea]">in</span> funderMap:<br/>
-                <span className="ml-4 text-[#c792ea]">if</span> holders.length {'>'} <span className="text-[#f78c6c]">1</span>:<br/>
-                <span className="ml-8 text-[#ff3366]">// CABAL DETECTED</span><br/>
-                <span className="ml-8">mark funder as <span className="text-[#ff3366]">&quot;cabal-funder&quot;</span></span><br/>
-                <span className="ml-8">mark holders as <span className="text-[#ff9f43]">&quot;connected&quot;</span></span>
-              </div>
-            </div>
-
-            <div className="bg-[#12121a] rounded-xl p-6 border border-[#1a1a2e]">
-              <h3 className="text-lg font-semibold text-white mb-4">Step 5: Render Graph</h3>
-              <p className="text-[#9898a6]">
-                The resulting nodes and links are rendered using <strong className="text-white">Three.js</strong> with
-                a force-directed layout (<code className="bg-[#1a1a2e] px-2 py-1 rounded text-[#4a9eff]">d3-force-3d</code>).
-                Cabal connections naturally cluster together due to the link forces, making coordinated networks visually obvious.
-              </p>
-            </div>
-          </div>
-        </section>
-
-        {/* API & Data Sources */}
-        <section className="mb-12">
-          <h2 className="text-2xl font-bold text-[#ce93d8] mb-6 flex items-center gap-2">
-            <span className="w-8 h-8 rounded-lg bg-[#ce93d8]/20 flex items-center justify-center text-sm">4</span>
-            Data Sources
-          </h2>
-
-          <div className="bg-[#12121a] rounded-xl p-6 border border-[#1a1a2e]">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div>
-                <h3 className="font-semibold text-white mb-2">Helius API</h3>
-                <p className="text-[#9898a6] text-sm">
-                  Transaction history, token holders, and parsed transaction data via Helius RPC and Enhanced APIs.
-                </p>
-              </div>
-              <div>
-                <h3 className="font-semibold text-white mb-2">DexScreener API</h3>
-                <p className="text-[#9898a6] text-sm">
-                  Token metadata, icons, and trending token data for the discovery section.
-                </p>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* Limitations */}
-        <section className="mb-12">
-          <h2 className="text-2xl font-bold text-[#6b7280] mb-6 flex items-center gap-2">
-            <span className="w-8 h-8 rounded-lg bg-[#6b7280]/20 flex items-center justify-center text-sm">5</span>
-            Limitations
-          </h2>
-
-          <div className="bg-[#12121a] rounded-xl p-6 border border-[#1a1a2e]">
-            <ul className="space-y-3 text-[#9898a6]">
-              <li className="flex items-start gap-2">
-                <span className="text-[#6b7280] mt-1">•</span>
-                <span>We analyze the <strong className="text-white">top 30 holders</strong> by default. Smaller holders are not analyzed.</span>
-              </li>
-              <li className="flex items-start gap-2">
-                <span className="text-[#6b7280] mt-1">•</span>
-                <span>We trace the <strong className="text-white">first 3 funders</strong> per holder. Deep funding chains may be missed.</span>
-              </li>
-              <li className="flex items-start gap-2">
-                <span className="text-[#6b7280] mt-1">•</span>
-                <span>CEX withdrawals and legitimate shared services may cause false positives.</span>
-              </li>
-              <li className="flex items-start gap-2">
-                <span className="text-[#6b7280] mt-1">•</span>
-                <span>Multi-hop obfuscation (A → B → C → Holder) is not fully traced.</span>
-              </li>
-            </ul>
-          </div>
-        </section>
-
-        {/* Embed Integration */}
-        <section className="mb-12">
-          <h2 className="text-2xl font-bold text-[#f59e0b] mb-6 flex items-center gap-2">
-            <span className="w-8 h-8 rounded-lg bg-[#f59e0b]/20 flex items-center justify-center text-sm">6</span>
-            Embed on Your Site
-          </h2>
-
-          <div className="space-y-6">
-            <div className="bg-[#12121a] rounded-xl p-6 border border-[#1a1a2e]">
-              <h3 className="text-lg font-semibold text-white mb-4">Quick Start</h3>
-              <p className="text-[#9898a6] mb-4">
-                Embed Rico Maps visualizations directly into your website, dashboard, or app.
-                Simply use the iframe code below with your target address.
-              </p>
-
               <EmbedCodeGenerator />
             </div>
 
-            <div className="bg-[#12121a] rounded-xl p-6 border border-[#1a1a2e]">
+            <div className="rounded-lg p-6 border" style={{ background: 'var(--bg-surface)', borderColor: 'var(--border-base)' }}>
               <h3 className="text-lg font-semibold text-white mb-4">URL Parameters</h3>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="border-b border-[#2a2a4a]">
-                      <th className="text-left py-2 text-[#9898a6] font-medium">Parameter</th>
-                      <th className="text-left py-2 text-[#9898a6] font-medium">Description</th>
-                      <th className="text-left py-2 text-[#9898a6] font-medium">Default</th>
+                    <tr className="border-b" style={{ borderColor: 'var(--border-hover)' }}>
+                      <th className="text-left py-3 font-medium" style={{ color: 'var(--text-tertiary)' }}>Parameter</th>
+                      <th className="text-left py-3 font-medium" style={{ color: 'var(--text-tertiary)' }}>Description</th>
+                      <th className="text-left py-3 font-medium" style={{ color: 'var(--text-tertiary)' }}>Default</th>
                     </tr>
                   </thead>
-                  <tbody className="text-[#e0e0e0]">
-                    <tr className="border-b border-[#1a1a2e]">
-                      <td className="py-2"><code className="text-[#4a9eff]">address</code></td>
-                      <td className="py-2">Solana wallet or token mint address</td>
-                      <td className="py-2 text-[#6b7280]">required</td>
+                  <tbody style={{ color: 'var(--text-secondary)' }}>
+                    <tr className="border-b" style={{ borderColor: 'var(--border-base)' }}>
+                      <td className="py-3"><code className="font-mono" style={{ color: 'var(--blue-primary)' }}>address</code></td>
+                      <td className="py-3">Solana wallet or token mint address</td>
+                      <td className="py-3 italic" style={{ color: 'var(--text-tertiary)' }}>required</td>
                     </tr>
-                    <tr className="border-b border-[#1a1a2e]">
-                      <td className="py-2"><code className="text-[#4a9eff]">view</code></td>
-                      <td className="py-2">Visualization style: <code className="text-[#c3e88d]">forensic</code> or <code className="text-[#c3e88d]">bubble</code></td>
-                      <td className="py-2 text-[#6b7280]">forensic</td>
+                    <tr className="border-b" style={{ borderColor: 'var(--border-base)' }}>
+                      <td className="py-3"><code className="font-mono" style={{ color: 'var(--blue-primary)' }}>view</code></td>
+                      <td className="py-3">
+                        Visualization style: <code className="text-[#c3e88d] font-mono">forensic</code> or <code className="text-[#c3e88d] font-mono">bubble</code>
+                      </td>
+                      <td className="py-3" style={{ color: 'var(--text-tertiary)' }}>forensic</td>
                     </tr>
                     <tr>
-                      <td className="py-2"><code className="text-[#4a9eff]">hideWatermark</code></td>
-                      <td className="py-2">Hide the &quot;Powered by RicoMaps&quot; badge</td>
-                      <td className="py-2 text-[#6b7280]">false</td>
+                      <td className="py-3"><code className="font-mono" style={{ color: 'var(--blue-primary)' }}>hideWatermark</code></td>
+                      <td className="py-3">Hide the &quot;Powered by RicoMaps&quot; badge</td>
+                      <td className="py-3" style={{ color: 'var(--text-tertiary)' }}>false</td>
                     </tr>
                   </tbody>
                 </table>
               </div>
             </div>
 
-            <div className="bg-[#12121a] rounded-xl p-6 border border-[#1a1a2e]">
+            <div className="rounded-lg p-6 border" style={{ background: 'var(--bg-surface)', borderColor: 'var(--border-base)' }}>
               <h3 className="text-lg font-semibold text-white mb-4">Example Embeds</h3>
-              <div className="space-y-4 text-[#9898a6]">
+              <div className="space-y-4">
                 <div>
-                  <p className="mb-2">Token Analysis (forensic view):</p>
-                  <code className="block bg-[#0a0a0a] rounded p-3 text-[#c3e88d] text-xs overflow-x-auto">
-                    {`<iframe src="https://ricomaps.com/embed?address=TOKEN_MINT&view=forensic" width="100%" height="500"></iframe>`}
-                  </code>
+                  <p className="mb-2 text-sm" style={{ color: 'var(--text-tertiary)' }}>Token Analysis (forensic view):</p>
+                  <pre className="p-3 text-xs text-[#c3e88d] overflow-x-auto font-mono rounded-md" style={{ background: 'var(--bg-void)' }}>
+                    {`<iframe src="https://ricomaps.fun/embed?address=TOKEN_MINT&view=forensic" width="100%" height="500"></iframe>`}
+                  </pre>
                 </div>
                 <div>
-                  <p className="mb-2">Wallet Trace (bubble view):</p>
-                  <code className="block bg-[#0a0a0a] rounded p-3 text-[#c3e88d] text-xs overflow-x-auto">
-                    {`<iframe src="https://ricomaps.com/embed?address=WALLET_ADDRESS&view=bubble" width="100%" height="600"></iframe>`}
-                  </code>
+                  <p className="mb-2 text-sm" style={{ color: 'var(--text-tertiary)' }}>Wallet Trace (bubble view):</p>
+                  <pre className="p-3 text-xs text-[#c3e88d] overflow-x-auto font-mono rounded-md" style={{ background: 'var(--bg-void)' }}>
+                    {`<iframe src="https://ricomaps.fun/embed?address=WALLET_ADDRESS&view=bubble" width="100%" height="600"></iframe>`}
+                  </pre>
                 </div>
               </div>
             </div>
           </div>
         </section>
 
-        {/* Footer */}
-        <footer className="pt-8 border-t border-[#1a1a2e] text-center text-[#6b7280] text-sm">
-          <p>Rico Maps - Follow the money, expose the cabal.</p>
-        </footer>
-      </div>
-    </main>
+        {/* ─── Section 8: Data Sources & Methodology ─── */}
+        <section>
+          <div className="flex items-center gap-3 mb-8">
+            <SectionBadge number={8} color="#22d3ee" />
+            <h2 className="text-2xl font-bold text-white">Data Sources & Methodology</h2>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+            <div
+              className="rounded-lg p-6 border"
+              style={{ background: 'var(--bg-surface)', borderColor: 'var(--border-base)', borderTopColor: '#4a9eff', borderTopWidth: '2px' }}
+            >
+              <div className="w-10 h-10 rounded-lg bg-[#4a9eff]/10 flex items-center justify-center text-[#4a9eff] mb-4">
+                {icons.database}
+              </div>
+              <h3 className="text-white font-semibold mb-2">Helius Wallet API</h3>
+              <p className="text-sm leading-relaxed" style={{ color: 'var(--text-tertiary)' }}>
+                Funded-by tracing, batch identity lookups (5,100+ tagged accounts including known scammers,
+                exchanges, and market makers), and portfolio data.
+              </p>
+            </div>
+            <div
+              className="rounded-lg p-6 border"
+              style={{ background: 'var(--bg-surface)', borderColor: 'var(--border-base)', borderTopColor: '#00FF41', borderTopWidth: '2px' }}
+            >
+              <div className="w-10 h-10 rounded-lg bg-[#00FF41]/10 flex items-center justify-center text-[#00FF41] mb-4">
+                {icons.scan}
+              </div>
+              <h3 className="text-white font-semibold mb-2">Helius RPC (Gatekeeper)</h3>
+              <p className="text-sm leading-relaxed" style={{ color: 'var(--text-tertiary)' }}>
+                Token account queries, transaction history, on-chain data fetching, and enhanced transaction parsing.
+              </p>
+            </div>
+            <div
+              className="rounded-lg p-6 border"
+              style={{ background: 'var(--bg-surface)', borderColor: 'var(--border-base)', borderTopColor: '#f59e0b', borderTopWidth: '2px' }}
+            >
+              <div className="w-10 h-10 rounded-lg bg-[#f59e0b]/10 flex items-center justify-center text-[#f59e0b] mb-4">
+                {icons.trending}
+              </div>
+              <h3 className="text-white font-semibold mb-2">DexScreener</h3>
+              <p className="text-sm leading-relaxed" style={{ color: 'var(--text-tertiary)' }}>
+                Token metadata, trending tokens, price feeds, market cap data, and chart information for discovery.
+              </p>
+            </div>
+          </div>
+          <div className="rounded-lg p-6 border" style={{ background: 'var(--bg-surface)', borderColor: 'var(--border-base)', borderLeftColor: '#4a9eff', borderLeftWidth: '3px' }}>
+            <h3 className="text-white font-semibold mb-2">Methodology</h3>
+            <p className="text-sm leading-relaxed" style={{ color: 'var(--text-tertiary)' }}>
+              We use the Helius Wallet API to trace funding sources for each token holder, then cross-reference
+              all holders to find shared funders. First-block buyers are flagged as snipers via transaction
+              timestamp analysis. Jito bundle detection identifies wallets that transacted in the same bundle
+              slot. Identity enrichment from 5,100+ tagged accounts flags known scammers, exchanges, and market
+              makers. All signals are combined into a weighted threat score.
+            </p>
+          </div>
+        </section>
+
+        {/* ─── Section 9: Limitations ─── */}
+        <section>
+          <div className="flex items-center gap-3 mb-8">
+            <SectionBadge number={9} color="#737373" />
+            <h2 className="text-2xl font-bold text-white">Limitations</h2>
+          </div>
+          <div className="rounded-lg p-6 border" style={{ background: 'var(--bg-surface)', borderColor: 'var(--border-base)' }}>
+            <p className="mb-4 text-sm" style={{ color: 'var(--text-tertiary)' }}>
+              Rico Maps is a forensic intelligence tool, not a crystal ball. Here&apos;s what to keep in mind.
+            </p>
+            <div className="space-y-3">
+              {[
+                'We analyze the top 30 holders by default. Smaller holders are not traced.',
+                'We trace the first 3 funders per holder. Deep multi-hop funding chains may be missed.',
+                'CEX withdrawals (Binance, Coinbase, etc.) and legitimate shared services can cause false positives.',
+                'Multi-hop obfuscation (A -> B -> C -> Holder) is partially traced but not guaranteed at depth.',
+                'DEX-routed funding (through Jupiter, Raydium) is flagged but the original source may be hidden.',
+                'Threat scores are heuristic-based. A high score means elevated risk, not confirmed malice.',
+                'Bundle detection relies on transaction slot proximity. Some edge cases may be missed.',
+              ].map((limitation, i) => (
+                <div key={i} className="flex items-start gap-3 py-2 px-4 rounded-md" style={{ background: 'var(--bg-void)' }}>
+                  <span className="mt-0.5 shrink-0" style={{ color: 'var(--text-tertiary)' }}>{icons.alert}</span>
+                  <span className="text-sm" style={{ color: 'var(--text-tertiary)' }}>{limitation}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+      </Container>
+    </PageShell>
   );
 }

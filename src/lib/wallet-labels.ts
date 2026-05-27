@@ -121,9 +121,6 @@ export const WALLET_LABELS: WalletLabel[] = [
   { address: '4MangoMjqJ2firMokCjjGgoK8d4MXcrgL7XJaL3w6fVg', name: 'Mango Markets', category: 'protocol', verified: true, risk: 'safe' },
   { address: 'dRiftyHA39MWEi3m9aunc5MzRF1JYuBsbn6VPcn33UH', name: 'Drift Protocol', category: 'protocol', verified: true, risk: 'safe' },
 
-  // ============ KNOWN SCAMMERS / RUG DEPLOYERS ============
-  { address: 'ScAMmErWallet1111111111111111111111111111111', name: 'Example Scammer', category: 'scammer', verified: false, risk: 'dangerous', notes: 'Placeholder - add real scam wallets' },
-
   // ============ INFLUENCERS / KNOWN TRADERS ============
   { address: '5MMCR1P1gjHc6T1tMNWLxLPgQbHdCGrDhNdHDjAQ44u8', name: 'Ansem', category: 'influencer', verified: false, risk: 'neutral', twitter: '@blknoiz06' },
 

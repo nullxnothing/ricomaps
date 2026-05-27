@@ -1,6 +1,9 @@
 'use client';
 
 import Link from 'next/link';
+import { PageShell } from '@/components/layout/PageShell';
+import { PageHeader } from '@/components/layout/PageHeader';
+import { Container } from '@/components/layout/Container';
 
 interface RoadmapItem {
   title: string;
@@ -158,99 +161,70 @@ const roadmap: RoadmapPhase[] = [
   },
 ];
 
-const statusColors = {
-  completed: 'bg-[#00ff88] text-black',
-  'in-progress': 'bg-[#ffd54f] text-black',
-  planned: 'bg-[#4a9eff] text-white',
-  future: 'bg-[#6b7280] text-white',
+const statusConfig = {
+  completed:    { label: 'Completed',   cls: 'text-black font-semibold', bg: 'var(--green-primary)' },
+  'in-progress':{ label: 'In Progress', cls: 'text-black font-semibold', bg: '#ffd54f' },
+  planned:      { label: 'Planned',     cls: 'text-white',               bg: '#4a9eff' },
+  future:       { label: 'Future',      cls: 'text-white',               bg: '#555568' },
 };
 
-const statusLabels = {
-  completed: 'Completed',
-  'in-progress': 'In Progress',
-  planned: 'Planned',
-  future: 'Future',
-};
-
-const phaseColors = {
-  'Phase 1': 'border-[#00ff88]',
-  'Phase 2': 'border-[#ffd54f]',
-  'Phase 3': 'border-[#4a9eff]',
-  'Phase 4': 'border-[#ff9f43]',
-  'Phase 5': 'border-[#ff3366]',
+const phaseAccents: Record<string, string> = {
+  'Phase 1': 'var(--green-primary)',
+  'Phase 2': '#ffd54f',
+  'Phase 3': '#4a9eff',
+  'Phase 4': '#ff9f43',
+  'Phase 5': '#a78bfa',
 };
 
 export default function RoadmapPage() {
   return (
-    <main className="min-h-screen bg-[#0a0a0a] text-white">
-      {/* Header */}
-      <header className="border-b border-[#1f2937] bg-[#0a0a0a]/95 backdrop-blur sticky top-0 z-50">
-        <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
-          <Link href="/" className="flex items-center gap-3 hover:opacity-80 transition-opacity">
-            <img src="/favicon.png" alt="RicoMaps" className="w-8 h-8 rounded-lg" />
-            <span className="text-xl font-bold text-[#e34946]">RicoMaps</span>
-          </Link>
-          <nav className="flex items-center gap-6">
-            <Link href="/docs" className="text-sm text-[#9ca3af] hover:text-white transition-colors">
-              Docs
-            </Link>
-            <Link href="/roadmap" className="text-sm text-white font-medium">
-              Roadmap
-            </Link>
-            <a
-              href="https://x.com/Nullxnothing"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-sm text-[#9ca3af] hover:text-white transition-colors"
-            >
-              Twitter
-            </a>
-          </nav>
-        </div>
-      </header>
-
-      {/* Hero */}
-      <section className="py-16 px-6 text-center border-b border-[#1f2937]">
-        <h1 className="text-4xl md:text-5xl font-bold mb-4">
-          <span className="text-[#e34946]">RicoMaps</span> Roadmap
-        </h1>
-        <p className="text-lg text-[#9ca3af] max-w-2xl mx-auto">
-          Our vision for building the most powerful on-chain forensics tool on Solana.
-          Follow our progress as we expose the unseen.
-        </p>
-      </section>
+    <PageShell>
+      <PageHeader
+        eyebrow="Roadmap"
+        title={(
+          <>
+            <span style={{ color: 'var(--green-primary)' }}>RicoMaps</span> Roadmap
+          </>
+        )}
+        subtitle="Our vision for building the most powerful on-chain forensics tool on Solana. Follow our progress as we expose the unseen."
+      />
 
       {/* Legend */}
-      <section className="py-6 px-6 border-b border-[#1f2937]">
-        <div className="max-w-6xl mx-auto flex flex-wrap justify-center gap-4">
-          {Object.entries(statusLabels).map(([status, label]) => (
-            <div key={status} className="flex items-center gap-2">
-              <span className={`px-2 py-1 rounded text-xs font-medium ${statusColors[status as keyof typeof statusColors]}`}>
-                {label}
-              </span>
-            </div>
+      <section className="py-6 border-b" style={{ borderColor: 'var(--border-base)' }}>
+        <Container className="flex flex-wrap justify-center gap-3">
+          {Object.entries(statusConfig).map(([status, cfg]) => (
+            <span
+              key={status}
+              className={`px-2 py-1 rounded text-xs font-medium ${cfg.cls}`}
+              style={{ background: cfg.bg }}
+            >
+              {cfg.label}
+            </span>
           ))}
-        </div>
+        </Container>
       </section>
 
       {/* Roadmap Timeline */}
-      <section className="py-12 px-6">
-        <div className="max-w-4xl mx-auto">
+      <section className="py-12">
+        <Container>
           {roadmap.map((phase, phaseIndex) => (
             <div key={phase.phase} className="relative mb-12 last:mb-0">
               {/* Timeline line */}
               {phaseIndex < roadmap.length - 1 && (
-                <div className="absolute left-6 top-16 bottom-0 w-0.5 bg-[#1f2937]" />
+                <div className="absolute left-6 top-16 bottom-0 w-0.5" style={{ background: 'var(--border-base)' }} />
               )}
 
               {/* Phase header */}
-              <div className={`flex items-center gap-4 mb-6 border-l-4 pl-4 ${phaseColors[phase.phase as keyof typeof phaseColors] || 'border-[#6b7280]'}`}>
+              <div
+                className="flex items-center gap-4 mb-6 pl-4"
+                style={{ borderLeft: `4px solid ${phaseAccents[phase.phase] ?? 'var(--border-hover)'}` }}
+              >
                 <div>
                   <div className="flex items-center gap-3">
-                    <span className="text-xs font-mono text-[#6b7280] uppercase tracking-wider">
+                    <span className="text-xs font-mono uppercase tracking-wider" style={{ color: 'var(--text-tertiary)' }}>
                       {phase.phase}
                     </span>
-                    <span className="text-xs text-[#4a9eff]">{phase.timeline}</span>
+                    <span className="text-xs" style={{ color: '#4a9eff' }}>{phase.timeline}</span>
                   </div>
                   <h2 className="text-2xl font-bold text-white">{phase.title}</h2>
                 </div>
@@ -261,20 +235,26 @@ export default function RoadmapPage() {
                 {phase.items.map((item, itemIndex) => (
                   <div
                     key={itemIndex}
-                    className="relative bg-[#111318] border border-[#1f2937] rounded-lg p-4 hover:border-[#2d3748] transition-colors"
+                    className="relative rounded-lg p-4 border transition-colors"
+                    style={{ background: 'var(--bg-surface)', borderColor: 'var(--border-base)' }}
+                    onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'var(--border-hover)'; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--border-base)'; }}
                   >
                     <div className="flex items-start justify-between gap-4">
                       <div className="flex-1">
                         <div className="flex items-center gap-3 mb-2">
                           <h3 className="font-semibold text-white">{item.title}</h3>
-                          <span className={`px-2 py-0.5 rounded text-[10px] font-medium ${statusColors[item.status]}`}>
-                            {statusLabels[item.status]}
+                          <span
+                            className={`px-2 py-0.5 rounded text-[10px] font-medium ${statusConfig[item.status].cls}`}
+                            style={{ background: statusConfig[item.status].bg }}
+                          >
+                            {statusConfig[item.status].label}
                           </span>
                         </div>
-                        <p className="text-sm text-[#9ca3af]">{item.description}</p>
+                        <p className="text-sm" style={{ color: 'var(--text-tertiary)' }}>{item.description}</p>
                       </div>
                       {item.status === 'completed' && (
-                        <div className="text-[#00ff88]">
+                        <div style={{ color: 'var(--green-primary)' }}>
                           <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                             <path d="M20 6L9 17l-5-5" />
                           </svg>
@@ -294,60 +274,34 @@ export default function RoadmapPage() {
               </div>
             </div>
           ))}
-        </div>
+        </Container>
       </section>
 
       {/* CTA */}
-      <section className="py-16 px-6 border-t border-[#1f2937]">
-        <div className="max-w-2xl mx-auto text-center">
-          <h2 className="text-2xl font-bold mb-4">Have a Feature Request?</h2>
-          <p className="text-[#9ca3af] mb-6">
-            Join our community and let us know what features you want to see next.
-          </p>
-          <div className="flex justify-center gap-4">
-            <a
-              href="https://x.com/Nullxnothing"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="px-6 py-3 bg-[#1a1a2e] border border-[#2a2a4a] rounded-lg hover:bg-[#252540] transition-colors flex items-center gap-2"
-            >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
-              </svg>
-              Follow @RicoMaps
-            </a>
-            <Link
-              href="/"
-              className="px-6 py-3 bg-[#e34946] text-white rounded-lg hover:bg-[#c73e3b] transition-colors"
-            >
-              Try RicoMaps Now
-            </Link>
+      <section className="py-16 border-t" style={{ borderColor: 'var(--border-base)' }}>
+        <Container>
+          <div className="max-w-2xl mx-auto text-center">
+            <h2 className="text-2xl font-bold mb-3" style={{ color: 'var(--text-primary)' }}>Have a Feature Request?</h2>
+            <p className="mb-7" style={{ color: 'var(--text-secondary)' }}>
+              Join our community and let us know what features you want to see next.
+            </p>
+            <div className="flex justify-center gap-3 flex-wrap">
+              <a
+                href="https://x.com/RicoxMaps"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="btn-cta-secondary"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
+                </svg>
+                Follow @RicoMaps
+              </a>
+              <Link href="/" className="btn-cta">Try RicoMaps Now</Link>
+            </div>
           </div>
-        </div>
+        </Container>
       </section>
-
-      {/* Footer */}
-      <footer className="border-t border-[#1f2937] py-8 px-6">
-        <div className="max-w-6xl mx-auto flex flex-col md:flex-row items-center justify-between gap-4">
-          <div className="flex items-center gap-2 text-sm text-[#6b7280]">
-            <img src="/favicon.png" alt="RicoMaps" className="w-5 h-5 rounded" />
-            <span>RicoMaps - See the unseen on Solana</span>
-          </div>
-          <div className="flex items-center gap-6 text-sm">
-            <Link href="/docs" className="text-[#9ca3af] hover:text-white transition-colors">
-              Documentation
-            </Link>
-            <a
-              href="https://pump.fun/coin/GmfCguoum2Mbw6ohrFtjuPo5hjsjoWv36YYzwxdwpump"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-[#ffd54f] hover:text-[#ffe066] transition-colors"
-            >
-              $RicoMaps Token
-            </a>
-          </div>
-        </div>
-      </footer>
-    </main>
+    </PageShell>
   );
 }

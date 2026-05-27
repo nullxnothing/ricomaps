@@ -16,13 +16,13 @@ interface NodeDetailPanelProps {
 const typeConfig: Record<string, { label: string; cssColor: string }> = {
   target: { label: 'Target', cssColor: 'var(--green-primary)' },
   funder: { label: 'Funder', cssColor: 'var(--blue-primary)' },
-  funded: { label: 'Funded', cssColor: '#8b8bff' },
+  funded: { label: 'Funded', cssColor: 'var(--blue-primary)' },
   holder: { label: 'Holder', cssColor: 'var(--text-secondary)' },
   token: { label: 'Token', cssColor: 'var(--amber-primary)' },
   'cabal-funder': { label: 'Cabal funder', cssColor: 'var(--red-primary)' },
   connected: { label: 'Cabal linked', cssColor: 'var(--amber-primary)' },
   sniper: { label: 'Sniper', cssColor: 'var(--cyan-primary)' },
-  bundled: { label: 'Bundled', cssColor: '#a78bfa' },
+  bundled: { label: 'Bundled', cssColor: 'var(--purple-primary)' },
 };
 
 function formatAmount(amount: number): string {
@@ -61,7 +61,7 @@ export function NodeDetailPanel({
   const categoryInfo = node.walletLabel ? CATEGORY_INFO[node.walletLabel.category as WalletCategory] : null;
 
   return (
-    <div className="glass-panel w-full sm:w-72 sm:rounded-lg rounded-none rounded-t-xl max-h-[50vh] sm:max-h-none overflow-y-auto themed-scrollbar">
+    <div className="glass-panel w-full sm:w-72 xl:w-80 2xl:w-88 sm:rounded-lg rounded-none rounded-t-xl max-h-[50vh] sm:max-h-none overflow-y-auto themed-scrollbar">
       {/* Header: type badge + close */}
       <div className="flex items-center justify-between px-3.5 py-2.5">
         <div className="flex items-center gap-2">
@@ -198,7 +198,7 @@ export function NodeDetailPanel({
         )}
 
         <a
-          href={`https://solscan.io/account/${node.id}`}
+          href={`https://orbmarkets.io/address/${node.id}`}
           target="_blank"
           rel="noopener noreferrer"
           className="node-action-btn external"
@@ -206,7 +206,7 @@ export function NodeDetailPanel({
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6M15 3h6v6M10 14L21 3" />
           </svg>
-          Solscan
+          Orb
         </a>
       </div>
     </div>

@@ -2,14 +2,15 @@ import {
   HeliusTransaction,
   TokenHolder,
   HeliusAsset,
-  HeliusTransactionType,
   TokenSecurityInfo,
   EnrichedFunderInfo,
-  WalletProfile
 } from './types';
 
-// Dedicated node — fast RPC (~50ms), no key needed, use for all RPC calls
-const DEDICATED_RPC_URL = process.env.HELIUS_DEDICATED_RPC || '';
+// Dedicated node / project RPC. Support both the old local name and the Vercel env name.
+const DEDICATED_RPC_URL = process.env.HELIUS_DEDICATED_RPC || process.env.HELIUS_RPC_URL || '';
+const HELIUS_RPC_BASE = 'https://mainnet.helius-rpc.com/';
+export const NATIVE_SOL_MINT = 'So11111111111111111111111111111111111111111';
+export const WSOL_MINT = 'So11111111111111111111111111111111111111112';
 
 // API keys for Wallet API / Enhanced Transactions API (still need keys)
 const API_KEYS = [
@@ -19,49 +20,25 @@ const API_KEYS = [
   process.env.HELIUS_API_KEY_4,
 ].filter(Boolean) as string[];
 
-let currentKeyIndex = 0;
-
-function getNextApiKey(): string {
-  if (API_KEYS.length === 0) {
-    throw new Error('No Helius API keys configured');
-  }
-  const key = API_KEYS[currentKeyIndex];
-  currentKeyIndex = (currentKeyIndex + 1) % API_KEYS.length;
-  return key;
-}
-
 // RPC URL: use dedicated node if available (faster, no rate limits), fallback to keyed
-function getHeliusRpcUrl(apiKey?: string): string {
-  if (DEDICATED_RPC_URL) return DEDICATED_RPC_URL;
-  return `https://mainnet.helius-rpc.com/?api-key=${apiKey || getNextApiKey()}`;
-}
-
-function getHeliusApiUrl(endpoint: string, apiKey?: string): string {
-  return `https://api.helius.xyz/v0${endpoint}?api-key=${apiKey || getNextApiKey()}`;
-}
-
 // Throttled URL resolvers
 // RPC: dedicated node (no throttle needed) or keyed fallback
 async function getThrottledRpcUrl(): Promise<string> {
   if (DEDICATED_RPC_URL) return DEDICATED_RPC_URL; // No throttle — dedicated node has no rate limit
   const key = await throttledGetKey();
-  return `https://mainnet.helius-rpc.com/?api-key=${key}`;
+  return `${HELIUS_RPC_BASE}?api-key=${key}`;
 }
 
 // API: always needs a key (Wallet API, Enhanced Transactions)
 async function getThrottledApiUrl(endpoint: string): Promise<string> {
   const key = await throttledGetKey();
-  return `https://api.helius.xyz/v0${endpoint}?api-key=${key}`;
+  return `https://api-mainnet.helius-rpc.com/v0${endpoint}?api-key=${key}`;
 }
 
 // Known DEX and mixer sources for forensic detection
 const DEX_SOURCES = new Set([
   'JUPITER', 'RAYDIUM', 'ORCA', 'SERUM', 'OPENBOOK', 'PHOENIX',
   'LIFINITY', 'METEORA', 'PUMP_FUN', 'MOONSHOT'
-]);
-
-const MIXER_SOURCES = new Set([
-  'TORNADO', 'ELUSIV', // Add known mixers
 ]);
 
 // ============================================================================
@@ -74,16 +51,19 @@ interface CacheEntry<T> {
   ttl: number;
 }
 
+const CACHE_SENTINEL = Symbol('CACHE_NULL');
+type CacheStored<T> = T | typeof CACHE_SENTINEL;
+
 const MAX_CACHE_SIZE = 2000;
 const cache = new Map<string, CacheEntry<unknown>>();
 
-// Separate TTLs by data type
 const CACHE_TTLS = {
-  security: 1 * 60 * 60 * 1000,       // 1 hour
-  holders: 15 * 1000,                  // 15 seconds — short for live polling
-  transactions: 4 * 60 * 60 * 1000,   // 4 hours
-  profiles: 1 * 60 * 60 * 1000,       // 1 hour
-  default: 2 * 60 * 60 * 1000,        // 2 hours
+  security: 1 * 60 * 60 * 1000,
+  holders: 15 * 1000,
+  transactions: 4 * 60 * 60 * 1000,
+  profiles: 1 * 60 * 60 * 1000,
+  transfers: 5 * 60 * 1000,
+  default: 2 * 60 * 60 * 1000,
 };
 
 function getTtlForKey(key: string): number {
@@ -91,43 +71,74 @@ function getTtlForKey(key: string): number {
   if (key.startsWith('holders:')) return CACHE_TTLS.holders;
   if (key.startsWith('txs:')) return CACHE_TTLS.transactions;
   if (key.startsWith('profile:')) return CACHE_TTLS.profiles;
+  if (key.startsWith('transfers:')) return CACHE_TTLS.transfers;
+  if (key.startsWith('wallet-history:')) return 2 * 60 * 1000;
   return CACHE_TTLS.default;
 }
 
-function getCached<T>(key: string): T | null {
+function getCached<T>(key: string): { hit: true; value: T } | { hit: false } {
   const entry = cache.get(key);
-  if (!entry) return null;
+  if (!entry) return { hit: false };
   if (Date.now() - entry.timestamp > entry.ttl) {
     cache.delete(key);
-    return null;
+    return { hit: false };
   }
-  return entry.data as T;
+  cache.delete(key);
+  cache.set(key, entry);
+  const stored = entry.data as CacheStored<T>;
+  return { hit: true, value: stored === CACHE_SENTINEL ? null as T : stored as T };
 }
 
 function setCache<T>(key: string, data: T): void {
-  // Evict oldest entry if at capacity
   if (cache.size >= MAX_CACHE_SIZE && !cache.has(key)) {
     const firstKey = cache.keys().next().value;
     if (firstKey) cache.delete(firstKey);
   }
-  cache.set(key, { data, timestamp: Date.now(), ttl: getTtlForKey(key) });
+  const stored = data === null ? CACHE_SENTINEL : data;
+  cache.set(key, { data: stored, timestamp: Date.now(), ttl: getTtlForKey(key) });
 }
+
+const SWEEP_INTERVAL = 5 * 60 * 1000;
+let sweepTimer: ReturnType<typeof setInterval> | null = null;
+
+function startCacheSweep() {
+  if (sweepTimer) return;
+  sweepTimer = setInterval(() => {
+    const now = Date.now();
+    for (const [key, entry] of cache) {
+      if (now - entry.timestamp > entry.ttl) cache.delete(key);
+    }
+  }, SWEEP_INTERVAL);
+  if (typeof sweepTimer === 'object' && 'unref' in sweepTimer) {
+    sweepTimer.unref();
+  }
+}
+
+startCacheSweep();
+
+const g = globalThis as Record<string, unknown>;
+if (typeof g.__helius_sweep_cleanup === 'function') {
+  (g.__helius_sweep_cleanup as () => void)();
+}
+g.__helius_sweep_cleanup = () => {
+  if (sweepTimer) { clearInterval(sweepTimer); sweepTimer = null; }
+};
 
 // ============================================================================
 // RETRY LOGIC WITH PER-KEY RATE LIMITING + CIRCUIT BREAKER
 // ============================================================================
 
-// Per-key rate tracking — allows true parallelism across keys
-// Business+ tier: 50 req/15s per key = ~300ms minimum between requests on SAME key
-const PER_KEY_INTERVAL = 0; // Business+ = 50 req/s per key, no artificial throttle needed
+// Per-key rate tracking. Override for higher Helius plans with HELIUS_REQUESTS_PER_SECOND.
+const REQUESTS_PER_SECOND = Math.max(1, Number(process.env.HELIUS_REQUESTS_PER_SECOND ?? 10));
+const PER_KEY_INTERVAL = Math.ceil(1000 / REQUESTS_PER_SECOND);
 const keyLastRequestTime = new Map<string, number>();
 
 // Circuit breaker
 let consecutiveFailures = 0;
 let circuitBreakerTripped = false;
 let circuitBreakerResetTime = 0;
-const MAX_CONSECUTIVE_FAILURES = 5;
-const CIRCUIT_BREAKER_RESET_MS = 30000;
+const MAX_CONSECUTIVE_FAILURES = 15;
+const CIRCUIT_BREAKER_RESET_MS = 10000;
 
 function checkCircuitBreaker(): boolean {
   if (!circuitBreakerTripped) return true;
@@ -135,7 +146,6 @@ function checkCircuitBreaker(): boolean {
   if (Date.now() > circuitBreakerResetTime) {
     circuitBreakerTripped = false;
     consecutiveFailures = 0;
-    console.log('[Helius] Circuit breaker reset - resuming requests');
     return true;
   }
 
@@ -157,6 +167,10 @@ function recordFailure(): void {
 
 // Get the least-recently-used key and throttle only that key
 function acquireKey(): { key: string; waitMs: number } {
+  if (API_KEYS.length === 0) {
+    throw new Error('No Helius API keys configured');
+  }
+
   const now = Date.now();
   let bestKey = API_KEYS[0];
   let bestWait = Infinity;
@@ -185,13 +199,22 @@ async function throttledGetKey(): Promise<string> {
   return key;
 }
 
+function sanitizeUrl(url: string): string {
+  return url
+    .replace(/([?&])api-key=[^&]*/gi, '$1api-key=***')
+    .replace(/(\/api-key\/)[^/?]*/gi, '$1***');
+}
+
+const FETCH_TIMEOUT_MS = 30_000;
+
 interface FetchOptions extends RequestInit {
   maxRetries?: number;
   baseDelay?: number;
+  allowedStatuses?: number[];
 }
 
 async function fetchWithRetry(url: string | (() => Promise<string>), options: FetchOptions = {}): Promise<Response> {
-  const { maxRetries = 3, baseDelay = 3000, ...fetchOptions } = options;
+  const { maxRetries = 3, baseDelay = 3000, allowedStatuses = [], ...fetchOptions } = options;
   let lastError: Error | null = null;
 
   if (!checkCircuitBreaker()) {
@@ -199,19 +222,30 @@ async function fetchWithRetry(url: string | (() => Promise<string>), options: Fe
   }
 
   for (let attempt = 0; attempt < maxRetries; attempt++) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+
     try {
       // Resolve URL (may involve per-key throttling)
       const resolvedUrl = typeof url === 'function' ? await url() : url;
 
-      const response = await fetch(resolvedUrl, fetchOptions);
+      const response = await fetch(resolvedUrl, { ...fetchOptions, signal: controller.signal });
+      clearTimeout(timeoutId);
 
-      // Handle rate limiting with backoff
+      if (allowedStatuses.includes(response.status)) {
+        recordSuccess();
+        return response;
+      }
+
+      // Handle rate limiting — mark this key as cooling off and retry with a different key
       if (response.status === 429) {
-        recordFailure();
         const retryAfter = response.headers.get('Retry-After');
-        const delay = retryAfter ? parseInt(retryAfter) * 1000 : baseDelay * Math.pow(2, attempt);
-        console.warn(`Rate limited (attempt ${attempt + 1}/${maxRetries}). Waiting ${delay}ms...`);
-        await sleep(delay);
+        const cooldown = retryAfter ? parseInt(retryAfter) * 1000 : baseDelay * Math.pow(2, attempt);
+        // Cool off the key that was just used so acquireKey() picks a different one
+        const keyMatch = resolvedUrl.match(/api-key=([^&]+)/);
+        if (keyMatch) keyLastRequestTime.set(keyMatch[1], Date.now() + cooldown);
+        console.warn(`Rate limited (attempt ${attempt + 1}/${maxRetries}). Waiting ${Math.min(cooldown, 2000)}ms...`);
+        await sleep(Math.min(cooldown, 2000));
         continue;
       }
 
@@ -227,7 +261,7 @@ async function fetchWithRetry(url: string | (() => Promise<string>), options: Fe
       // Handle other errors
       if (!response.ok) {
         recordFailure();
-        const errorBody = await response.text();
+        const errorBody = (await response.text()).replace(/api-key=[^&\s"']*/gi, 'api-key=***');
         throw new Error(`Helius API error ${response.status}: ${errorBody}`);
       }
 
@@ -235,6 +269,7 @@ async function fetchWithRetry(url: string | (() => Promise<string>), options: Fe
       recordSuccess();
       return response;
     } catch (error) {
+      clearTimeout(timeoutId);
       lastError = error as Error;
       recordFailure();
       if (attempt < maxRetries - 1) {
@@ -245,7 +280,11 @@ async function fetchWithRetry(url: string | (() => Promise<string>), options: Fe
     }
   }
 
-  throw lastError || new Error('Request failed after max retries');
+  if (lastError) {
+    lastError.message = sanitizeUrl(lastError.message);
+    throw lastError;
+  }
+  throw new Error('Request failed after max retries');
 }
 
 function sleep(ms: number): Promise<void> {
@@ -264,29 +303,6 @@ interface GetTransactionsOptions {
   skipCache?: boolean; // For real-time streaming, bypass cache
 }
 
-interface SignatureData {
-  signature: string;
-  slot: number;
-  blockTime: number;
-  err: unknown | null;
-}
-
-/**
- * Parse transaction signatures into enriched format using Helius Parse API
- */
-async function parseTransactions(signatures: string[]): Promise<HeliusTransaction[]> {
-  if (signatures.length === 0) return [];
-
-  const response = await fetchWithRetry(() => getThrottledApiUrl('/transactions'), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ transactions: signatures })
-  });
-
-  const transactions: HeliusTransaction[] = await response.json();
-  return transactions;
-}
-
 export async function getTransactionsForAddress(
   address: string,
   options: GetTransactionsOptions = {}
@@ -301,18 +317,18 @@ export async function getTransactionsForAddress(
 
   if (!skipCache) {
     const cached = getCached<HeliusTransaction[]>(cacheKey);
-    if (cached) return cached;
+    if (cached.hit) return cached.value;
   }
 
   // Single-step: Enhanced Transactions API returns parsed data directly
   // 1 API call instead of 2 (signatures + parse)
-  const response = await fetchWithRetry(
-    async () => {
-      const key = await throttledGetKey();
-      return `https://api.helius.xyz/v0/addresses/${address}/transactions?api-key=${key}&limit=${Math.min(limit, 100)}`;
-    },
-    { method: 'GET' }
-  );
+    const response = await fetchWithRetry(
+      async () => {
+        const key = await throttledGetKey();
+        return `https://api-mainnet.helius-rpc.com/v0/addresses/${address}/transactions?api-key=${key}&limit=${Math.min(limit, 100)}`;
+      },
+      { method: 'GET' }
+    );
 
   const transactions: HeliusTransaction[] = await response.json();
 
@@ -354,8 +370,8 @@ export async function getAllTransactionsForAddress(
       async () => {
         const key = await throttledGetKey();
         const params = new URLSearchParams({ 'api-key': key, limit: '100' });
-        if (before) params.set('before', before);
-        return `https://api.helius.xyz/v0/addresses/${address}/transactions?${params}`;
+        if (before) params.set('before-signature', before);
+        return `https://api-mainnet.helius-rpc.com/v0/addresses/${address}/transactions?${params}`;
       },
       { method: 'GET' }
     );
@@ -386,7 +402,7 @@ export async function getAllTransactionsForAddress(
 export async function getAllTokenHolders(mint: string, maxPages = 10): Promise<TokenHolder[]> {
   const cacheKey = `holders:${mint}`;
   const cached = getCached<TokenHolder[]>(cacheKey);
-  if (cached) return cached;
+  if (cached.hit) return cached.value;
 
   const holders: TokenHolder[] = [];
   let page = 1;
@@ -465,7 +481,7 @@ interface WalletFundedByResponse {
 export async function getWalletFundedBy(address: string): Promise<EnrichedFunderInfo | null> {
   const cacheKey = `funded-by:${address}`;
   const cached = getCached<EnrichedFunderInfo | null>(cacheKey);
-  if (cached !== null) return cached;
+  if (cached.hit) return cached.value;
 
   try {
     // Primary: Wallet API /funded-by — 1 call, finds true first funder server-side
@@ -474,7 +490,7 @@ export async function getWalletFundedBy(address: string): Promise<EnrichedFunder
         const key = await throttledGetKey();
         return `https://api.helius.xyz/v1/wallet/${address}/funded-by?api-key=${key}`;
       },
-      { method: 'GET', maxRetries: 1 }
+      { method: 'GET', maxRetries: 1, allowedStatuses: [404] }
     );
 
     // 404 = no funding data found (normal for old/exchange wallets)
@@ -632,142 +648,6 @@ export async function batchIdentifyWallets(addresses: string[]): Promise<Map<str
   return results;
 }
 
-/**
- * Get first funders — uses Wallet API funded-by (1 call) with fallback to tx parsing
- */
-export async function getFirstFunders(
-  address: string,
-  count: number = 3
-): Promise<EnrichedFunderInfo[]> {
-  // Try Wallet API first (1 call, instant)
-  const fundedBy = await getWalletFundedBy(address);
-  if (fundedBy) return [fundedBy];
-
-  // Fallback: parse transactions manually
-  const transactions = await getTransactionsForAddress(address, {
-    limit: 20,
-    sortOrder: 'asc'
-  });
-
-  const funders: EnrichedFunderInfo[] = [];
-  const seenFunders = new Set<string>();
-
-  for (const tx of transactions) {
-    if (funders.length >= count) break;
-
-    if (tx.nativeTransfers) {
-      for (const transfer of tx.nativeTransfers) {
-        if (transfer.toUserAccount === address && !seenFunders.has(transfer.fromUserAccount)) {
-          seenFunders.add(transfer.fromUserAccount);
-          funders.push({
-            address: transfer.fromUserAccount,
-            amount: transfer.amount / 1e9,
-            timestamp: tx.timestamp,
-            txSignature: tx.signature,
-            txType: tx.type || 'UNKNOWN',
-            txSource: tx.source || 'UNKNOWN',
-            description: tx.description,
-            viaDex: DEX_SOURCES.has(tx.source?.toUpperCase() || ''),
-            viaMixer: MIXER_SOURCES.has(tx.source?.toUpperCase() || ''),
-          });
-        }
-      }
-    }
-  }
-
-  return funders.slice(0, count);
-}
-
-// ============================================================================
-// WALLET PROFILE FORENSICS
-// ============================================================================
-
-/**
- * Build a forensic profile of a wallet
- */
-export async function getWalletProfile(address: string): Promise<WalletProfile> {
-  const cacheKey = `profile:${address}`;
-  const cached = getCached<WalletProfile>(cacheKey);
-  if (cached) return cached;
-
-  const transactions = await getAllTransactionsForAddress(address, { maxPages: 5 });
-
-  if (transactions.length === 0) {
-    const emptyProfile: WalletProfile = {
-      address,
-      totalTxCount: 0,
-      walletAgeDays: 0,
-      isFreshWallet: true,
-      totalSolReceived: 0,
-      totalSolSent: 0,
-      uniqueInteractions: 0,
-      dexActivity: false,
-      suspiciousPatterns: ['No transaction history'],
-    };
-    setCache(cacheKey, emptyProfile);
-    return emptyProfile;
-  }
-
-  const firstTx = transactions[0];
-  const lastTx = transactions[transactions.length - 1];
-  const walletAgeDays = Math.floor((Date.now() / 1000 - firstTx.timestamp) / 86400);
-
-  let totalSolReceived = 0;
-  let totalSolSent = 0;
-  const uniqueAddresses = new Set<string>();
-  let dexActivity = false;
-  const suspiciousPatterns: string[] = [];
-
-  for (const tx of transactions) {
-    // Check for DEX activity
-    if (DEX_SOURCES.has(tx.source?.toUpperCase() || '')) {
-      dexActivity = true;
-    }
-
-    // Track transfers
-    if (tx.nativeTransfers) {
-      for (const transfer of tx.nativeTransfers) {
-        if (transfer.toUserAccount === address) {
-          totalSolReceived += transfer.amount / 1e9;
-          uniqueAddresses.add(transfer.fromUserAccount);
-        }
-        if (transfer.fromUserAccount === address) {
-          totalSolSent += transfer.amount / 1e9;
-          uniqueAddresses.add(transfer.toUserAccount);
-        }
-      }
-    }
-  }
-
-  // Detect suspicious patterns
-  if (walletAgeDays < 7) {
-    suspiciousPatterns.push('Fresh wallet (< 7 days old)');
-  }
-  if (transactions.length < 5 && totalSolReceived > 10) {
-    suspiciousPatterns.push('Large funding with minimal activity');
-  }
-  if (uniqueAddresses.size < 3 && transactions.length > 10) {
-    suspiciousPatterns.push('Limited address diversity');
-  }
-
-  const profile: WalletProfile = {
-    address,
-    firstTxTimestamp: firstTx.timestamp,
-    lastTxTimestamp: lastTx.timestamp,
-    totalTxCount: transactions.length,
-    walletAgeDays,
-    isFreshWallet: walletAgeDays < 7,
-    totalSolReceived,
-    totalSolSent,
-    uniqueInteractions: uniqueAddresses.size,
-    dexActivity,
-    suspiciousPatterns,
-  };
-
-  setCache(cacheKey, profile);
-  return profile;
-}
-
 // ============================================================================
 // TOKEN SECURITY ANALYSIS
 // ============================================================================
@@ -775,7 +655,7 @@ export async function getWalletProfile(address: string): Promise<WalletProfile> 
 export async function getAsset(address: string): Promise<HeliusAsset | null> {
   const cacheKey = `asset:${address}`;
   const cached = getCached<HeliusAsset | null>(cacheKey);
-  if (cached !== null) return cached;
+  if (cached.hit) return cached.value;
 
   try {
     const response = await fetchWithRetry(() => getThrottledRpcUrl(), {
@@ -791,6 +671,10 @@ export async function getAsset(address: string): Promise<HeliusAsset | null> {
 
     const data = await response.json();
     if (data.error) {
+      return null;
+    }
+
+    if (!data.result) {
       setCache(cacheKey, null);
       return null;
     }
@@ -809,7 +693,7 @@ export async function getAsset(address: string): Promise<HeliusAsset | null> {
 export async function getTokenSecurity(mintAddress: string): Promise<TokenSecurityInfo | null> {
   const cacheKey = `security:${mintAddress}`;
   const cached = getCached<TokenSecurityInfo | null>(cacheKey);
-  if (cached !== null) return cached;
+  if (cached.hit) return cached.value;
 
   const asset = await getAsset(mintAddress);
   if (!asset) return null;
@@ -886,105 +770,6 @@ export async function isTokenMint(address: string): Promise<boolean> {
 }
 
 // ============================================================================
-// BALANCE FETCHING
-// ============================================================================
-
-export async function getAccountBalance(address: string): Promise<number> {
-  const cacheKey = `balance:${address}`;
-  const cached = getCached<number>(cacheKey);
-  if (cached !== null) return cached;
-
-  const response = await fetchWithRetry(() => getThrottledRpcUrl(), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      jsonrpc: '2.0',
-      id: 'balance',
-      method: 'getBalance',
-      params: [address]
-    })
-  });
-
-  const data = await response.json();
-  const balance = (data.result?.value || 0) / 1e9;
-  setCache(cacheKey, balance);
-  return balance;
-}
-
-// ============================================================================
-// BULK OPERATIONS
-// ============================================================================
-
-/**
- * Batch fetch assets for multiple addresses
- */
-export async function getAssetBatch(addresses: string[]): Promise<Map<string, HeliusAsset | null>> {
-  const results = new Map<string, HeliusAsset | null>();
-  const uncached: string[] = [];
-
-  // Check cache first
-  for (const addr of addresses) {
-    const cached = getCached<HeliusAsset | null>(`asset:${addr}`);
-    if (cached !== null) {
-      results.set(addr, cached);
-    } else {
-      uncached.push(addr);
-    }
-  }
-
-  if (uncached.length === 0) return results;
-
-  // Fetch uncached in batches of 100
-  const batchSize = 100;
-  for (let i = 0; i < uncached.length; i += batchSize) {
-    const batch = uncached.slice(i, i + batchSize);
-
-    try {
-      const response = await fetchWithRetry(() => getThrottledRpcUrl(), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          jsonrpc: '2.0',
-          id: 'get-asset-batch',
-          method: 'getAssetBatch',
-          params: { ids: batch }
-        })
-      });
-
-      const data = await response.json();
-
-      if (data.result) {
-        for (const asset of data.result) {
-          if (asset && asset.id) {
-            results.set(asset.id, asset);
-            setCache(`asset:${asset.id}`, asset);
-          }
-        }
-      }
-
-      // Mark unfound as null
-      for (const addr of batch) {
-        if (!results.has(addr)) {
-          results.set(addr, null);
-          setCache(`asset:${addr}`, null);
-        }
-      }
-    } catch (error) {
-      console.error('Batch asset fetch failed:', error);
-      for (const addr of batch) {
-        results.set(addr, null);
-      }
-    }
-
-    if (i + batchSize < uncached.length) {
-      // no delay — business+ handles burst
-    }
-  }
-
-  return results;
-}
-
-// ============================================================================
 // SNIPER DETECTION - Get token launch time and early buyers
 // ============================================================================
 
@@ -1000,7 +785,7 @@ interface TokenLaunchInfo {
 export async function getTokenLaunchInfo(mintAddress: string): Promise<TokenLaunchInfo | null> {
   const cacheKey = `launch:${mintAddress}`;
   const cached = getCached<TokenLaunchInfo | null>(cacheKey);
-  if (cached !== null) return cached;
+  if (cached.hit) return cached.value;
 
   try {
     // Use signatures-only mode (1 API call instead of 2)
@@ -1036,7 +821,6 @@ export async function getTokenLaunchInfo(mintAddress: string): Promise<TokenLaun
       mintSignature: oldestSig.signature,
     };
 
-    console.log(`Token ${mintAddress.slice(0,8)}... created at slot ${launchInfo.mintSlot}`);
     setCache(cacheKey, launchInfo);
     return launchInfo;
   } catch (error) {
@@ -1104,6 +888,117 @@ export function checkSniperFromTransactions(
   return null;
 }
 
+type RawAccountKey = string | { pubkey?: string };
+type GtfaMessage = { message?: { accountKeys?: unknown[] }; signatures?: string[] };
+
+function getRawAccountKey(key: RawAccountKey | unknown): string {
+  if (typeof key === 'string') return key;
+  if (key && typeof key === 'object' && 'pubkey' in key) {
+    const pubkey = (key as { pubkey?: unknown }).pubkey;
+    return typeof pubkey === 'string' ? pubkey : '';
+  }
+  return '';
+}
+
+function getGtfaMessage(tx: GtfaTransaction): GtfaMessage {
+  const parsed = tx.transaction as GtfaMessage;
+  return parsed?.message ? parsed : {};
+}
+
+function convertGtfaToHeliusTransaction(tx: GtfaTransaction): HeliusTransaction {
+  const meta = tx.meta;
+  const msg = getGtfaMessage(tx);
+  const keys = msg.message?.accountKeys ?? [];
+  const signature = msg.signatures?.[0] ?? '';
+  const nativeTransfers: { fromUserAccount: string; toUserAccount: string; amount: number }[] = [];
+
+  if (meta && keys.length > 0) {
+    const pre = (meta as { preBalances?: number[] }).preBalances ?? [];
+    const post = (meta as { postBalances?: number[] }).postBalances ?? [];
+    let senderIdx = -1;
+    let senderDiff = 0;
+
+    for (let i = 0; i < keys.length && i < pre.length && i < post.length; i++) {
+      const diff = post[i] - pre[i];
+      if (diff < senderDiff) {
+        senderDiff = diff;
+        senderIdx = i;
+      }
+    }
+
+    if (senderIdx >= 0) {
+      const fromKey = getRawAccountKey(keys[senderIdx]);
+      for (let i = 0; i < keys.length && i < pre.length && i < post.length; i++) {
+        const diff = post[i] - pre[i];
+        const toKey = getRawAccountKey(keys[i]);
+        if (diff > 0 && fromKey && toKey && fromKey !== toKey) {
+          nativeTransfers.push({ fromUserAccount: fromKey, toUserAccount: toKey, amount: diff });
+        }
+      }
+    }
+  }
+
+  const preTokenByAccount = new Map<string, TokenBalanceEntry>();
+  for (const entry of meta?.preTokenBalances ?? []) {
+    preTokenByAccount.set(`${entry.accountIndex}:${entry.mint}`, entry);
+  }
+
+  const accountDataByOwner = new Map<string, HeliusTransaction['accountData'][number]>();
+  const tokenTransfers: HeliusTransaction['tokenTransfers'] = [];
+
+  for (const postEntry of meta?.postTokenBalances ?? []) {
+    if (!postEntry.owner) continue;
+
+    const preEntry = preTokenByAccount.get(`${postEntry.accountIndex}:${postEntry.mint}`);
+    const postRaw = BigInt(postEntry.uiTokenAmount.amount || '0');
+    const preRaw = BigInt(preEntry?.uiTokenAmount.amount || '0');
+    const deltaRaw = postRaw - preRaw;
+    if (deltaRaw <= BigInt(0)) continue;
+
+    const decimals = postEntry.uiTokenAmount.decimals;
+    const tokenAmount = Number(deltaRaw) / Math.pow(10, decimals);
+    const tokenAccount = getRawAccountKey(keys[postEntry.accountIndex]);
+
+    tokenTransfers.push({
+      fromUserAccount: '',
+      toUserAccount: postEntry.owner,
+      mint: postEntry.mint,
+      tokenAmount,
+      tokenStandard: 'Fungible',
+    });
+
+    const accountData = accountDataByOwner.get(postEntry.owner) ?? {
+      account: postEntry.owner,
+      nativeBalanceChange: 0,
+      tokenBalanceChanges: [],
+    };
+    accountData.tokenBalanceChanges.push({
+      mint: postEntry.mint,
+      tokenAccount,
+      userAccount: postEntry.owner,
+      rawTokenAmount: {
+        tokenAmount: deltaRaw.toString(),
+        decimals,
+      },
+    });
+    accountDataByOwner.set(postEntry.owner, accountData);
+  }
+
+  return {
+    signature,
+    timestamp: tx.blockTime ?? 0,
+    slot: tx.slot,
+    type: 'UNKNOWN',
+    source: 'GTFA',
+    fee: Number((meta as { fee?: number } | null)?.fee ?? 0),
+    feePayer: getRawAccountKey(keys[0]),
+    nativeTransfers,
+    tokenTransfers,
+    accountData: Array.from(accountDataByOwner.values()),
+    description: '',
+  };
+}
+
 // ============================================================================
 // BATCH EARLY TX FETCHING — For sniper + bundle detection
 // ============================================================================
@@ -1118,37 +1013,53 @@ export async function batchGetEarlyTransactions(
   limit: number = 5
 ): Promise<Map<string, HeliusTransaction[]>> {
   const results = new Map<string, HeliusTransaction[]>();
+  const uncached: string[] = [];
 
-  const fetches = addresses.map(async (address) => {
+  // Check cache first
+  for (const address of addresses) {
     const cacheKey = `early-txs:${address}:${limit}`;
     const cached = getCached<HeliusTransaction[]>(cacheKey);
-    if (cached) {
-      results.set(address, cached);
-      return;
+    if (cached.hit) {
+      results.set(address, cached.value);
+    } else {
+      uncached.push(address);
     }
+  }
 
+  if (uncached.length === 0) return results;
+
+  // Fire all gTFA calls in parallel — dedicated RPC has no rate limit
+  const fetches = uncached.map(async (address) => {
     try {
-      const response = await fetchWithRetry(
-        async () => {
-          const key = await throttledGetKey();
-          return `https://api.helius.xyz/v0/addresses/${address}/transactions?api-key=${key}&limit=${limit}`;
-        },
-        { method: 'GET', maxRetries: 1 }
-      );
+      const gtfa = await getTransactionsForAddressGtfa(address, {
+        sortOrder: 'asc',
+        limit: Math.min(limit, 100),
+        status: 'succeeded',
+        tokenAccounts: 'balanceChanged',
+      });
 
-      const txs: HeliusTransaction[] = await response.json();
-      if (Array.isArray(txs)) {
-        // Sort ascending (oldest first)
-        txs.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
-        setCache(cacheKey, txs);
-        results.set(address, txs);
+      const txs = gtfa.data;
+      if (!Array.isArray(txs) || txs.length === 0) {
+        results.set(address, []);
+        return;
       }
+
+      const converted = txs.map(convertGtfaToHeliusTransaction);
+
+      const cacheKey = `early-txs:${address}:${limit}`;
+      setCache(cacheKey, converted);
+      results.set(address, converted);
     } catch {
       results.set(address, []);
     }
   });
 
   await Promise.all(fetches);
+
+  for (const address of uncached) {
+    if (!results.has(address)) results.set(address, []);
+  }
+
   return results;
 }
 
@@ -1178,7 +1089,7 @@ export interface WalletBalancesResponse {
 export async function getWalletBalances(address: string): Promise<WalletBalancesResponse | null> {
   const cacheKey = `balances:${address}`;
   const cached = getCached<WalletBalancesResponse>(cacheKey);
-  if (cached) return cached;
+  if (cached.hit) return cached.value;
 
   try {
     const response = await fetchWithRetry(
@@ -1207,6 +1118,8 @@ export async function getWalletBalances(address: string): Promise<WalletBalances
 export interface WalletTransfer {
   signature: string;
   timestamp: number;
+  slot?: number;
+  type?: 'transfer' | 'mint' | 'burn' | 'wrap' | 'unwrap' | 'changeOwner' | 'withdrawWithheldFee';
   direction: 'in' | 'out';
   counterparty: string;
   mint: string;
@@ -1214,11 +1127,87 @@ export interface WalletTransfer {
   amount: number;
   amountRaw: string;
   decimals: number;
+  feeAmount?: string;
+  feeUiAmount?: string;
+  confirmationStatus?: string;
 }
 
 export interface WalletTransfersResponse {
   data: WalletTransfer[];
   pagination: { hasMore: boolean; nextCursor?: string };
+}
+
+interface GetTransfersByAddressRow {
+  signature: string;
+  slot: number;
+  blockTime: number;
+  type: WalletTransfer['type'];
+  fromUserAccount: string | null;
+  toUserAccount: string | null;
+  mint: string;
+  amount: string;
+  decimals: number;
+  uiAmount?: string;
+  feeAmount?: string;
+  feeUiAmount?: string;
+  confirmationStatus?: string;
+}
+
+interface TransferComparisonFilter {
+  gt?: number;
+  gte?: number;
+  lt?: number;
+  lte?: number;
+}
+
+interface GetWalletTransfersOptions {
+  limit?: number;
+  cursor?: string;
+  direction?: 'in' | 'out' | 'any';
+  with?: string;
+  mint?: string;
+  solMode?: 'merged' | 'separate';
+  sortOrder?: 'asc' | 'desc';
+  commitment?: 'confirmed' | 'finalized';
+  filters?: {
+    amount?: TransferComparisonFilter;
+    blockTime?: TransferComparisonFilter;
+    slot?: TransferComparisonFilter;
+  };
+}
+
+function uiAmountFromRaw(rawAmount: string, decimals: number): number {
+  const raw = Number(rawAmount);
+  if (!Number.isFinite(raw)) return 0;
+  return raw / Math.pow(10, decimals);
+}
+
+function normalizeTransferRow(address: string, row: GetTransfersByAddressRow): WalletTransfer | null {
+  const direction = row.toUserAccount === address ? 'in' : row.fromUserAccount === address ? 'out' : null;
+  if (!direction) return null;
+
+  const counterparty = direction === 'in' ? row.fromUserAccount : row.toUserAccount;
+  if (!counterparty) return null;
+
+  const amount = row.uiAmount !== undefined ? Number(row.uiAmount) : uiAmountFromRaw(row.amount, row.decimals);
+  if (!Number.isFinite(amount)) return null;
+
+  return {
+    signature: row.signature,
+    timestamp: row.blockTime,
+    slot: row.slot,
+    type: row.type,
+    direction,
+    counterparty,
+    mint: row.mint,
+    symbol: row.mint === NATIVE_SOL_MINT ? 'SOL' : row.mint === WSOL_MINT ? 'WSOL' : null,
+    amount,
+    amountRaw: row.amount,
+    decimals: row.decimals,
+    feeAmount: row.feeAmount,
+    feeUiAmount: row.feeUiAmount,
+    confirmationStatus: row.confirmationStatus,
+  };
 }
 
 /**
@@ -1227,26 +1216,675 @@ export interface WalletTransfersResponse {
  */
 export async function getWalletTransfers(
   address: string,
-  options: { limit?: number; cursor?: string } = {}
+  options: GetWalletTransfersOptions = {}
 ): Promise<WalletTransfersResponse | null> {
-  const { limit = 100, cursor } = options;
+  const {
+    limit = 100,
+    cursor,
+    direction = 'any',
+    with: counterparty,
+    mint,
+    solMode = 'merged',
+    sortOrder = 'desc',
+    commitment = 'finalized',
+    filters,
+  } = options;
+  const boundedLimit = Math.min(Math.max(1, limit), 100);
+  const cacheKey = `transfers:${address}:${JSON.stringify({ boundedLimit, cursor, direction, counterparty, mint, solMode, sortOrder, commitment, filters })}`;
+  const cached = getCached<WalletTransfersResponse | null>(cacheKey);
+  if (cached.hit) return cached.value;
 
   try {
-    const response = await fetchWithRetry(
-      async () => {
-        const key = await throttledGetKey();
-        const params = new URLSearchParams({ 'api-key': key, limit: String(limit) });
-        if (cursor) params.set('cursor', cursor);
-        return `https://api.helius.xyz/v1/wallet/${address}/transfers?${params}`;
-      },
-      { method: 'GET', maxRetries: 2 }
-    );
+    const config: Record<string, unknown> = {
+      limit: boundedLimit,
+      direction,
+      solMode,
+      sortOrder,
+      commitment,
+    };
+    if (cursor) config.paginationToken = cursor;
+    if (counterparty) config.with = counterparty;
+    if (mint) config.mint = mint;
+    if (filters) config.filters = filters;
 
-    const data: WalletTransfersResponse = await response.json();
+    const response = await fetchWithRetry(() => getThrottledRpcUrl(), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 'get-transfers-by-address',
+        method: 'getTransfersByAddress',
+        params: [address, config],
+      }),
+      maxRetries: 2,
+    });
+
+    const json = await response.json();
+    if (json.error) {
+      throw new Error(`getTransfersByAddress failed: ${json.error.message || JSON.stringify(json.error)}`);
+    }
+
+    const rows = (json.result?.data ?? []) as GetTransfersByAddressRow[];
+    const nextCursor = json.result?.paginationToken as string | undefined;
+    const data: WalletTransfersResponse = {
+      data: rows.map(row => normalizeTransferRow(address, row)).filter((row): row is WalletTransfer => row !== null),
+      pagination: { hasMore: Boolean(nextCursor), nextCursor },
+    };
+
+    setCache(cacheKey, data);
     return data;
   } catch {
     return null;
   }
+}
+
+export async function batchGetFirstIncomingSolTransfers(
+  addresses: string[],
+  options: { fallbackToFundedBy?: boolean; concurrency?: number } = {},
+): Promise<Map<string, EnrichedFunderInfo | null>> {
+  const { fallbackToFundedBy = true, concurrency = 8 } = options;
+  const results = new Map<string, EnrichedFunderInfo | null>();
+  const uniqueAddresses = [...new Set(addresses)];
+  let index = 0;
+
+  const worker = async () => {
+    while (true) {
+      const current = index++;
+      if (current >= uniqueAddresses.length) break;
+      const address = uniqueAddresses[current];
+
+      try {
+        const transfers = await getWalletTransfers(address, {
+          limit: 1,
+          direction: 'in',
+          mint: NATIVE_SOL_MINT,
+          sortOrder: 'asc',
+          solMode: 'merged',
+          commitment: 'finalized',
+        });
+        const first = transfers?.data[0];
+        if (first) {
+          results.set(address, {
+            address: first.counterparty,
+            amount: first.amount,
+            timestamp: first.timestamp,
+            txSignature: first.signature,
+            txType: first.type?.toUpperCase() || 'TRANSFER',
+            txSource: 'GET_TRANSFERS_BY_ADDRESS',
+            viaDex: false,
+            viaMixer: false,
+          });
+          continue;
+        }
+
+        results.set(address, fallbackToFundedBy ? await getWalletFundedBy(address) : null);
+      } catch {
+        results.set(address, fallbackToFundedBy ? await getWalletFundedBy(address) : null);
+      }
+    }
+  };
+
+  await Promise.all(Array.from({ length: Math.min(concurrency, uniqueAddresses.length) }, () => worker()));
+
+  for (const address of uniqueAddresses) {
+    if (!results.has(address)) results.set(address, null);
+  }
+
+  return results;
+}
+
+// ============================================================================
+// INCREMENTAL TOKEN HOLDER FETCHING (getProgramAccountsV2)
+// ============================================================================
+
+export interface IncrementalHolder {
+  address: string;
+  balance: number;
+  slot: number;
+}
+
+export interface IncrementalHoldersResult {
+  holders: IncrementalHolder[];
+  lastSlot: number;
+}
+
+const TOKEN_PROGRAM_ID = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
+
+/**
+ * Fetch token holders incrementally via getProgramAccountsV2.
+ * First call (no sinceSlot) returns full set; subsequent calls return only changed accounts.
+ * 1 credit per call vs 10 for the standard method.
+ */
+export async function getTokenHoldersIncremental(
+  mint: string,
+  sinceSlot?: number,
+): Promise<IncrementalHoldersResult> {
+  const holders: IncrementalHolder[] = [];
+  let cursor: string | undefined;
+  let maxSlot = sinceSlot ?? 0;
+
+  do {
+    const rpcParams: Record<string, unknown> = {
+      encoding: 'jsonParsed',
+      filters: [
+        { dataSize: 165 },
+        { memcmp: { offset: 0, bytes: mint } },
+      ],
+      maxResults: 1000,
+    };
+
+    if (sinceSlot !== undefined) {
+      rpcParams.changedSinceSlot = sinceSlot;
+    }
+    if (cursor) {
+      rpcParams.cursor = cursor;
+    }
+
+    const response = await fetchWithRetry(() => getThrottledRpcUrl(), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 'incremental-holders',
+        method: 'getProgramAccountsV2',
+        params: [TOKEN_PROGRAM_ID, rpcParams],
+      }),
+    });
+
+    const data = await response.json();
+    const result = data.result;
+
+    if (!result?.accounts?.length) break;
+
+    for (const account of result.accounts) {
+      const parsed = account.account?.data?.parsed?.info;
+      if (!parsed) continue;
+
+      const balance = Number(parsed.tokenAmount?.amount ?? 0);
+      const owner = parsed.owner as string;
+      const slot = account.account?.slot ?? result.slot ?? 0;
+
+      holders.push({ address: owner, balance, slot });
+      if (slot > maxSlot) maxSlot = slot;
+    }
+
+    cursor = result.cursor ?? undefined;
+  } while (cursor);
+
+  return { holders, lastSlot: maxSlot };
+}
+
+// ============================================================================
+// WALLET HISTORY API
+// ============================================================================
+
+/**
+ * Fetch wallet transfer history via Helius getTransfersByAddress.
+ * This returns parsed transfer rows instead of full transaction payloads.
+ */
+export async function getWalletHistory(
+  wallet: string,
+  limit: number = 5,
+): Promise<WalletTransfer[]> {
+  const cacheKey = `wallet-history:${wallet}:${limit}`;
+  const cached = getCached<WalletTransfer[]>(cacheKey);
+  if (cached.hit) return cached.value;
+
+  const transfers = await getWalletTransfers(wallet, {
+    limit: Math.min(Math.max(1, limit), 100),
+    direction: 'any',
+    sortOrder: 'desc',
+    solMode: 'merged',
+    commitment: 'finalized',
+  });
+  const data = transfers?.data ?? [];
+  setCache(cacheKey, data);
+  return data;
+}
+
+// ============================================================================
+// RAW RPC — getSignaturesForAddress + getTransaction (jsonParsed)
+// Used by snapshot-engine for full token balance reconstruction
+// ============================================================================
+
+interface RpcSignatureEntry {
+  signature: string;
+  slot: number;
+  blockTime: number | null;
+  err: unknown | null;
+  confirmationStatus: string;
+}
+
+interface RpcTokenBalance {
+  accountIndex: number;
+  mint: string;
+  owner?: string;
+  uiTokenAmount: {
+    amount: string;
+    decimals: number;
+    uiAmount: number | null;
+    uiAmountString: string;
+  };
+}
+
+export interface ParsedTransactionMeta {
+  preTokenBalances: RpcTokenBalance[];
+  postTokenBalances: RpcTokenBalance[];
+  err: unknown | null;
+}
+
+export interface ParsedTransactionResult {
+  slot: number;
+  blockTime: number | null;
+  meta: ParsedTransactionMeta | null;
+  transaction: unknown;
+}
+
+/**
+ * Fetch confirmed signatures for an address with pagination support.
+ * Returns oldest-first when using `until` or sorted by the caller.
+ */
+export async function getRpcSignatures(
+  address: string,
+  opts: { limit?: number; before?: string; until?: string } = {},
+): Promise<RpcSignatureEntry[]> {
+  const params: [string, Record<string, unknown>] = [
+    address,
+    { limit: opts.limit ?? 1000 },
+  ];
+  if (opts.before) params[1].before = opts.before;
+  if (opts.until) params[1].until = opts.until;
+
+  const response = await fetchWithRetry(() => getThrottledRpcUrl(), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      jsonrpc: '2.0',
+      id: 'rpc-sigs',
+      method: 'getSignaturesForAddress',
+      params,
+    }),
+    maxRetries: 2,
+  });
+
+  const data = await response.json();
+  return (data.result ?? []) as RpcSignatureEntry[];
+}
+
+/**
+ * Fetch a single transaction with jsonParsed encoding to access postTokenBalances.
+ */
+export async function getRpcTransaction(
+  signature: string,
+): Promise<ParsedTransactionResult | null> {
+  const response = await fetchWithRetry(() => getThrottledRpcUrl(), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      jsonrpc: '2.0',
+      id: 'rpc-tx',
+      method: 'getTransaction',
+      params: [
+        signature,
+        {
+          encoding: 'jsonParsed',
+          maxSupportedTransactionVersion: 0,
+        },
+      ],
+    }),
+    maxRetries: 2,
+  });
+
+  const data = await response.json();
+  return (data.result ?? null) as ParsedTransactionResult | null;
+}
+
+/**
+ * Batch-fetch multiple transactions via sequential RPC calls with concurrency control.
+ * Returns results in the same order as input signatures. Null entries = fetch failure.
+ */
+export async function getRpcTransactionsBatch(
+  signatures: string[],
+  concurrency: number = 5,
+): Promise<(ParsedTransactionResult | null)[]> {
+  const results: (ParsedTransactionResult | null)[] = new Array(signatures.length).fill(null);
+  let idx = 0;
+
+  const worker = async () => {
+    while (true) {
+      const i = idx++;
+      if (i >= signatures.length) break;
+      try {
+        results[i] = await getRpcTransaction(signatures[i]);
+      } catch {
+        results[i] = null;
+      }
+    }
+  };
+
+  const workers = Array.from({ length: Math.min(concurrency, signatures.length) }, () => worker());
+  await Promise.all(workers);
+  return results;
+}
+
+// ============================================================================
+// gTFA — getTransactionsForAddress (Helius-exclusive, 100 full txs per call)
+// ============================================================================
+
+export interface GtfaTransaction {
+  slot: number;
+  blockTime: number | null;
+  transaction: unknown;
+  meta: {
+    err: unknown;
+    preTokenBalances: TokenBalanceEntry[];
+    postTokenBalances: TokenBalanceEntry[];
+    [key: string]: unknown;
+  };
+}
+
+interface TokenBalanceEntry {
+  accountIndex: number;
+  mint: string;
+  owner?: string;
+  uiTokenAmount: { amount: string; decimals: number; uiAmount: number | null };
+}
+
+/**
+ * Fetch full transactions for an address using Helius gTFA.
+ * Returns up to 100 full transactions per call with postTokenBalances.
+ * Supports chronological sorting and pagination.
+ */
+export async function getTransactionsForAddressGtfa(
+  address: string,
+  opts: {
+    sortOrder?: 'asc' | 'desc';
+    limit?: number;
+    paginationToken?: string;
+    status?: 'succeeded' | 'failed' | 'any';
+    tokenAccounts?: 'none' | 'balanceChanged' | 'all';
+  } = {},
+): Promise<{ data: GtfaTransaction[]; paginationToken: string | null }> {
+  const response = await fetchWithRetry(() => getThrottledRpcUrl(), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      jsonrpc: '2.0',
+      id: 'gtfa',
+      method: 'getTransactionsForAddress',
+      params: [
+        address,
+        {
+          transactionDetails: 'full',
+          encoding: 'jsonParsed',
+          maxSupportedTransactionVersion: 0,
+          sortOrder: opts.sortOrder ?? 'asc',
+          limit: Math.min(opts.limit ?? 100, 100),
+          ...(opts.paginationToken && { paginationToken: opts.paginationToken }),
+          filters: {
+            status: opts.status ?? 'succeeded',
+            tokenAccounts: opts.tokenAccounts ?? 'none',
+          },
+        },
+      ],
+    }),
+    maxRetries: 2,
+  });
+
+  const json = await response.json();
+  const result = json.result ?? { data: [], paginationToken: null };
+  return {
+    data: (result.data ?? []) as GtfaTransaction[],
+    paginationToken: result.paginationToken ?? null,
+  };
+}
+
+/**
+ * Fetch signatures only (lightweight) — up to 1000 per page.
+ * Returns slot, blockTime, signature, err. No full tx data.
+ */
+export interface GtfaSignature {
+  signature: string;
+  slot: number;
+  blockTime: number | null;
+  err: unknown;
+  transactionIndex?: number;
+}
+
+export async function getSignaturesForAddressGtfa(
+  address: string,
+  opts: {
+    sortOrder?: 'asc' | 'desc';
+    limit?: number;
+    paginationToken?: string;
+    status?: 'succeeded' | 'failed' | 'any';
+    tokenAccounts?: 'none' | 'balanceChanged' | 'all';
+  } = {},
+): Promise<{ data: GtfaSignature[]; paginationToken: string | null }> {
+  const response = await fetchWithRetry(() => getThrottledRpcUrl(), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      jsonrpc: '2.0',
+      id: 'gtfa-sigs',
+      method: 'getTransactionsForAddress',
+      params: [
+        address,
+        {
+          transactionDetails: 'signatures',
+          sortOrder: opts.sortOrder ?? 'asc',
+          limit: Math.min(opts.limit ?? 1000, 1000),
+          ...(opts.paginationToken && { paginationToken: opts.paginationToken }),
+          filters: {
+            status: opts.status ?? 'succeeded',
+            tokenAccounts: opts.tokenAccounts ?? 'none',
+          },
+        },
+      ],
+    }),
+    maxRetries: 2,
+  });
+
+  const json = await response.json();
+  const result = json.result ?? { data: [], paginationToken: null };
+  return {
+    data: (result.data ?? []) as GtfaSignature[],
+    paginationToken: result.paginationToken ?? null,
+  };
+}
+
+// ============================================================================
+// TOKEN LARGEST ACCOUNTS — Top 20 holders with balances (1 RPC credit)
+// ============================================================================
+
+interface LargestAccountEntry {
+  address: string;
+  amount: number;
+}
+
+/**
+ * Get the top 20 token accounts by balance using standard RPC.
+ * Returns token account addresses (not owner wallets — resolve via getMultipleAccountsParsed).
+ * 1 credit, cached 2 minutes.
+ */
+export async function getTokenLargestAccounts(mint: string): Promise<LargestAccountEntry[]> {
+  const CACHE_TTL_LARGEST = 2 * 60 * 1000;
+  const cacheKey = `largest-accounts:${mint}`;
+  const cached = getCached<LargestAccountEntry[]>(cacheKey);
+  if (cached.hit) return cached.value;
+
+  const response = await fetchWithRetry(() => getThrottledRpcUrl(), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      jsonrpc: '2.0',
+      id: 'largest-accounts',
+      method: 'getTokenLargestAccounts',
+      params: [mint],
+    }),
+  });
+
+  const data = await response.json();
+  const accounts = data.result?.value ?? [];
+
+  const result: LargestAccountEntry[] = accounts.map((acc: { address: string; amount: string; decimals: number; uiAmount: number | null; uiAmountString: string }) => ({
+    address: acc.address,
+    amount: Number(acc.uiAmountString ?? acc.uiAmount ?? 0),
+  }));
+
+  // Manual TTL override since key prefix doesn't match standard patterns
+  if (cache.size >= MAX_CACHE_SIZE && !cache.has(cacheKey)) {
+    const firstKey = cache.keys().next().value;
+    if (firstKey) cache.delete(firstKey);
+  }
+  cache.set(cacheKey, { data: result, timestamp: Date.now(), ttl: CACHE_TTL_LARGEST });
+
+  return result;
+}
+
+// ============================================================================
+// MULTIPLE ACCOUNTS PARSED — Resolve token accounts to owner wallets (1 credit)
+// ============================================================================
+
+interface ParsedTokenAccountInfo {
+  owner: string;
+  mint: string;
+  amount: number;
+}
+
+/**
+ * Resolve token account pubkeys to their owner wallets via getMultipleAccounts.
+ * Batches up to 100 addresses per call. Returns owner + balance for each.
+ */
+export async function getMultipleAccountsParsed(
+  addresses: string[]
+): Promise<Map<string, ParsedTokenAccountInfo>> {
+  const results = new Map<string, ParsedTokenAccountInfo>();
+  const BATCH_SIZE = 100;
+
+  for (let i = 0; i < addresses.length; i += BATCH_SIZE) {
+    const batch = addresses.slice(i, i + BATCH_SIZE);
+
+    const response = await fetchWithRetry(() => getThrottledRpcUrl(), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 'multi-accounts',
+        method: 'getMultipleAccounts',
+        params: [batch, { encoding: 'jsonParsed' }],
+      }),
+    });
+
+    const data = await response.json();
+    const accounts = data.result?.value ?? [];
+
+    for (let j = 0; j < accounts.length; j++) {
+      const account = accounts[j];
+      if (!account?.data?.parsed?.info) continue;
+
+      const info = account.data.parsed.info;
+      results.set(batch[j], {
+        owner: info.owner as string,
+        mint: info.mint as string,
+        amount: Number(info.tokenAmount?.uiAmountString ?? info.tokenAmount?.uiAmount ?? 0),
+      });
+    }
+  }
+
+  return results;
+}
+
+// ============================================================================
+// MINT EARLY TRANSACTIONS — First N txs for a mint address (sniper/bundle detection)
+// ============================================================================
+
+/**
+ * Fetch early transactions for a mint address using gTFA in ascending order.
+ * Used for sniper detection (who bought in first 10 blocks) and bundle detection
+ * (who bought in the same slot). Cached 5 minutes.
+ */
+export async function getMintEarlyTransactions(
+  mint: string,
+  limit: number = 100
+): Promise<GtfaTransaction[]> {
+  const CACHE_TTL_MINT_TXS = 5 * 60 * 1000;
+  const cacheKey = `mint-early-txs:${mint}:${limit}`;
+  const cached = getCached<GtfaTransaction[]>(cacheKey);
+  if (cached.hit) return cached.value;
+
+  const result = await getTransactionsForAddressGtfa(mint, {
+    sortOrder: 'asc',
+    limit: Math.min(limit, 100),
+    status: 'succeeded',
+  });
+
+  const txs = result.data;
+
+  // Manual TTL override
+  if (cache.size >= MAX_CACHE_SIZE && !cache.has(cacheKey)) {
+    const firstKey = cache.keys().next().value;
+    if (firstKey) cache.delete(firstKey);
+  }
+  cache.set(cacheKey, { data: txs, timestamp: Date.now(), ttl: CACHE_TTL_MINT_TXS });
+
+  return txs;
+}
+
+// ============================================================================
+// DERIVE TOKEN SECURITY — Pure function from DAS asset (zero API calls)
+// ============================================================================
+
+/**
+ * Derive token security info from a DAS asset object.
+ * Same logic as getTokenSecurity but without the API call — use when you already have the asset.
+ */
+export function deriveTokenSecurity(asset: HeliusAsset): TokenSecurityInfo {
+  const riskFactors: string[] = [];
+  let riskLevel: TokenSecurityInfo['riskLevel'] = 'low';
+
+  const freezeAuthority = asset.authorities?.find(a =>
+    a.scopes.includes('freeze') || a.scopes.includes('full')
+  );
+  const hasFreezeAuthority = !!freezeAuthority;
+
+  const mintAuthority = asset.authorities?.find(a =>
+    a.scopes.includes('mint') || a.scopes.includes('full')
+  );
+  const hasMintAuthority = !!mintAuthority;
+
+  const isMutable = asset.mutable ?? false;
+
+  if (hasFreezeAuthority && hasMintAuthority) {
+    riskLevel = 'critical';
+    riskFactors.push('CRITICAL: Both freeze and mint authorities active');
+  } else if (hasFreezeAuthority || hasMintAuthority) {
+    riskLevel = 'high';
+  } else if (isMutable) {
+    riskLevel = 'medium';
+  }
+
+  if (hasFreezeAuthority) {
+    riskFactors.push('Freeze authority enabled - tokens can be frozen');
+  }
+  if (hasMintAuthority) {
+    riskFactors.push('Mint authority enabled - supply can be inflated');
+  }
+  if (isMutable) {
+    riskFactors.push('Metadata is mutable - token identity can change');
+  }
+
+  return {
+    hasFreezeAuthority,
+    freezeAuthority: freezeAuthority?.address,
+    hasMintAuthority,
+    mintAuthority: mintAuthority?.address,
+    isMutable,
+    supply: asset.token_info?.supply,
+    decimals: asset.token_info?.decimals,
+    riskLevel,
+    riskFactors,
+  };
 }
 
 // ============================================================================
@@ -1254,14 +1892,4 @@ export async function getWalletTransfers(
 // ============================================================================
 
 export { sleep };
-
-export function clearCache(): void {
-  cache.clear();
-}
-
-export function getCacheStats(): { size: number; keys: string[] } {
-  return {
-    size: cache.size,
-    keys: Array.from(cache.keys()),
-  };
-}
+export type { HeliusTransaction };

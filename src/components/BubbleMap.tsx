@@ -1,8 +1,9 @@
 'use client';
 
-import { useRef, useEffect, useCallback, useState } from 'react';
+import { useRef, useEffect, useCallback, useState, useMemo } from 'react';
 import { forceSimulation, forceLink, forceManyBody, forceCenter, forceCollide, SimulationNodeDatum, SimulationLinkDatum, Simulation } from 'd3-force';
-import { GraphData, GraphNode, GraphLink } from '@/lib/types';
+import { GraphData, GraphNode, GraphLink, NODE_COLORS, NodeType } from '@/lib/types';
+import { THREAT_COLORS } from '@/lib/threat-scorer';
 
 interface BubbleMapProps {
   data: GraphData;
@@ -34,8 +35,29 @@ const CLUSTER_COLORS = [
   '#5BE8FF', '#FF5B5B', '#C4FF5B', '#FF5BFF', '#5BFFD4',
 ];
 
-const UNLINKED_COLOR = '#333340';
+const UNLINKED_COLOR = '#555566';
 const BG_COLOR = '#000000';
+
+// Semantic node color by type — falls back to cluster color for generic types
+function getNodeColor(type: NodeType, clusterId: number): string {
+  const semantic: string | undefined = NODE_COLORS[type];
+  if (semantic && semantic !== (NODE_COLORS.default as string)) return semantic;
+  if (clusterId >= 0) return CLUSTER_COLORS[clusterId % CLUSTER_COLORS.length];
+  return UNLINKED_COLOR;
+}
+
+// Legend entries for node types present in the graph
+const LEGEND_ENTRIES: { type: NodeType; label: string }[] = [
+  { type: 'target', label: 'Target' },
+  { type: 'cabal-funder', label: 'Cabal Funder' },
+  { type: 'sniper', label: 'Sniper' },
+  { type: 'bundled', label: 'Bundled' },
+  { type: 'token', label: 'Token' },
+  { type: 'holder', label: 'Holder' },
+  { type: 'funder', label: 'Funder' },
+  { type: 'funded', label: 'Funded' },
+  { type: 'connected', label: 'Connected' },
+];
 
 function computeSupplyPct(node: GraphNode, totalSupply: number): number {
   const amount = node.tokenAmount || node.solBalance || node.val || 0;
@@ -118,6 +140,15 @@ export function BubbleMap({ data, onNodeClick }: BubbleMapProps) {
 
   // Tooltip is the only piece of React state — it drives the overlay DOM
   const [tooltip, setTooltip] = useState<TooltipData | null>(null);
+  const [heatmapMode, setHeatmapMode] = useState(false);
+  const heatmapRef = useRef(false);
+  heatmapRef.current = heatmapMode;
+
+  // Legend types derived from data (state-driven so legend renders on initial load)
+  const legendTypes = useMemo(() => {
+    if (!data) return new Set<string>();
+    return new Set(data.nodes.filter(n => n.type !== 'token').map(n => n.type));
+  }, [data]);
 
   // Convert screen (CSS) coords to world coords
   const screenToWorld = useCallback((sx: number, sy: number) => {
@@ -526,21 +557,42 @@ export function BubbleMap({ data, onNodeClick }: BubbleMapProps) {
       }
 
       // ── Nodes ──
+      const isHeatmap = heatmapRef.current;
+
       for (const node of nodesRef.current) {
         if (node.x == null || node.y == null) continue;
 
         const isHovered = hovered?.id === node.id;
         const isNeighbor = connectedNodes.has(node.id);
         const isDimmed = hovered && !isHovered && !isNeighbor;
-        const color = node.clusterId >= 0
-          ? CLUSTER_COLORS[node.clusterId % CLUSTER_COLORS.length]
-          : UNLINKED_COLOR;
+
+        // Determine node color: heatmap mode uses threat color, normal uses cluster
+        const threatLevel = node.originalNode.metadata?.threatLevel;
+        const threatScore = node.originalNode.metadata?.threatScore || 0;
+        let color: string;
+        if (isHeatmap && threatLevel) {
+          color = THREAT_COLORS[threatLevel] || UNLINKED_COLOR;
+        } else {
+          color = node.clusterId >= 0
+            ? CLUSTER_COLORS[node.clusterId % CLUSTER_COLORS.length]
+            : UNLINKED_COLOR;
+        }
 
         ctx.save();
         if (isDimmed) ctx.globalAlpha = 0.65;
 
+        // Threat ring — drawn OUTSIDE the node for medium+ threats
+        if (!isHeatmap && threatLevel && threatScore >= 30) {
+          const threatColor = THREAT_COLORS[threatLevel];
+          ctx.beginPath();
+          ctx.arc(node.x, node.y, node.radius + 4, 0, Math.PI * 2);
+          ctx.strokeStyle = threatColor;
+          ctx.lineWidth = 2.5;
+          ctx.stroke();
+        }
+
         // Glow
-        if (node.clusterId >= 0) {
+        if (node.clusterId >= 0 || (isHeatmap && threatLevel)) {
           ctx.beginPath();
           ctx.arc(node.x, node.y, node.radius + 4, 0, Math.PI * 2);
           const grad = ctx.createRadialGradient(node.x, node.y, node.radius * 0.5, node.x, node.y, node.radius + 8);
@@ -562,11 +614,11 @@ export function BubbleMap({ data, onNodeClick }: BubbleMapProps) {
         // Main circle
         ctx.beginPath();
         ctx.arc(node.x, node.y, node.radius, 0, Math.PI * 2);
-        ctx.fillStyle = color + (node.clusterId >= 0 ? '30' : '20');
+        ctx.fillStyle = color + (node.clusterId >= 0 || isHeatmap ? '30' : '20');
         ctx.fill();
 
         // Border
-        ctx.strokeStyle = isHovered ? '#ffffff' : color + (node.clusterId >= 0 ? 'aa' : '60');
+        ctx.strokeStyle = isHovered ? '#ffffff' : color + (node.clusterId >= 0 || isHeatmap ? 'aa' : '60');
         ctx.lineWidth = isHovered ? 2.5 : 1.5;
         ctx.stroke();
 
@@ -916,14 +968,14 @@ export function BubbleMap({ data, onNodeClick }: BubbleMapProps) {
             <div className="flex items-center gap-2 mb-1.5">
               <div
                 className="w-2 h-2 rounded-full flex-shrink-0"
-                style={{ background: tooltip.node.clusterId >= 0 ? CLUSTER_COLORS[tooltip.node.clusterId % CLUSTER_COLORS.length] : UNLINKED_COLOR }}
+                style={{ background: getNodeColor(tooltip.node.type, tooltip.node.clusterId) }}
               />
-              <span className="text-[11px]" style={{ color: '#f0f0f0' }}>
+              <span className="text-[12px]" style={{ color: '#f0f0f0' }}>
                 {tooltip.node.originalNode.identity?.name || tooltip.node.label}
               </span>
             </div>
 
-            <div className="flex gap-4 text-[10px]">
+            <div className="flex gap-4 text-[11px]">
               <div>
                 <div style={{ color: '#737373' }}>Supply</div>
                 <div className="font-semibold font-mono" style={{ color: '#f0f0f0' }}>{tooltip.node.supplyPct.toFixed(2)}%</div>
@@ -945,7 +997,7 @@ export function BubbleMap({ data, onNodeClick }: BubbleMapProps) {
                 return (
                   <div>
                     <div style={{ color: '#737373' }}>Bundle</div>
-                    <div className="font-semibold font-mono" style={{ color: CLUSTER_COLORS[tooltip.node.clusterId % CLUSTER_COLORS.length] }}>
+                    <div className="font-semibold font-mono" style={{ color: getNodeColor(tooltip.node.type, tooltip.node.clusterId) }}>
                       {clusterPct.toFixed(2)}%
                       <span className="font-normal ml-0.5" style={{ color: '#737373' }}>({clusterSize})</span>
                     </div>
@@ -955,19 +1007,19 @@ export function BubbleMap({ data, onNodeClick }: BubbleMapProps) {
             </div>
 
             {tooltip.node.originalNode.fundingSource?.funderName && (
-              <div className="mt-1.5 pt-1.5 text-[10px]" style={{ borderTop: '1px solid #1f1f1f' }}>
+              <div className="mt-1.5 pt-1.5 text-[11px]" style={{ borderTop: '1px solid #1f1f1f' }}>
                 <span style={{ color: '#737373' }}>Funded by </span>
                 <span style={{ color: '#b8b8b8' }}>{tooltip.node.originalNode.fundingSource.funderName}</span>
               </div>
             )}
 
             {tooltip.node.originalNode.type === 'cabal-funder' && (
-              <div className="mt-1.5 pt-1.5 text-[10px] font-medium" style={{ borderTop: '1px solid #1f1f1f', color: '#ef4444' }}>
+              <div className="mt-1.5 pt-1.5 text-[11px] font-medium" style={{ borderTop: '1px solid #1f1f1f', color: NODE_COLORS['cabal-funder'] }}>
                 Cabal — funded {tooltip.node.originalNode.metadata?.fundedCount} holders
               </div>
             )}
             {tooltip.node.originalNode.metadata?.isSniper && (
-              <div className="mt-1.5 pt-1.5 text-[10px] font-medium" style={{ borderTop: '1px solid #1f1f1f', color: '#22d3ee' }}>
+              <div className="mt-1.5 pt-1.5 text-[11px] font-medium" style={{ borderTop: '1px solid #1f1f1f', color: NODE_COLORS.sniper }}>
                 Sniper — {Math.abs(tooltip.node.originalNode.metadata?.blocksAfterLaunch || 0)} blocks after launch
               </div>
             )}
@@ -975,6 +1027,74 @@ export function BubbleMap({ data, onNodeClick }: BubbleMapProps) {
         </div>
         );
       })()}
+
+      {/* Risk Heatmap toggle */}
+      <button
+        className="absolute bottom-4 left-4 z-10 flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[10px] font-medium transition-all duration-150 pointer-events-auto"
+        style={{
+          background: heatmapMode ? 'rgba(255,136,0,0.12)' : 'rgba(255,255,255,0.04)',
+          border: `1px solid ${heatmapMode ? 'rgba(255,136,0,0.25)' : 'rgba(255,255,255,0.08)'}`,
+          color: heatmapMode ? '#ff8800' : '#888',
+          backdropFilter: 'blur(12px)',
+          WebkitBackdropFilter: 'blur(12px)',
+        }}
+        onClick={() => setHeatmapMode(!heatmapMode)}
+      >
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <circle cx="12" cy="12" r="10" />
+          <path d="M12 8v4M12 16h.01" />
+        </svg>
+        {heatmapMode ? 'Risk Heatmap ON' : 'Risk Heatmap'}
+      </button>
+
+      {/* Color legend overlay */}
+      <div
+        className="absolute bottom-16 left-4 z-10 pointer-events-none"
+        style={{
+          background: 'rgba(0,0,0,0.7)',
+          border: '1px solid rgba(255,255,255,0.06)',
+          borderRadius: 8,
+          padding: '8px 12px',
+          backdropFilter: 'blur(12px)',
+          WebkitBackdropFilter: 'blur(12px)',
+        }}
+      >
+        <div className="flex flex-col gap-1">
+          {heatmapMode ? (
+            // Threat level legend
+            <>
+              {([
+                ['critical', 'Critical (70-100)'],
+                ['high', 'High (50-69)'],
+                ['medium', 'Medium (30-49)'],
+                ['low', 'Low (15-29)'],
+                ['safe', 'Safe (0-14)'],
+              ] as const).map(([level, label]) => (
+                <div key={level} className="flex items-center gap-2">
+                  <div
+                    className="w-2.5 h-2.5 rounded-full flex-shrink-0"
+                    style={{ background: THREAT_COLORS[level] }}
+                  />
+                  <span className="text-[10px]" style={{ color: 'var(--text-tertiary)' }}>{label}</span>
+                </div>
+              ))}
+            </>
+          ) : (
+            // Normal type legend
+            LEGEND_ENTRIES
+              .filter(entry => legendTypes.has(entry.type))
+              .map(entry => (
+                <div key={entry.type} className="flex items-center gap-2">
+                  <div
+                    className="w-2.5 h-2.5 rounded-full flex-shrink-0"
+                    style={{ background: NODE_COLORS[entry.type] }}
+                  />
+                  <span className="text-[10px]" style={{ color: 'var(--text-tertiary)' }}>{entry.label}</span>
+                </div>
+              ))
+          )}
+        </div>
+      </div>
     </div>
   );
 }

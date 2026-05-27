@@ -1,28 +1,11 @@
-import { Pool } from 'pg';
 import { BundleCluster } from './types';
+import { getPool } from './db-pool';
 import crypto from 'crypto';
 
-// PostgreSQL pool — null if no DATABASE_URL
-const pool = process.env.DATABASE_URL
-  ? new Pool({
-      connectionString: process.env.DATABASE_URL,
-      ssl: { rejectUnauthorized: false },
-      max: 5,
-      idleTimeoutMillis: 30000,
-      connectionTimeoutMillis: 10000,
-    })
-  : null;
-
-pool?.on('error', (err) => {
-  console.error('[DB Blacklist] Pool error:', err.message);
-});
+const pool = getPool();
 
 // In-memory fallback when no DATABASE_URL (dev mode)
 const memoryStore = new Map<string, BundleCluster>();
-
-if (!pool) {
-  console.warn('[DB Blacklist] DATABASE_URL not set — using in-memory store');
-}
 
 export function generateClusterId(wallets: string[]): string {
   const sorted = [...wallets].sort();
@@ -113,7 +96,6 @@ async function initBlacklistTables(): Promise<void> {
       );
       CREATE INDEX IF NOT EXISTS idx_wallet_index_wallet ON bundle_wallet_index(wallet);
     `);
-    console.log('[DB Blacklist] Tables initialized');
   } catch (error) {
     console.error('[DB Blacklist] Failed to initialize tables:', error);
   }
@@ -197,7 +179,6 @@ export async function persistBundleClusters(clusters: BundleCluster[]): Promise<
   for (const cluster of clusters) {
     await upsertBundleCluster(cluster);
   }
-  console.log(`[DB Blacklist] Persisted ${clusters.length} clusters (${pool ? 'pg+memory' : 'memory only'})`);
 }
 
 type SortField = 'confidence' | 'last_seen' | 'total_appearances' | 'wallet_count';

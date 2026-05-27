@@ -8,6 +8,8 @@ interface TrendingTokensProps {
   onTokenClick: (address: string) => void;
 }
 
+const SKELETON_TITLE_WIDTHS = ['66%', '78%', '58%', '84%', '72%'];
+
 export function TrendingTokens({ onTokenClick }: TrendingTokensProps) {
   const [trending, setTrending] = useState<EnrichedToken[]>([]);
   const [featured, setFeatured] = useState<EnrichedToken[]>([]);
@@ -43,9 +45,29 @@ export function TrendingTokens({ onTokenClick }: TrendingTokensProps) {
   if (isLoading) {
     return (
       <div className="trending-container">
-        <div className="trending-loading">
-          <div className="spinner-lg" />
-          <p>Loading trending tokens...</p>
+        <h2 className="trending-title">Explore Tokens</h2>
+        <div className="trending-grid">
+          {[0, 1].map(col => (
+            <div key={col} className="trending-column">
+              <div className="column-title">{col === 0 ? 'Trending' : 'Featured'}</div>
+              <div className="token-list">
+                {Array.from({ length: 5 }).map((_, i) => (
+                  <div key={i} className="token-card" style={{ pointerEvents: 'none' }}>
+                    <div className="token-rank" style={{ opacity: 0.3 }}>{i + 1 + col * 10}</div>
+                    <div className="w-7 h-7 rounded-full animate-pulse flex-shrink-0" style={{ background: 'var(--bg-elevated)' }} />
+                    <div className="token-info">
+                      <div className="h-3 rounded animate-pulse mb-1.5" style={{ background: 'var(--bg-elevated)', width: SKELETON_TITLE_WIDTHS[(i + col) % SKELETON_TITLE_WIDTHS.length] }} />
+                      <div className="h-2.5 rounded animate-pulse" style={{ background: 'var(--bg-hover)', width: '30%' }} />
+                    </div>
+                    <div className="token-metrics">
+                      <div className="h-3 rounded animate-pulse mb-1" style={{ background: 'var(--bg-elevated)', width: '60px', marginLeft: 'auto' }} />
+                      <div className="h-2.5 rounded animate-pulse" style={{ background: 'var(--bg-hover)', width: '40px', marginLeft: 'auto' }} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
         </div>
       </div>
     );

@@ -3,15 +3,26 @@ import { traceFundingChain } from '@/lib/graph-builder';
 import { mapTokenHolders } from '@/lib/holder-mapper';
 import { isTokenMint } from '@/lib/helius';
 import { isValidSolanaAddress } from '@/lib/address-utils';
+import { checkRateLimit } from '@/lib/rate-limit';
 import { ScanResponse, AppMode } from '@/lib/types';
 import { getCachedTokenScan, setCachedTokenScan } from '@/lib/db-cache';
 
+export const maxDuration = 60;
+
 export async function POST(request: NextRequest) {
+  const ip = request.headers.get('x-forwarded-for')?.split(',')[0].trim() ?? 'unknown';
+  const { allowed, retryAfterMs } = checkRateLimit(ip, 'scan');
+  if (!allowed) {
+    return NextResponse.json<ScanResponse>(
+      { success: false, error: 'Too many requests' },
+      { status: 429, headers: { 'Retry-After': String(Math.ceil(retryAfterMs / 1000)) } }
+    );
+  }
+
   try {
     const body = await request.json();
     const { address } = body;
 
-    // Validate address
     if (!address || !isValidSolanaAddress(address)) {
       return NextResponse.json<ScanResponse>(
         { success: false, error: 'Invalid Solana address' },
@@ -21,14 +32,12 @@ export async function POST(request: NextRequest) {
 
     console.log(`Auto-detecting address type for ${address}`);
 
-    // Auto-detect if this is a token mint or wallet
     const isToken = await isTokenMint(address);
     const mode: AppMode = isToken ? 'token' : 'wallet';
 
     console.log(`Detected mode: ${mode}`);
 
     if (mode === 'token') {
-      // CHECK DATABASE CACHE FIRST - saves API calls!
       const cached = await getCachedTokenScan(address);
       if (cached) {
         console.log(`[CACHE HIT] Returning cached result for ${address.slice(0, 8)}...`);
@@ -42,13 +51,11 @@ export async function POST(request: NextRequest) {
         });
       }
 
-      // Token mode - map holder connections
       const result = await mapTokenHolders(address, {
-        topN: 50,  // Match closer to Bubblemaps coverage
+        topN: 30,
         fundersPerHolder: 1,
       });
 
-      // STORE IN DATABASE CACHE for future requests
       setCachedTokenScan(
         address,
         result.data,
@@ -66,11 +73,10 @@ export async function POST(request: NextRequest) {
         tokenMetadata: result.tokenMetadata,
       });
     } else {
-      // Wallet mode - trace funding chain (reduced params to conserve API)
       const data = await traceFundingChain(address, {
-        maxDepth: 1,  // Reduced from 2
-        maxNodesPerLevel: 10,  // Reduced from 20
-        minAmount: 0.01,  // Increased from 0.001
+        maxDepth: 1,
+        maxNodesPerLevel: 10,
+        minAmount: 0.01,
       });
 
       return NextResponse.json<ScanResponse>({

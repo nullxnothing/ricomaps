@@ -1,14 +1,25 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { mapTokenHolders } from '@/lib/holder-mapper';
 import { isValidSolanaAddress } from '@/lib/address-utils';
+import { checkRateLimit } from '@/lib/rate-limit';
 import { TokenResponse } from '@/lib/types';
 
+export const maxDuration = 60;
+
 export async function POST(request: NextRequest) {
+  const ip = request.headers.get('x-forwarded-for')?.split(',')[0].trim() ?? 'unknown';
+  const { allowed, retryAfterMs } = checkRateLimit(ip, 'token');
+  if (!allowed) {
+    return NextResponse.json<TokenResponse>(
+      { success: false, error: 'Too many requests' },
+      { status: 429, headers: { 'Retry-After': String(Math.ceil(retryAfterMs / 1000)) } }
+    );
+  }
+
   try {
     const body = await request.json();
-    const { mint, topHolders = 20 } = body;  // Reduced default for rate limit handling
+    const { mint, topHolders = 20 } = body;
 
-    // Validate mint address
     if (!mint || !isValidSolanaAddress(mint)) {
       return NextResponse.json<TokenResponse>(
         { success: false, error: 'Invalid Solana token mint address' },
@@ -16,8 +27,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Limit top holders to prevent excessive API calls
-    const maxHolders = Math.min(Math.max(10, topHolders), 30);  // Max reduced to 30
+    const maxHolders = Math.min(Math.max(10, topHolders), 30);
 
     console.log(`Mapping token holders for ${mint}, analyzing top ${maxHolders}`);
 
