@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 
 const RICO_CA = '6tf2X4GbYdM59hAMNa5kgyja2C9CjwUVqr9YLvJ1pump';
 
@@ -21,6 +21,9 @@ export function Navbar({ fadeIn = false }: NavbarProps) {
   const pathname = usePathname();
   const [scrolled, setScrolled] = useState(!fadeIn);
   const [copied, setCopied] = useState(false);
+  const [popoverOpen, setPopoverOpen] = useState(false);
+  const popoverRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
 
   const copyCA = () => {
     navigator.clipboard.writeText(RICO_CA);
@@ -35,6 +38,28 @@ export function Navbar({ fadeIn = false }: NavbarProps) {
     onScroll();
     return () => window.removeEventListener('scroll', onScroll);
   }, [fadeIn]);
+
+  useEffect(() => {
+    if (!popoverOpen) return;
+    const onClick = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (
+        popoverRef.current && !popoverRef.current.contains(target) &&
+        triggerRef.current && !triggerRef.current.contains(target)
+      ) {
+        setPopoverOpen(false);
+      }
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setPopoverOpen(false);
+    };
+    document.addEventListener('mousedown', onClick);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onClick);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [popoverOpen]);
 
   return (
     <header
@@ -64,28 +89,69 @@ export function Navbar({ fadeIn = false }: NavbarProps) {
         </Link>
 
         <nav className="flex items-center gap-1">
-          <button
-            onClick={copyCA}
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-mono font-semibold transition-all duration-150 mr-1"
-            style={{
-              background: copied ? 'rgba(0,255,65,0.1)' : 'rgba(255,255,255,0.04)',
-              color: copied ? 'var(--green-primary)' : 'var(--text-tertiary)',
-              border: copied ? '1px solid rgba(0,255,65,0.2)' : '1px solid var(--border-base)',
-            }}
-            title={copied ? 'Copied!' : `Copy $RICO CA: ${RICO_CA}`}
-          >
-            <span>$RICO</span>
-            {copied ? (
-              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                <polyline points="20 6 9 17 4 12"/>
+          <div className="relative mr-1">
+            <button
+              ref={triggerRef}
+              onClick={() => setPopoverOpen(o => !o)}
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-mono font-semibold transition-all duration-150 border ${
+                popoverOpen
+                  ? 'bg-green-primary/10 text-green-primary border-green-primary/20'
+                  : 'bg-white/[0.04] text-text-tertiary border-border-base hover:text-text-primary hover:border-border-hover'
+              }`}
+              aria-haspopup="dialog"
+              aria-expanded={popoverOpen}
+              aria-label="About $RICO token"
+            >
+              <span>$RICO</span>
+              <svg
+                width="9"
+                height="9"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                className={`transition-transform duration-150 ${popoverOpen ? 'rotate-180' : ''}`}
+              >
+                <polyline points="6 9 12 15 18 9" />
               </svg>
-            ) : (
-              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
-                <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/>
-              </svg>
+            </button>
+
+            {popoverOpen && (
+              <div
+                ref={popoverRef}
+                role="dialog"
+                aria-label="About $RICO"
+                className="absolute right-0 top-full mt-2 w-[300px] glass-panel p-3.5 z-50"
+                style={{ animation: 'fadeIn 0.15s ease-out' }}
+              >
+                <p className="text-[12px] leading-relaxed text-text-secondary mb-3">
+                  The fees generated from this token are auto sent to a wallet for API funding to keep the site running. Thanks for stopping by.
+                </p>
+                <div className="text-[10px] font-mono uppercase tracking-[0.08em] text-text-tertiary mb-1">
+                  Contract
+                </div>
+                <button
+                  onClick={copyCA}
+                  className="flex items-center justify-between w-full gap-2 px-2.5 py-2 rounded-md bg-bg-elevated hover:bg-bg-hover border border-border-base hover:border-border-hover transition-colors group"
+                  title="Click to copy"
+                >
+                  <span className="text-[10.5px] font-mono text-text-secondary truncate">
+                    {RICO_CA}
+                  </span>
+                  {copied ? (
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="flex-shrink-0 text-green-primary">
+                      <polyline points="20 6 9 17 4 12" />
+                    </svg>
+                  ) : (
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="flex-shrink-0 text-text-tertiary group-hover:text-text-primary">
+                      <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                      <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" />
+                    </svg>
+                  )}
+                </button>
+              </div>
             )}
-          </button>
+          </div>
           {NAV_LINKS.map((link) => (
             <Link
               key={link.href}
