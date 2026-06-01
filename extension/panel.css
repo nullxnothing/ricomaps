@@ -1,0 +1,116 @@
+/* RicoMaps injected panel — all classes prefixed rm- and scoped to #ricomaps-panel
+   so nothing leaks into axiom's styles. */
+
+#ricomaps-panel.rm-panel {
+  display: flex;
+  flex-direction: column;
+  background: #050505;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+  z-index: 2147483646;
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+/* Floating, draggable, resizable panel. Sensible default size, anchored top-right
+   below axiom's header so it doesn't land over the search bar. */
+#ricomaps-panel.rm-floating {
+  position: fixed;
+  top: 70px;
+  right: 16px;
+  width: 340px;
+  height: 360px;
+  min-width: 240px;
+  min-height: 200px;
+  max-width: 90vw;
+  max-height: 85vh;
+}
+
+/* Custom resize grip (bottom-right). JS-driven so it works over the iframe. */
+#ricomaps-panel .rm-resize {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 16px;
+  height: 16px;
+  cursor: nwse-resize;
+  z-index: 2;
+  background:
+    linear-gradient(135deg, transparent 50%, rgba(255, 255, 255, 0.25) 50%, rgba(255, 255, 255, 0.25) 60%, transparent 60%,
+    transparent 70%, rgba(255, 255, 255, 0.25) 70%, rgba(255, 255, 255, 0.25) 80%, transparent 80%);
+}
+#ricomaps-panel.rm-collapsed .rm-resize {
+  display: none;
+}
+
+/* Prime the compositor only during an active gesture (class removed on mouseup). */
+#ricomaps-panel.rm-dragging { will-change: left, top; }
+#ricomaps-panel.rm-resizing { will-change: width, height; }
+
+#ricomaps-panel .rm-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  background: rgba(0, 0, 0, 0.85);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  cursor: move;
+  user-select: none;
+  flex: 0 0 auto;
+}
+
+#ricomaps-panel .rm-title {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: #00ff41;
+}
+
+#ricomaps-panel .rm-actions {
+  display: flex;
+  gap: 4px;
+}
+
+#ricomaps-panel .rm-btn {
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 5px;
+  color: #aaa;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+}
+
+#ricomaps-panel .rm-btn:hover {
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+#ricomaps-panel .rm-body {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+#ricomaps-panel .rm-iframe {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  display: block;
+  background: #000;
+}
+
+/* Collapsed: show only the header bar (no resize while collapsed). */
+#ricomaps-panel.rm-collapsed .rm-body {
+  display: none;
+}
+#ricomaps-panel.rm-collapsed.rm-floating {
+  height: auto;
+  resize: none;
+}

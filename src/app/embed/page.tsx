@@ -36,12 +36,30 @@ function EmbedContent() {
       setIsLoading(true);
       setError(null);
 
+      // Progressive paint: a fast quick-scan (15 holders, cache-first) runs in parallel
+      // with the authoritative scan. Paint the quick result first if it lands first; the
+      // full result wins once it resolves and BubbleMap merges it incrementally (no relayout).
+      let fullResolved = false;
+      fetch('/api/v1/quick-scan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ address }),
+      })
+        .then(r => r.json())
+        .then((quick: ScanResponse) => {
+          if (fullResolved || !quick.success || !quick.data) return;
+          setData(quick.data);
+          setIsLoading(false);
+        })
+        .catch(() => {}); // best-effort (e.g. wallet addresses) — ignore
+
       try {
         const response = await fetch('/api/scan', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ address }),
         });
+        fullResolved = true;
 
         const result: ScanResponse = await response.json();
 
