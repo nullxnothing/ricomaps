@@ -39,12 +39,13 @@ app.get('/stream/holders', async (req: Request, res: Response) => {
     return;
   }
 
-  res.writeHead(200, {
-    'Content-Type': 'text/event-stream; charset=utf-8',
-    'Cache-Control': 'no-cache, no-transform',
-    Connection: 'keep-alive',
-    'X-Accel-Buffering': 'no',
-  });
+  // Use setHeader (not writeHead with an object) so the CORS middleware's
+  // Access-Control-Allow-Origin header set earlier on this response is preserved.
+  res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.writeHead(200);
   res.flushHeaders?.();
 
   const client: SseClient = {
