@@ -359,7 +359,7 @@ export default function DocsPage() {
         actions={(
           <>
             <Link href="/" className="btn-cta">Launch App</Link>
-            <a href="#api-access" className="btn-cta-secondary">View API Docs</a>
+            <a href="#extension" className="btn-cta-secondary">Get the Extension</a>
           </>
         )}
       />
@@ -525,6 +525,12 @@ export default function DocsPage() {
               description="Embed Rico Maps visualizations on your own site via a simple iframe. Customize view style, dimensions, and target address."
               color="#a78bfa"
               icon={icons.code}
+            />
+            <FeatureCard
+              title="Axiom Extension"
+              description="A Chrome extension that shows the bubble map inline on axiom.trade chart pages — auto-detects the token, draggable and resizable. Download it below."
+              color="#5b7fff"
+              icon={icons.crosshair}
             />
           </div>
         </section>
@@ -702,10 +708,51 @@ export default function DocsPage() {
           </div>
         </section>
 
-        {/* ─── Section 8: Data Sources & Methodology ─── */}
+        {/* ─── Browser Extension ─── */}
+        <section id="extension">
+          <div className="flex items-center gap-3 mb-8">
+            <SectionBadge number={8} color="#a78bfa" />
+            <h2 className="text-2xl font-bold text-white">Browser Extension</h2>
+          </div>
+          <div className="rounded-lg p-6 border" style={{ background: 'var(--bg-surface)', borderColor: 'var(--border-base)' }}>
+            <p className="mb-5" style={{ color: 'var(--text-tertiary)' }}>
+              Run Rico Maps right on your trading pages. The Chrome extension detects the token on{' '}
+              <span className="text-white">axiom.trade</span> chart pages and shows the holder/cabal
+              bubble map in a draggable, resizable panel — no copy-pasting addresses.
+            </p>
+
+            <a
+              href="/ricomaps-extension.zip"
+              download
+              className="btn-cta inline-flex items-center gap-2"
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
+                <polyline points="7 10 12 15 17 10" />
+                <line x1="12" y1="15" x2="12" y2="3" />
+              </svg>
+              Download Extension (.zip)
+            </a>
+
+            <div className="mt-6">
+              <h3 className="text-lg font-semibold text-white mb-3">Install (Chrome / Brave / Edge)</h3>
+              <ol className="space-y-2 text-sm list-decimal pl-5" style={{ color: 'var(--text-secondary)' }}>
+                <li>Download the .zip above and unzip it.</li>
+                <li>Open <code className="font-mono text-[#c3e88d]">chrome://extensions</code> and enable <span className="text-white">Developer mode</span> (top-right).</li>
+                <li>Click <span className="text-white">Load unpacked</span> and select the unzipped <code className="font-mono text-[#c3e88d]">ricomaps-extension</code> folder.</li>
+                <li>Open any <code className="font-mono text-[#c3e88d]">axiom.trade/meme/&lt;token&gt;</code> page — the panel appears top-right. Drag it by the header, resize from the corner, or toggle it from the extension popup.</li>
+              </ol>
+              <p className="mt-4 text-xs" style={{ color: 'var(--text-tertiary)' }}>
+                Coming soon to the Chrome Web Store for one-click install.
+              </p>
+            </div>
+          </div>
+        </section>
+
+        {/* ─── Section 9: Data Sources & Methodology ─── */}
         <section>
           <div className="flex items-center gap-3 mb-8">
-            <SectionBadge number={8} color="#22d3ee" />
+            <SectionBadge number={9} color="#22d3ee" />
             <h2 className="text-2xl font-bold text-white">Data Sources & Methodology</h2>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
@@ -759,10 +806,10 @@ export default function DocsPage() {
           </div>
         </section>
 
-        {/* ─── Section 9: Limitations ─── */}
+        {/* ─── Section 10: Limitations ─── */}
         <section>
           <div className="flex items-center gap-3 mb-8">
-            <SectionBadge number={9} color="#737373" />
+            <SectionBadge number={10} color="#737373" />
             <h2 className="text-2xl font-bold text-white">Limitations</h2>
           </div>
           <div className="rounded-lg p-6 border" style={{ background: 'var(--bg-surface)', borderColor: 'var(--border-base)' }}>
