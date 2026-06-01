@@ -501,6 +501,16 @@ export interface StreamingState {
   transactionCount: number;
 }
 
+// A single owner's live token balance change for a watched mint, pushed by the
+// LaserStream worker over SSE. `delta < 0` is a sell; `newBalance === 0` is a close.
+export interface HolderDelta {
+  owner: string;
+  newBalance: number;
+  delta: number;
+  slot: number;
+  signature: string;
+}
+
 // Bundle Detection / Blacklist Types
 
 export interface BundleTokenAppearance {

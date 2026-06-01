@@ -70,6 +70,9 @@ function HomeContent() {
     scanWithAutoDetect,
     expandNode,
     reset,
+    streaming,
+    startStreaming,
+    stopStreaming,
   } = useGraphData();
 
   useEffect(() => {
@@ -356,6 +359,42 @@ function HomeContent() {
               <p className="text-sm text-red-primary">{error}</p>
             </div>
           </div>
+        )}
+
+        {/* Live stream toggle — token mode only, hidden while viewing history */}
+        {detectedMode === 'token' && !historicalSnapshot && (
+          <button
+            onClick={() => (streaming.isStreaming || streaming.isConnecting ? stopStreaming() : startStreaming())}
+            title={
+              streaming.error
+                ? streaming.error
+                : streaming.isStreaming
+                  ? `Live via ${streaming.transport} · ${streaming.transactionCount} updates`
+                  : 'Stream live holder activity'
+            }
+            className="absolute right-4 z-10 flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-mono transition-all duration-200 border shadow-[0_4px_12px_rgba(0,0,0,0.3)] bg-black/80 backdrop-blur-md hover:border-white/20"
+            style={{ top: 'var(--panel-top)' }}
+          >
+            <span
+              className={`inline-block w-2 h-2 rounded-full ${
+                streaming.isStreaming
+                  ? 'bg-green-400 animate-pulse'
+                  : streaming.isConnecting
+                    ? 'bg-amber-400 animate-pulse'
+                    : streaming.error
+                      ? 'bg-red-500'
+                      : 'bg-white/30'
+              }`}
+            />
+            {streaming.isStreaming
+              ? `Live${streaming.transport === 'polling' ? ' (poll)' : ''}`
+              : streaming.isConnecting
+                ? 'Connecting…'
+                : 'Go Live'}
+            {streaming.isStreaming && streaming.transactionCount > 0 && (
+              <span className="text-text-tertiary">· {streaming.transactionCount}</span>
+            )}
+          </button>
         )}
 
         {/* Historical mode indicator */}

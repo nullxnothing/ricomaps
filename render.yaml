@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: ricomaps-laserstream-worker
+    runtime: node
+    rootDir: worker
+    region: oregon
+    plan: starter
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: HELIUS_LASERSTREAM_API_KEY
+        sync: false
+      - key: HELIUS_LASERSTREAM_ENDPOINT
+        value: https://laserstream-mainnet-ewr.helius-rpc.com
+      - key: APP_ORIGIN
+        sync: false
+      - key: PORT
+        value: 8080
