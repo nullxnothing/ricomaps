@@ -51,7 +51,20 @@ HELIUS_DEDICATED_RPC=
 DATABASE_URL=postgresql://...
 ```
 
+Optional (Venum — live multi-DEX prices + real-time SSE price stream):
+
+```
+VENUM_API_KEY=your_venum_api_key
+VENUM_BASE_URL=https://api.venum.dev   # override only if needed
+```
+
+When set, token scans overlay Venum's live multi-DEX price (which resolves on
+fresh launches where GeckoTerminal/DexScreener are still empty), and the
+`/api/prices/stream` SSE proxy + `useVenumPriceStream` hook provide real-time
+prices without polling. Falls back to the existing price sources when unset.
+
 Get a Helius API key at [dashboard.helius.dev](https://dashboard.helius.dev).
+Get a Venum API key at [app.venum.dev](https://app.venum.dev).
 
 ## Development
 

@@ -10,6 +10,7 @@ import { createNode } from './graph-utils';
 import { detectBundleClusters } from './bundle-detector';
 import { generateClusterId, persistBundleClusters } from './db-blacklist';
 import { fetchTokenMarketData } from './dexscreener';
+import { getVenumPriceUsd } from './venum';
 
 const SNIPER_BLOCK_THRESHOLD = 10;
 
@@ -72,11 +73,14 @@ export async function mapTokenHolders(mintAddress: string, options: MapOptions =
   // PHASE 1: Three parallel calls (~200ms)
   // ═══════════════════════════════════════════════════════════
   const p1Start = Date.now();
-  const [largestAccounts, asset, mintEarlyTxs, dexMarketData] = await Promise.all([
+  const [largestAccounts, asset, mintEarlyTxs, dexMarketData, venumPriceUsd] = await Promise.all([
     getTokenLargestAccounts(mintAddress),
     getAsset(mintAddress),
     getMintEarlyTransactions(mintAddress, 100),
     fetchTokenMarketData(mintAddress),
+    // Venum multi-DEX price resolves on fresh launches where Gecko/DexScreener
+    // are still empty; null when unconfigured or no pool yet (we then fall back).
+    getVenumPriceUsd(mintAddress),
   ]);
   console.error(`[PERF] Phase 1: ${Date.now() - p1Start}ms`);
 
@@ -90,7 +94,11 @@ export async function mapTokenHolders(mintAddress: string, options: MapOptions =
     description: asset.content?.metadata?.description,
     website: asset.content?.links?.external_url,
     ...dexMarketData,
-  } : dexMarketData ?? null;
+    // Prefer the live Venum price over the (possibly stale/missing) DEX snapshot.
+    ...(venumPriceUsd != null ? { priceUsd: venumPriceUsd } : {}),
+  } : (dexMarketData || venumPriceUsd != null)
+    ? { ...dexMarketData, ...(venumPriceUsd != null ? { priceUsd: venumPriceUsd } : {}) }
+    : null;
 
   // Derive launch info from first mint tx (CPU only)
   const launchInfo = mintEarlyTxs.length > 0 ? {

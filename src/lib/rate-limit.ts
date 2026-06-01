@@ -12,6 +12,7 @@ const ROUTE_LIMITS: Record<string, number> = {
   'wallet-history': 30,
   'cross-token': 10,
   'token-history': 40,
+  'prices-stream': 20,
   default: 30,
 };
 
