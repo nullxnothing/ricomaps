@@ -23,7 +23,22 @@ const typeConfig: Record<string, { label: string; cssColor: string }> = {
   connected: { label: 'Cabal linked', cssColor: 'var(--amber-primary)' },
   sniper: { label: 'Sniper', cssColor: 'var(--cyan-primary)' },
   bundled: { label: 'Bundled', cssColor: 'var(--purple-primary)' },
+  pool: { label: 'Liquidity Pool', cssColor: 'var(--text-tertiary)' },
 };
+
+const THREAT_LEVEL_COLORS: Record<string, string> = {
+  critical: '#ff0000',
+  high: '#ff4444',
+  medium: '#ff8800',
+  low: '#ffcc00',
+  safe: '#00cc66',
+};
+
+function formatUsd(n: number): string {
+  if (n >= 1e6) return '$' + (n / 1e6).toFixed(2) + 'M';
+  if (n >= 1e3) return '$' + (n / 1e3).toFixed(1) + 'K';
+  return '$' + n.toFixed(2);
+}
 
 function formatAmount(amount: number): string {
   if (amount >= 1e9) return (amount / 1e9).toFixed(2) + 'B';
@@ -134,7 +149,45 @@ export function NodeDetailPanel({
             <span className="font-mono font-semibold" style={{ color: 'var(--red-primary)' }}>{node.metadata.fundedCount}</span>
           </div>
         )}
+        {node.metadata?.threatScore != null && node.metadata.threatLevel && (
+          <div className="flex justify-between text-xs">
+            <span style={{ color: 'var(--text-tertiary)' }}>Threat</span>
+            <span className="font-mono font-semibold capitalize" style={{ color: THREAT_LEVEL_COLORS[node.metadata.threatLevel] || 'var(--text-primary)' }}>
+              {node.metadata.threatLevel} ({node.metadata.threatScore})
+            </span>
+          </div>
+        )}
+        {node.metadata?.walletAgeDays != null && (
+          <div className="flex justify-between text-xs">
+            <span style={{ color: 'var(--text-tertiary)' }}>Wallet age</span>
+            <span className="font-mono" style={{ color: node.metadata.walletAgeDays < 7 ? 'var(--amber-primary)' : 'var(--text-primary)' }}>
+              {node.metadata.walletAgeDays}d
+            </span>
+          </div>
+        )}
       </div>
+
+      {/* Portfolio snapshot */}
+      {node.portfolio && (
+        <div className="border-t px-3.5 py-2 space-y-1.5" style={{ borderColor: 'var(--border-base)' }}>
+          <div className="flex justify-between text-xs">
+            <span style={{ color: 'var(--text-tertiary)' }}>Portfolio</span>
+            <span className="font-mono font-semibold" style={{ color: 'var(--green-primary)' }}>{formatUsd(node.portfolio.totalUsdValue)}</span>
+          </div>
+          <div className="flex justify-between text-xs">
+            <span style={{ color: 'var(--text-tertiary)' }}>SOL · tokens</span>
+            <span className="font-mono" style={{ color: 'var(--text-secondary)' }}>
+              {formatAmount(node.portfolio.solBalance)} · {node.portfolio.tokenCount}
+            </span>
+          </div>
+          {node.portfolio.topHoldings?.slice(0, 3).map(h => (
+            <div key={h.symbol} className="flex justify-between text-[11px]">
+              <span style={{ color: 'var(--text-tertiary)' }}>{h.symbol}</span>
+              <span className="font-mono" style={{ color: 'var(--text-secondary)' }}>{formatUsd(h.usdValue)}</span>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Funding source */}
       {node.fundingSource && (

@@ -17,6 +17,7 @@ import { HistoricalSnapshot, snapshotToGraphData } from '@/lib/snapshot-to-graph
 import { Navbar } from '@/components/Navbar';
 import { Footer } from '@/components/layout/Footer';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
+import { LiveActivityFeed } from '@/components/LiveActivityFeed';
 import { AnimatedShinyText } from '@/components/ui/animated-shiny-text';
 import { ShimmerButton } from '@/components/ui/shimmer-button';
 
@@ -58,6 +59,7 @@ function HomeContent() {
   const [selectedWallet, setSelectedWallet] = useState<string | null>(null);
   const [historicalSnapshot, setHistoricalSnapshot] = useState<HistoricalSnapshot | null>(null);
   const [graphFilter, setGraphFilter] = useState<StatsFilter>(null);
+  const [linkCopied, setLinkCopied] = useState(false);
   const {
     data,
     stats,
@@ -71,6 +73,7 @@ function HomeContent() {
     expandNode,
     reset,
     streaming,
+    recentEvents,
     startStreaming,
     stopStreaming,
   } = useGraphData();
@@ -122,6 +125,24 @@ function HomeContent() {
   const handleNodeClick = useCallback((node: GraphNode) => {
     setSelectedNode(node);
     setSelectedWallet(node.id);
+  }, []);
+
+  const handleTraceFunders = useCallback((node: GraphNode) => {
+    setSelectedNode(node);
+    setSelectedWallet(node.id);
+    expandNode(node.id, 'funding');
+  }, [expandNode]);
+
+  // Esc closes open panels / clears the current selection.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      setSelectedNode(null);
+      setSelectedWallet(null);
+      setDeepScanOpen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
   }, []);
 
   const handleBack = useCallback(() => {
@@ -284,6 +305,28 @@ function HomeContent() {
               </button>
             )}
 
+            {/* Share link — copies a deep link that auto-scans this token */}
+            {scannedAddress && (
+              <button
+                className="flex items-center justify-between w-full px-3 py-2 transition-colors duration-150 bg-transparent border-t border-border-base hover:bg-white/[0.03]"
+                onClick={() => {
+                  navigator.clipboard.writeText(`${window.location.origin}/?address=${scannedAddress}`);
+                  setLinkCopied(true);
+                  setTimeout(() => setLinkCopied(false), 2000);
+                }}
+                title="Copy shareable link"
+              >
+                <span className="text-[10px] font-medium" style={{ color: linkCopied ? 'var(--green-primary)' : 'var(--text-tertiary)' }}>
+                  {linkCopied ? 'Link copied' : 'Share link'}
+                </span>
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+                  className="flex-shrink-0 text-text-tertiary">
+                  <path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71" />
+                  <path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71" />
+                </svg>
+              </button>
+            )}
+
             {/* Social / external links */}
             {(tokenMetadata.website || tokenMetadata.twitter || tokenMetadata.telegram || tokenMetadata.discord || tokenMetadata.dexUrl) && (
               <div className="flex items-center gap-1 px-3 pb-3 pt-2 border-t border-border-base">
@@ -361,40 +404,46 @@ function HomeContent() {
           </div>
         )}
 
-        {/* Live stream toggle — token mode only, hidden while viewing history */}
+        {/* Live control — pill + activity feed in one top-center column so the feed
+            always hangs directly under the pill and never collides with other panels. */}
         {detectedMode === 'token' && !historicalSnapshot && (
-          <button
-            onClick={() => (streaming.isStreaming || streaming.isConnecting ? stopStreaming() : startStreaming())}
-            title={
-              streaming.error
-                ? streaming.error
-                : streaming.isStreaming
-                  ? `Live via ${streaming.transport} · ${streaming.transactionCount} updates`
-                  : 'Stream live holder activity'
-            }
-            className="absolute left-1/2 -translate-x-1/2 z-10 flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-mono transition-all duration-200 border shadow-[0_4px_12px_rgba(0,0,0,0.3)] bg-black/80 backdrop-blur-md hover:border-white/20"
-            style={{ top: 'var(--panel-top)' }}
-          >
-            <span
-              className={`inline-block w-2 h-2 rounded-full ${
-                streaming.isStreaming
-                  ? 'bg-green-400 animate-pulse'
-                  : streaming.isConnecting
-                    ? 'bg-amber-400 animate-pulse'
-                    : streaming.error
-                      ? 'bg-red-500'
-                      : 'bg-white/30'
-              }`}
-            />
-            {streaming.isStreaming
-              ? `Live${streaming.transport === 'polling' ? ' (poll)' : ''}`
-              : streaming.isConnecting
-                ? 'Connecting…'
-                : 'Go Live'}
-            {streaming.isStreaming && streaming.transactionCount > 0 && (
-              <span className="text-text-tertiary">· {streaming.transactionCount}</span>
+          <div className="absolute left-1/2 -translate-x-1/2 z-10 flex flex-col items-center gap-2" style={{ top: 'var(--panel-top)' }}>
+            <button
+              onClick={() => (streaming.isStreaming || streaming.isConnecting ? stopStreaming() : startStreaming())}
+              title={
+                streaming.error
+                  ? streaming.error
+                  : streaming.isStreaming
+                    ? `Live via ${streaming.transport} · ${streaming.transactionCount} updates`
+                    : 'Stream live holder activity'
+              }
+              className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-mono transition-all duration-200 border shadow-[0_4px_12px_rgba(0,0,0,0.3)] bg-black/80 backdrop-blur-md hover:border-white/20"
+            >
+              <span
+                className={`inline-block w-2 h-2 rounded-full ${
+                  streaming.isStreaming
+                    ? 'bg-green-400 animate-pulse'
+                    : streaming.isConnecting
+                      ? 'bg-amber-400 animate-pulse'
+                      : streaming.error
+                        ? 'bg-red-500'
+                        : 'bg-white/30'
+                }`}
+              />
+              {streaming.isStreaming
+                ? `Live${streaming.transport === 'polling' ? ' (poll)' : ''}`
+                : streaming.isConnecting
+                  ? 'Connecting…'
+                  : 'Go Live'}
+              {streaming.isStreaming && streaming.transactionCount > 0 && (
+                <span className="text-text-tertiary">· {streaming.transactionCount}</span>
+              )}
+            </button>
+
+            {streaming.isStreaming && recentEvents.length > 0 && (
+              <LiveActivityFeed events={recentEvents} />
             )}
-          </button>
+          </div>
         )}
 
         {/* Historical mode indicator */}
@@ -428,7 +477,7 @@ function HomeContent() {
               </div>
             )}
           >
-            <BubbleMap data={effectiveData || data} onNodeClick={handleNodeClick} filter={graphFilter} />
+            <BubbleMap data={effectiveData || data} onNodeClick={handleNodeClick} onTraceFunders={handleTraceFunders} filter={graphFilter} />
           </ErrorBoundary>
         </div>
 
@@ -607,6 +656,18 @@ function HomeContent() {
         <div className="w-full max-w-xl mb-4 px-1">
           <AddressInput onSubmit={handleScan} isLoading={isLoading} isDetecting={isDetecting} size="large" />
         </div>
+
+        {!clipboardAddress && !isLoading && !isDetecting && (
+          <p className="mt-1 text-[11px] font-mono text-text-tertiary">
+            Paste a token or wallet to map it — or{' '}
+            <button
+              onClick={() => handleTokenClick('8AuS5e8cnsfDT77AhirQWY6q8SW2ogZGLg7QCVWPfBCJ')}
+              className="text-green-primary/80 hover:text-green-primary underline underline-offset-2 transition-colors"
+            >
+              try an example
+            </button>
+          </p>
+        )}
 
         {clipboardAddress && !isLoading && !isDetecting && (
           <button

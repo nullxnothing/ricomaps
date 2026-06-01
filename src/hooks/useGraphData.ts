@@ -29,6 +29,15 @@ const MAX_LIVE_NODES = 150;
 // not a real holder — tagged distinctly so it doesn't read as a whale.
 const POOL_SUPPLY_SHARE = 0.15;
 
+export interface RecentEvent {
+  id: string;          // signature+owner — stable key for the list
+  owner: string;
+  kind: 'buy' | 'sell' | 'out';
+  ts: number;
+}
+
+const MAX_RECENT_EVENTS = 15;
+
 interface Stats {
   nodesFound?: number;
   linksFound?: number;
@@ -70,6 +79,7 @@ interface UseGraphDataReturn {
   expandNode: (nodeId: string, mode: 'funding' | 'funded') => Promise<void>;
   reset: () => void;
   streaming: StreamingStats;
+  recentEvents: RecentEvent[];
   startStreaming: () => void;
   stopStreaming: () => void;
 }
@@ -91,6 +101,8 @@ export function useGraphData(): UseGraphDataReturn {
 
   const [liveEnabled, setLiveEnabled] = useState(false);
   const [wsFallback, setWsFallback] = useState(false);
+  const [recentEvents, setRecentEvents] = useState<RecentEvent[]>([]);
+  const recentEventsRef = useRef<RecentEvent[]>([]);
 
   const dataRef = useRef<GraphData | null>(null);
   dataRef.current = data;
@@ -115,6 +127,18 @@ export function useGraphData(): UseGraphDataReturn {
     pendingDeltasRef.current = [];
     const mint = scannedMintRef.current;
     if (batch.length === 0 || !mint) return;
+
+    // Build the live activity feed from this batch (one state update per flush).
+    const events: RecentEvent[] = [];
+    for (const d of batch) {
+      if (shouldFilterAddress(d.owner) || d.owner === mint) continue;
+      const kind: RecentEvent['kind'] = d.newBalance <= 0 ? 'out' : d.delta < 0 ? 'sell' : 'buy';
+      events.push({ id: `${d.signature}:${d.owner}`, owner: d.owner, kind, ts: Date.now() });
+    }
+    if (events.length > 0) {
+      recentEventsRef.current = [...events.reverse(), ...recentEventsRef.current].slice(0, MAX_RECENT_EVENTS);
+      setRecentEvents(recentEventsRef.current);
+    }
 
     setData(prev => {
       if (!prev) return prev;
@@ -343,6 +367,28 @@ export function useGraphData(): UseGraphDataReturn {
     setIsLoading(true);
     setError(null);
 
+    // Progressive paint: fire a fast quick-scan (15 holders, cache-first) in parallel
+    // with the authoritative scan. If the quick result lands first, paint it so the
+    // graph appears fast; the full /api/scan result always wins once it resolves and
+    // is merged incrementally by BubbleMap (high node overlap → no relayout).
+    let fullResolved = false;
+    const quickScan = fetch('/api/v1/quick-scan', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ address }),
+    })
+      .then(r => r.json())
+      .then((quick: ScanResponse) => {
+        if (fullResolved || !quick.success || !quick.data) return;
+        setData(quick.data);
+        setStats(quick.stats || null);
+        setTokenSecurity(quick.tokenSecurity || null);
+        setTokenMetadata(quick.tokenMetadata || null);
+        setDetectedMode('token'); // quick-scan only returns token graphs
+        setScannedMint(address);
+      })
+      .catch(() => {}); // best-effort; ignore (e.g. it's a wallet, not a token)
+
     try {
       const response = await fetch('/api/scan', {
         method: 'POST',
@@ -351,6 +397,8 @@ export function useGraphData(): UseGraphDataReturn {
       });
 
       const result: ScanResponse = await response.json();
+      fullResolved = true;
+      void quickScan;
 
       if (!result.success || !result.data) {
         throw new Error(result.error || 'Scan failed');
@@ -365,10 +413,13 @@ export function useGraphData(): UseGraphDataReturn {
       // Store mint for polling (only for token mode)
       if (result.mode === 'token') {
         setScannedMint(address);
+      } else {
+        setScannedMint(null); // wallet mode — discard any quick-scan mint
       }
 
       return result.mode || null;
     } catch (err) {
+      fullResolved = true;
       const message = err instanceof Error ? err.message : 'Scan failed';
       setError(message);
       console.error('Scan error:', err);
@@ -454,9 +505,13 @@ export function useGraphData(): UseGraphDataReturn {
     setDetectedMode(null);
     setError(null);
     setScannedMint(null);
+    recentEventsRef.current = [];
+    setRecentEvents([]);
   }, [stopPoll]);
 
   const startStreaming = useCallback(() => {
+    recentEventsRef.current = [];
+    setRecentEvents([]);
     setLiveEnabled(true);
   }, []);
 
@@ -491,6 +546,7 @@ export function useGraphData(): UseGraphDataReturn {
       error: wsFallback ? pollError : streamError,
       transport: wsFallback ? ('polling' as const) : ('laserstream' as const),
     },
+    recentEvents,
     startStreaming,
     stopStreaming,
   };

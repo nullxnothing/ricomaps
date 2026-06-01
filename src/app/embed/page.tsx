@@ -20,7 +20,9 @@ const BubbleMap = dynamic(
 function EmbedContent() {
   const searchParams = useSearchParams();
   const address = searchParams.get('address') || searchParams.get('a');
-  const hideWatermark = searchParams.get('hideWatermark') === 'true';
+  const compact = searchParams.get('compact') === '1' || searchParams.get('compact') === 'true';
+  // Compact mode (extension inline panel) also hides the watermark for a clean small view.
+  const hideWatermark = compact || searchParams.get('hideWatermark') === 'true';
 
   const [data, setData] = useState<GraphData | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -104,7 +106,7 @@ function EmbedContent() {
       </div>
 
       {selectedNode && (
-        <div className="absolute bottom-0 left-0 right-0 sm:bottom-4 sm:left-4 sm:right-auto glass-panel p-3 sm:max-w-[280px] sm:rounded-lg rounded-none rounded-t-xl">
+        <div className={`absolute bottom-0 left-0 right-0 glass-panel rounded-none rounded-t-xl ${compact ? 'p-2 sm:bottom-2 sm:left-2 sm:right-auto sm:max-w-[220px] sm:rounded-lg' : 'p-3 sm:bottom-4 sm:left-4 sm:right-auto sm:max-w-[280px] sm:rounded-lg'}`}>
           <div className="flex items-center justify-between mb-2">
             <span
               className="px-2 py-0.5 text-[10px] font-mono rounded"

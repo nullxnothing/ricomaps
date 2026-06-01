@@ -4,12 +4,14 @@ import { useRef, useEffect, useCallback, useState, useMemo } from 'react';
 import { forceSimulation, forceLink, forceManyBody, forceCenter, forceCollide, SimulationNodeDatum, SimulationLinkDatum, Simulation } from 'd3-force';
 import { GraphData, GraphNode, GraphLink, NODE_COLORS, NodeType } from '@/lib/types';
 import { THREAT_COLORS } from '@/lib/threat-scorer';
+import { isValidSolanaAddress, truncateAddress } from '@/lib/address-utils';
 
 export type BubbleMapFilter = 'cabal' | 'snipers' | 'bundles' | null;
 
 interface BubbleMapProps {
   data: GraphData;
   onNodeClick?: (node: GraphNode) => void;
+  onTraceFunders?: (node: GraphNode) => void;
   filter?: BubbleMapFilter;
 }
 
@@ -124,9 +126,10 @@ function assignClusters(nodes: GraphNode[], links: GraphLink[]): Map<string, num
   return result;
 }
 
-export function BubbleMap({ data, onNodeClick, filter = null }: BubbleMapProps) {
+export function BubbleMap({ data, onNodeClick, onTraceFunders, filter = null }: BubbleMapProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const findInputRef = useRef<HTMLInputElement>(null);
   const nodesRef = useRef<BubbleNode[]>([]);
   const linksRef = useRef<BubbleLink[]>([]);
   const transformRef = useRef({ x: 0, y: 0, k: 1 });
@@ -149,13 +152,31 @@ export function BubbleMap({ data, onNodeClick, filter = null }: BubbleMapProps) 
   const prevNodeCountRef = useRef(0);
   const dataVersionRef = useRef(0);
 
+  // Imperative handles read by event/keyboard handlers (set inside the sim effect).
+  const autoFitRef = useRef<(() => void) | null>(null);
+  // A node id to flash a ring around (find result), with an expiry timestamp.
+  const highlightRef = useRef<{ id: string; until: number } | null>(null);
+  // Node ids hidden via the context menu — skipped in the draw loop.
+  const hiddenIdsRef = useRef<Set<string>>(new Set());
+  // Radius scale (largest holder amount) fixed at scan time, so live balance updates
+  // resize one bubble relative to the original scale instead of rescaling the whole graph.
+  const maxAmountRef = useRef(1);
+
   // Tooltip is the only piece of React state — it drives the overlay DOM
   const [tooltip, setTooltip] = useState<TooltipData | null>(null);
   const [heatmapMode, setHeatmapMode] = useState(false);
   const heatmapRef = useRef(false);
   heatmapRef.current = heatmapMode;
+  const [hullsMode, setHullsMode] = useState(false);
+  const hullsRef = useRef(false);
+  hullsRef.current = hullsMode;
   const filterRef = useRef<BubbleMapFilter>(null);
   filterRef.current = filter;
+
+  // Find box + context menu state (rare user-driven events, so plain state is fine).
+  const [findValue, setFindValue] = useState('');
+  const [findError, setFindError] = useState(false);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; node: BubbleNode } | null>(null);
 
   // Summary for screen readers — recomputes only when graph changes
   const ariaSummary = useMemo(() => {
@@ -234,7 +255,12 @@ export function BubbleMap({ data, onNodeClick, filter = null }: BubbleMapProps) 
     const dataNodeMap = new Map(data.nodes.map(n => [n.id, n]));
     const holders = data.nodes.filter(n => n.type !== 'token');
     const totalSupply = holders.reduce((sum, n) => sum + (n.tokenAmount || n.solBalance || 0), 0);
-    const maxAmount = Math.max(...holders.map(n => n.tokenAmount || n.solBalance || 0), 1);
+    // Reuse the scan-time scale so live updates don't rescale every bubble. Only grow it
+    // if a holder genuinely exceeds the current max (never shrink — that's what caused the
+    // "all bubbles get smaller" flicker when streaming started).
+    const liveMax = Math.max(...holders.map(n => n.tokenAmount || n.solBalance || 0), 1);
+    const maxAmount = Math.max(maxAmountRef.current, liveMax);
+    maxAmountRef.current = maxAmount;
     const clusterMap = assignClusters(data.nodes, data.links);
     const { width, height } = sizeRef.current;
 
@@ -340,6 +366,7 @@ export function BubbleMap({ data, onNodeClick, filter = null }: BubbleMapProps) 
     const clusterMap = assignClusters(data.nodes, data.links);
 
     const maxAmount = Math.max(...holders.map(n => n.tokenAmount || n.solBalance || 0), 1);
+    maxAmountRef.current = maxAmount; // fix the radius scale for the duration of this scan
 
     const bubbleNodes: BubbleNode[] = data.nodes
       .filter(n => n.type !== 'token')
@@ -508,6 +535,8 @@ export function BubbleMap({ data, onNodeClick, filter = null }: BubbleMapProps) 
 
     // Layout was pre-warmed, so fit immediately — the graph shows already-arranged.
     autoFit();
+    // Expose to the reset button / find centering. Recomputes against live node positions.
+    autoFitRef.current = autoFit;
 
     let tickCount = 0;
     sim.on('tick', () => {
@@ -545,6 +574,35 @@ export function BubbleMap({ data, onNodeClick, filter = null }: BubbleMapProps) 
       ctx.save();
       ctx.translate(t.x, t.y);
       ctx.scale(t.k, t.k);
+
+      // ── Cluster hulls (toggle, default-off) — drawn behind everything ──
+      // Cheap O(n) blob: per cluster, a translucent circle at the centroid sized to
+      // cover its members. Not a true convex hull (which would be per-frame expensive).
+      if (hullsRef.current) {
+        const agg = new Map<number, { sx: number; sy: number; n: number }>();
+        for (const node of nodesRef.current) {
+          if (node.clusterId < 0 || node.x == null || node.y == null) continue;
+          if (hiddenIdsRef.current.has(node.id)) continue;
+          const a = agg.get(node.clusterId) ?? { sx: 0, sy: 0, n: 0 };
+          a.sx += node.x; a.sy += node.y; a.n++;
+          agg.set(node.clusterId, a);
+        }
+        for (const [cid, a] of agg) {
+          if (a.n < 2) continue;
+          const cx = a.sx / a.n, cy = a.sy / a.n;
+          let maxR = 0;
+          for (const node of nodesRef.current) {
+            if (node.clusterId !== cid || node.x == null || node.y == null) continue;
+            if (hiddenIdsRef.current.has(node.id)) continue;
+            const dx = node.x - cx, dy = node.y - cy;
+            maxR = Math.max(maxR, Math.sqrt(dx * dx + dy * dy) + node.radius);
+          }
+          ctx.beginPath();
+          ctx.arc(cx, cy, maxR + 12, 0, Math.PI * 2);
+          ctx.fillStyle = CLUSTER_COLORS[cid % CLUSTER_COLORS.length] + '14';
+          ctx.fill();
+        }
+      }
 
       // Pre-compute hover connectivity for highlighting
       const connectedNodes = new Set<string>();
@@ -675,6 +733,7 @@ export function BubbleMap({ data, onNodeClick, filter = null }: BubbleMapProps) 
 
       for (const node of nodesRef.current) {
         if (node.x == null || node.y == null) continue;
+        if (hiddenIdsRef.current.has(node.id)) continue;
 
         const isHovered = hovered?.id === node.id;
         const isNeighbor = connectedNodes.has(node.id);
@@ -739,6 +798,22 @@ export function BubbleMap({ data, onNodeClick, filter = null }: BubbleMapProps) 
         ctx.lineWidth = isHovered ? 2.5 : 1.5;
         ctx.stroke();
 
+        // Find-highlight: pulsing ring around the located node for ~2.2s.
+        const hl = highlightRef.current;
+        if (hl && hl.id === node.id) {
+          if (timestamp < hl.until) {
+            const pulse = 6 + 4 * Math.sin(timestamp / 150);
+            const remaining = (hl.until - timestamp) / 2200;
+            ctx.beginPath();
+            ctx.arc(node.x, node.y, node.radius + pulse, 0, Math.PI * 2);
+            ctx.strokeStyle = `rgba(255,255,255,${0.85 * remaining})`;
+            ctx.lineWidth = 2.5 / t.k;
+            ctx.stroke();
+          } else {
+            highlightRef.current = null;
+          }
+        }
+
         // Supply % label
         if (node.radius > 14 && node.supplyPct >= 0.5) {
           ctx.fillStyle = 'rgba(255,255,255,0.85)';
@@ -773,10 +848,40 @@ export function BubbleMap({ data, onNodeClick, filter = null }: BubbleMapProps) 
     return () => {
       sim.stop();
       simRef.current = null;
+      autoFitRef.current = null;
       cancelAnimationFrame(animRef.current);
       resizeObserver.disconnect();
     };
   }, [dataVersion]); // Only restart sim on new scan — poll updates handled incrementally
+
+  // ── Keyboard: "/" focuses the find box, Esc clears find + closes the context menu ──
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      const inField = target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA');
+      if (e.key === '/' && !inField) {
+        e.preventDefault();
+        findInputRef.current?.focus();
+      } else if (e.key === 'Escape') {
+        setContextMenu(null);
+        if (findInputRef.current && document.activeElement === findInputRef.current) {
+          findInputRef.current.blur();
+          setFindValue('');
+          setFindError(false);
+        }
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
+  // Dismiss the context menu on any outside click.
+  useEffect(() => {
+    if (!contextMenu) return;
+    const onDown = () => setContextMenu(null);
+    window.addEventListener('mousedown', onDown);
+    return () => window.removeEventListener('mousedown', onDown);
+  }, [contextMenu]);
 
   // ── Mouse move: update hover ref + tooltip state ──
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
@@ -898,6 +1003,94 @@ export function BubbleMap({ data, onNodeClick, filter = null }: BubbleMapProps) 
     t.y = sy - (sy - t.y) * (newK / t.k);
     t.k = newK;
   }, []);
+
+  // Zoom toward an arbitrary point (used by the +/- buttons, aimed at canvas center).
+  const zoomToward = useCallback((cx: number, cy: number, factor: number) => {
+    const t = transformRef.current;
+    const newK = Math.max(0.1, Math.min(5, t.k * factor));
+    t.x = cx - (cx - t.x) * (newK / t.k);
+    t.y = cy - (cy - t.y) * (newK / t.k);
+    t.k = newK;
+  }, []);
+
+  const handleZoomIn = useCallback(() => {
+    const { width, height } = sizeRef.current;
+    zoomToward(width / 2, height / 2, 1.2);
+  }, [zoomToward]);
+
+  const handleZoomOut = useCallback(() => {
+    const { width, height } = sizeRef.current;
+    zoomToward(width / 2, height / 2, 1 / 1.2);
+  }, [zoomToward]);
+
+  const handleResetView = useCallback(() => {
+    autoFitRef.current?.();
+  }, []);
+
+  // Find a wallet by id, center the view on it, and flash a highlight ring.
+  const handleFind = useCallback((raw: string) => {
+    const addr = raw.trim();
+    if (!addr) return;
+    if (!isValidSolanaAddress(addr)) { setFindError(true); return; }
+    const node = nodesRef.current.find(n => n.id === addr);
+    if (!node || node.x == null || node.y == null) { setFindError(true); return; }
+    setFindError(false);
+
+    const { width, height } = sizeRef.current;
+    const k = Math.min(2, Math.max(transformRef.current.k, 1.2));
+    transformRef.current = { x: width / 2 - node.x * k, y: height / 2 - node.y * k, k };
+    highlightRef.current = { id: addr, until: performance.now() + 2200 };
+  }, []);
+
+  // Export the current canvas as a PNG (already DPR-scaled, opaque background).
+  const handleExportPng = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const a = document.createElement('a');
+    a.href = canvas.toDataURL('image/png');
+    a.download = `ricomaps-${Date.now()}.png`;
+    a.click();
+  }, []);
+
+  // Export the graph nodes as CSV (joins prop data with the sim-computed supplyPct/clusterId).
+  const handleExportCsv = useCallback(() => {
+    const byId = new Map(nodesRef.current.map(n => [n.id, n]));
+    const cols = ['id', 'type', 'label', 'supplyPct', 'amount', 'threatScore', 'threatLevel', 'fundedCount', 'isSniper', 'clusterId'];
+    const esc = (v: unknown) => {
+      const s = String(v ?? '');
+      return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+    const rows = data.nodes.map(n => {
+      const b = byId.get(n.id);
+      return [
+        n.id, n.type, n.identity?.name || n.label,
+        b ? b.supplyPct.toFixed(4) : '',
+        n.tokenAmount ?? n.solBalance ?? '',
+        n.metadata?.threatScore ?? '', n.metadata?.threatLevel ?? '',
+        n.metadata?.fundedCount ?? '', n.metadata?.isSniper ? 'true' : '',
+        b ? b.clusterId : '',
+      ].map(esc).join(',');
+    });
+    const csv = [cols.join(','), ...rows].join('\n');
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `ricomaps-${Date.now()}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [data]);
+
+  // Right-click → context menu on the node under the cursor.
+  const handleContextMenu = useCallback((e: React.MouseEvent) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const { x, y } = screenToWorld(e.clientX - rect.left, e.clientY - rect.top);
+    const node = findNodeAt(x, y);
+    if (!node) return;
+    e.preventDefault();
+    setContextMenu({ x: e.clientX - rect.left, y: e.clientY - rect.top, node });
+  }, [screenToWorld, findNodeAt]);
 
   const handleMouseLeave = useCallback(() => {
     handleMouseUp();
@@ -1058,11 +1251,108 @@ export function BubbleMap({ data, onNodeClick, filter = null }: BubbleMapProps) 
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseLeave}
         onWheel={handleWheel}
+        onContextMenu={handleContextMenu}
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
         style={{ cursor: 'grab', touchAction: 'none' }}
       />
+
+      {/* Find a wallet on the canvas */}
+      <div className="absolute top-3 left-3 z-10 flex flex-col gap-1">
+        <form
+          onSubmit={(e) => { e.preventDefault(); handleFind(findValue); }}
+          className="flex items-center gap-1.5 rounded-lg backdrop-blur-md bg-black/70 border border-white/[0.08] px-2 py-1.5"
+        >
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#888" strokeWidth="2" className="flex-shrink-0">
+            <circle cx="11" cy="11" r="8" /><path d="M21 21l-4.35-4.35" />
+          </svg>
+          <input
+            ref={findInputRef}
+            value={findValue}
+            onChange={(e) => { setFindValue(e.target.value); setFindError(false); }}
+            placeholder="Find wallet…"
+            spellCheck={false}
+            className="w-32 sm:w-44 bg-transparent text-[11px] font-mono text-text-primary placeholder:text-text-tertiary outline-none"
+          />
+        </form>
+        {findError && (
+          <span className="text-[10px] font-mono text-red-primary pl-2">Not in graph</span>
+        )}
+      </div>
+
+      {/* Zoom + view controls (bottom-right, clears the page Deep Scan button) */}
+      <div className="absolute bottom-20 right-4 z-10 flex flex-col gap-1.5">
+        {([
+          ['+', 'Zoom in', handleZoomIn],
+          ['−', 'Zoom out', handleZoomOut],
+        ] as const).map(([label, title, fn]) => (
+          <button
+            key={title}
+            onClick={fn}
+            title={title}
+            aria-label={title}
+            className="w-9 h-9 flex items-center justify-center rounded-lg backdrop-blur-md bg-black/70 border border-white/[0.08] text-text-secondary hover:text-text-primary hover:border-white/20 transition-colors text-lg leading-none"
+          >
+            {label}
+          </button>
+        ))}
+        <button
+          onClick={handleResetView}
+          title="Fit to screen"
+          aria-label="Fit to screen"
+          className="w-9 h-9 flex items-center justify-center rounded-lg backdrop-blur-md bg-black/70 border border-white/[0.08] text-text-secondary hover:text-text-primary hover:border-white/20 transition-colors"
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" />
+          </svg>
+        </button>
+        <button
+          onClick={handleExportPng}
+          title="Export PNG"
+          aria-label="Export PNG"
+          className="w-9 h-9 flex items-center justify-center rounded-lg backdrop-blur-md bg-black/70 border border-white/[0.08] text-text-secondary hover:text-text-primary hover:border-white/20 transition-colors text-[9px] font-semibold"
+        >
+          PNG
+        </button>
+        <button
+          onClick={handleExportCsv}
+          title="Export CSV"
+          aria-label="Export CSV"
+          className="w-9 h-9 flex items-center justify-center rounded-lg backdrop-blur-md bg-black/70 border border-white/[0.08] text-text-secondary hover:text-text-primary hover:border-white/20 transition-colors text-[9px] font-semibold"
+        >
+          CSV
+        </button>
+      </div>
+
+      {/* Context menu */}
+      {contextMenu && (
+        <div
+          className="absolute z-30 min-w-[150px] rounded-lg backdrop-blur-md bg-black/90 border border-white/[0.1] py-1 shadow-[0_8px_24px_rgba(0,0,0,0.5)]"
+          style={{ left: Math.min(contextMenu.x, sizeRef.current.width - 160), top: Math.min(contextMenu.y, sizeRef.current.height - 160) }}
+          onMouseDown={(e) => e.stopPropagation()}
+        >
+          <div className="px-3 py-1.5 text-[10px] font-mono text-text-tertiary border-b border-white/[0.06] truncate">
+            {truncateAddress(contextMenu.node.id, 6)}
+          </div>
+          {([
+            ['Copy address', () => { navigator.clipboard.writeText(contextMenu.node.id); }],
+            ['Open in explorer', () => { window.open(`https://orbmarkets.io/address/${contextMenu.node.id}`, '_blank', 'noopener'); }],
+            ...(contextMenu.node.type !== 'token' && onTraceFunders
+              ? [['Trace funders', () => { onTraceFunders(contextMenu.node.originalNode); }] as const]
+              : []),
+            ['Hide node', () => { hiddenIdsRef.current.add(contextMenu.node.id); }],
+          ] as const).map(([label, fn]) => (
+            <button
+              key={label}
+              onClick={() => { fn(); setContextMenu(null); }}
+              className="w-full text-left px-3 py-1.5 text-[11px] text-text-secondary hover:bg-white/[0.06] hover:text-text-primary transition-colors"
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Screen-reader-only mirror of nodes */}
       <ul className="sr-only" aria-label="Graph nodes">
@@ -1157,28 +1447,10 @@ export function BubbleMap({ data, onNodeClick, filter = null }: BubbleMapProps) 
         );
       })()}
 
-      {/* Risk Heatmap toggle */}
-      <button
-        className="absolute bottom-4 left-4 z-10 flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[10px] font-medium transition-all duration-150 pointer-events-auto backdrop-blur-md"
-        style={{
-          background: heatmapMode ? 'rgba(255,136,0,0.12)' : 'rgba(255,255,255,0.04)',
-          border: `1px solid ${heatmapMode ? 'rgba(255,136,0,0.25)' : 'rgba(255,255,255,0.08)'}`,
-          color: heatmapMode ? '#ff8800' : '#888',
-        }}
-        onClick={() => setHeatmapMode(!heatmapMode)}
-        aria-label="Toggle risk heatmap"
-        aria-pressed={heatmapMode}
-      >
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-          <circle cx="12" cy="12" r="10" />
-          <path d="M12 8v4M12 16h.01" />
-        </svg>
-        {heatmapMode ? 'Risk Heatmap ON' : 'Risk Heatmap'}
-      </button>
-
-      {/* Color legend overlay */}
+      {/* Bottom-left controls — legend on top, toggles beneath, single aligned column */}
+      <div className="absolute bottom-4 left-4 z-10 flex flex-col gap-2 items-start">
       <ul
-        className="absolute bottom-16 left-4 z-10 pointer-events-none flex flex-col gap-1 rounded-lg backdrop-blur-md bg-black/70 border border-white/[0.06] px-3 py-2"
+        className="pointer-events-none flex flex-col gap-1 rounded-lg backdrop-blur-md bg-black/70 border border-white/[0.06] px-3 py-2"
         role="list"
         aria-label={heatmapMode ? 'Threat level legend' : 'Node type legend'}
       >
@@ -1214,6 +1486,45 @@ export function BubbleMap({ data, onNodeClick, filter = null }: BubbleMapProps) 
             ))
         )}
       </ul>
+
+      {/* Toggle row */}
+      <div className="flex items-center gap-2">
+        <button
+          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[10px] font-medium transition-all duration-150 pointer-events-auto backdrop-blur-md"
+          style={{
+            background: heatmapMode ? 'rgba(255,136,0,0.12)' : 'rgba(255,255,255,0.04)',
+            border: `1px solid ${heatmapMode ? 'rgba(255,136,0,0.25)' : 'rgba(255,255,255,0.08)'}`,
+            color: heatmapMode ? '#ff8800' : '#888',
+          }}
+          onClick={() => setHeatmapMode(!heatmapMode)}
+          aria-label="Toggle risk heatmap"
+          aria-pressed={heatmapMode}
+        >
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <circle cx="12" cy="12" r="10" />
+            <path d="M12 8v4M12 16h.01" />
+          </svg>
+          {heatmapMode ? 'Heatmap ON' : 'Heatmap'}
+        </button>
+
+        <button
+          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[10px] font-medium transition-all duration-150 pointer-events-auto backdrop-blur-md"
+          style={{
+            background: hullsMode ? 'rgba(91,127,255,0.12)' : 'rgba(255,255,255,0.04)',
+            border: `1px solid ${hullsMode ? 'rgba(91,127,255,0.25)' : 'rgba(255,255,255,0.08)'}`,
+            color: hullsMode ? '#5B7FFF' : '#888',
+          }}
+          onClick={() => setHullsMode(!hullsMode)}
+          aria-label="Toggle cluster hulls"
+          aria-pressed={hullsMode}
+        >
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <circle cx="12" cy="12" r="9" />
+          </svg>
+          {hullsMode ? 'Clusters ON' : 'Clusters'}
+        </button>
+      </div>
+      </div>
     </div>
   );
 }
