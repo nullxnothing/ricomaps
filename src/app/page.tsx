@@ -372,7 +372,7 @@ function HomeContent() {
                   ? `Live via ${streaming.transport} · ${streaming.transactionCount} updates`
                   : 'Stream live holder activity'
             }
-            className="absolute right-4 z-10 flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-mono transition-all duration-200 border shadow-[0_4px_12px_rgba(0,0,0,0.3)] bg-black/80 backdrop-blur-md hover:border-white/20"
+            className="absolute left-1/2 -translate-x-1/2 z-10 flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-mono transition-all duration-200 border shadow-[0_4px_12px_rgba(0,0,0,0.3)] bg-black/80 backdrop-blur-md hover:border-white/20"
             style={{ top: 'var(--panel-top)' }}
           >
             <span

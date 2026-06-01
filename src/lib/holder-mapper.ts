@@ -354,17 +354,26 @@ export async function mapTokenHolders(mintAddress: string, options: MapOptions =
     if (count >= lpThreshold) poolAddresses.add(addr);
   }
 
+  // A single holder controlling a large share of circulating supply is almost
+  // always a pool/AMM/treasury, not a real holder — tag those distinctly too.
+  const POOL_SUPPLY_SHARE = 0.15;
+  const holderSupplyTotal = topHolders.reduce((sum, h) => sum + h.amount, 0);
+
   // 4a: Create holder nodes
   for (const holder of topHolders) {
     const isSniper = sniperSet.has(holder.owner);
     const isBundled = bundledWalletSet.has(holder.owner);
+    const isPool = poolAddresses.has(holder.owner) ||
+      (holderSupplyTotal > 0 && holder.amount / holderSupplyTotal > POOL_SUPPLY_SHARE);
     const buyData = sniperBuyInfo.get(holder.owner);
     const identity = identities.get(holder.owner);
     const funderResult = fundedByResults.find(r => r.owner === holder.owner);
 
-    const nodeType = isSniper ? 'sniper' : isBundled ? 'bundled' : 'holder';
+    // Pool takes priority — it's infrastructure, not a suspicious actor.
+    const nodeType = isPool ? 'pool' : isSniper ? 'sniper' : isBundled ? 'bundled' : 'holder';
     const holderNode = createNode(holder.owner, 1, nodeType, holder.amount,
-      isSniper ? { isSniper: true, blocksAfterLaunch: buyData?.blocksAfterLaunch, suspicious: true }
+      isPool ? { isPool: true }
+      : isSniper ? { isSniper: true, blocksAfterLaunch: buyData?.blocksAfterLaunch, suspicious: true }
       : isBundled ? { suspicious: true, isBundled: true } : undefined
     );
 

@@ -4,7 +4,6 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 import {
   GraphData,
   GraphNode,
-  GraphLink,
   AppMode,
   ExpandResponse,
   ScanResponse,
@@ -20,8 +19,15 @@ import { createNode } from '@/lib/graph-utils';
 
 // Wait this long for the live stream to connect before falling back to polling.
 const STREAM_CONNECT_GRACE_MS = 6_000;
-// Flush a same-slot buyer buffer this long after the last buyer in that slot.
-const SLOT_FLUSH_MS = 1_500;
+// Live-graph clutter controls: a new buyer only earns a bubble if their holding is at
+// least this fraction of the current largest holder (filters dust/micro buys), and the
+// graph stops adding live nodes past this cap so it stays readable. Balance updates and
+// removals on existing nodes are unaffected — only brand-new tiny buyers are suppressed.
+const LIVE_MIN_FRACTION_OF_TOP = 0.01; // 1% of the top holder
+const MAX_LIVE_NODES = 150;
+// A holder controlling more than this share of holder supply is treated as a pool/AMM,
+// not a real holder — tagged distinctly so it doesn't read as a whale.
+const POOL_SUPPLY_SHARE = 0.15;
 
 interface Stats {
   nodesFound?: number;
@@ -93,111 +99,146 @@ export function useGraphData(): UseGraphDataReturn {
   const scannedMintRef = useRef<string | null>(null);
   scannedMintRef.current = scannedMint;
 
-  // Same-slot co-buy buffer for live bundle detection.
-  const slotBufferRef = useRef<{ slot: number; owners: string[] } | null>(null);
-  const slotFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Pending deltas, coalesced and flushed once per animation frame. High-volume
+  // mints can push hundreds of events/sec; batching avoids a setData-per-event storm.
+  const pendingDeltasRef = useRef<HolderDelta[]>([]);
+  const rafRef = useRef<number | null>(null);
 
-  // Flag the buffered same-slot new buyers as a bundle if 2+ landed together.
-  const flushSlotBuffer = useCallback(() => {
-    const buffer = slotBufferRef.current;
-    slotBufferRef.current = null;
-    if (!buffer || buffer.owners.length < 2) return;
+  // Apply all queued deltas to the graph in a single state update.
+  // - existing node, balance > 0  → update tokenAmount
+  // - existing node, balance == 0 → remove node + its links
+  // - new owner, balance > 0, not filtered → add holder node + link to token
+  // - same-slot new buyers (2+)   → flag as a bundle
+  const flushDeltas = useCallback(() => {
+    rafRef.current = null;
+    const batch = pendingDeltasRef.current;
+    pendingDeltasRef.current = [];
+    const mint = scannedMintRef.current;
+    if (batch.length === 0 || !mint) return;
 
-    const bundledSet = new Set(buffer.owners);
     setData(prev => {
       if (!prev) return prev;
-      let touched = false;
-      const nodes = prev.nodes.map(n => {
-        if (!bundledSet.has(n.id) || n.type === 'bundled') return n;
-        touched = true;
-        return {
-          ...n,
-          type: 'bundled' as const,
-          color: NODE_COLORS.bundled,
-          metadata: { ...n.metadata, suspicious: true, isBundled: true },
-        };
-      });
-      return touched ? { nodes, links: prev.links } : prev;
+      const nodeIndex = new Map(prev.nodes.map((n, i) => [n.id, i]));
+      let nodes = prev.nodes;
+      let links = prev.links;
+      const removed = new Set<string>();
+      const slotNewBuyers = new Map<number, string[]>();
+      const bundled = new Set<string>();
+      let changed = false;
+      let liveNodeCount = prev.nodes.length;
+
+      // Dust threshold: a fraction of the current largest holder's balance. New buyers
+      // below this don't get a bubble (they still count via balance updates if they grow).
+      const topBalance = prev.nodes.reduce(
+        (m, n) => Math.max(m, n.tokenAmount || n.solBalance || 0), 0,
+      );
+      const minNewBuyerBalance = topBalance * LIVE_MIN_FRACTION_OF_TOP;
+
+      const ensureNodesCopy = () => { if (nodes === prev.nodes) nodes = [...prev.nodes]; };
+
+      for (const d of batch) {
+        if (shouldFilterAddress(d.owner) || d.owner === mint) continue;
+        const idx = nodeIndex.get(d.owner);
+
+        if (idx !== undefined) {
+          if (d.newBalance <= 0) {
+            removed.add(d.owner);
+          } else {
+            ensureNodesCopy();
+            nodes[idx] = { ...nodes[idx], tokenAmount: d.newBalance };
+          }
+          changed = true;
+          continue;
+        }
+
+        // New buyer — suppress dust and stop once the graph hits its readable cap.
+        if (d.newBalance <= 0 || removed.has(d.owner)) continue;
+        if (d.newBalance < minNewBuyerBalance) continue;
+        if (liveNodeCount >= MAX_LIVE_NODES) continue;
+        const newNode = createNode(d.owner, 1, 'holder', d.newBalance);
+        liveNodeCount++;
+        ensureNodesCopy();
+        nodeIndex.set(d.owner, nodes.length);
+        nodes.push(newNode);
+        if (links === prev.links) links = [...prev.links];
+        links.push({ source: mint, target: d.owner, value: 0, txSignature: d.signature, timestamp: Date.now() });
+        changed = true;
+
+        if (d.slot > 0) {
+          const arr = slotNewBuyers.get(d.slot) ?? [];
+          arr.push(d.owner);
+          slotNewBuyers.set(d.slot, arr);
+        }
+      }
+
+      // Same-slot co-buys (2+ new buyers in one slot) → bundle.
+      for (const owners of slotNewBuyers.values()) {
+        if (owners.length >= 2) owners.forEach(o => bundled.add(o));
+      }
+      if (bundled.size > 0) {
+        ensureNodesCopy();
+        for (let i = 0; i < nodes.length; i++) {
+          if (bundled.has(nodes[i].id) && nodes[i].type !== 'bundled') {
+            nodes[i] = { ...nodes[i], type: 'bundled', color: NODE_COLORS.bundled,
+              metadata: { ...nodes[i].metadata, suspicious: true, isBundled: true } };
+          }
+        }
+      }
+
+      // Re-tag any node that has grown past the pool share as a pool/AMM (a live
+      // balance update can push a holder over the line, e.g. the AMM accumulating).
+      if (changed) {
+        const supplyTotal = nodes.reduce(
+          (s, n) => (n.type === 'token' ? s : s + (n.tokenAmount || n.solBalance || 0)), 0,
+        );
+        if (supplyTotal > 0) {
+          ensureNodesCopy();
+          for (let i = 0; i < nodes.length; i++) {
+            const n = nodes[i];
+            if (n.type === 'token' || n.type === 'pool') continue;
+            const share = (n.tokenAmount || n.solBalance || 0) / supplyTotal;
+            if (share > POOL_SUPPLY_SHARE) {
+              nodes[i] = { ...n, type: 'pool', color: NODE_COLORS.pool,
+                metadata: { ...n.metadata, isPool: true } };
+            }
+          }
+        }
+      }
+
+      if (removed.size > 0) {
+        nodes = (nodes === prev.nodes ? [...prev.nodes] : nodes).filter(n => !removed.has(n.id));
+        links = (links === prev.links ? prev.links : links).filter(
+          l => !removed.has(endpointId(l.source)) && !removed.has(endpointId(l.target)),
+        );
+      }
+
+      if (!changed) return prev;
+      setStats(s => ({ ...s, nodesFound: nodes.length, linksFound: links.length }));
+      return { nodes, links };
     });
   }, []);
 
-  // Single source of truth for applying one holder balance change to the graph.
-  // - existing node, balance > 0  → update tokenAmount
-  // - existing node, balance == 0 → remove node + its links
-  // - new owner, balance > 0, not filtered → add holder node + link to token, buffer for bundle check
-  // - new owner, balance == 0 / filtered → ignore
-  const applyHolderDelta = useCallback((delta: HolderDelta) => {
-    const mint = scannedMintRef.current;
-    const currentData = dataRef.current;
-    if (!currentData || !mint) return;
-    if (shouldFilterAddress(delta.owner) || delta.owner === mint) return;
-
-    const existingIdx = currentData.nodes.findIndex(n => n.id === delta.owner);
-
-    // Existing node.
-    if (existingIdx !== -1) {
-      if (delta.newBalance <= 0) {
-        const nodes = currentData.nodes.filter(n => n.id !== delta.owner);
-        const links = currentData.links.filter(
-          l => endpointId(l.source) !== delta.owner && endpointId(l.target) !== delta.owner,
-        );
-        setData({ nodes, links });
-        setStats(prev => ({ ...prev, nodesFound: nodes.length, linksFound: links.length }));
-      } else {
-        const nodes = [...currentData.nodes];
-        nodes[existingIdx] = { ...nodes[existingIdx], tokenAmount: delta.newBalance };
-        setData({ nodes, links: currentData.links });
-      }
-      return;
+  const enqueueDelta = useCallback((delta: HolderDelta) => {
+    pendingDeltasRef.current.push(delta);
+    if (rafRef.current === null) {
+      rafRef.current = requestAnimationFrame(flushDeltas);
     }
+  }, [flushDeltas]);
 
-    // New owner buying in.
-    if (delta.newBalance <= 0) return;
-    const newNode = createNode(delta.owner, 1, 'holder', delta.newBalance);
-    const newLink: GraphLink = {
-      source: mint,
-      target: delta.owner,
-      value: 0,
-      txSignature: delta.signature,
-      timestamp: Date.now(),
-    };
-    const nodes = [...currentData.nodes, newNode];
-    const links = [...currentData.links, newLink];
-    setData({ nodes, links });
-    setStats(prev => ({ ...prev, nodesFound: nodes.length, linksFound: links.length }));
-
-    // Buffer this new buyer for same-slot bundle detection.
-    const buffer = slotBufferRef.current;
-    if (buffer && buffer.slot === delta.slot) {
-      buffer.owners.push(delta.owner);
-    } else {
-      if (buffer) flushSlotBuffer();
-      slotBufferRef.current = { slot: delta.slot, owners: [delta.owner] };
-    }
-    if (slotFlushTimerRef.current) clearTimeout(slotFlushTimerRef.current);
-    slotFlushTimerRef.current = setTimeout(flushSlotBuffer, SLOT_FLUSH_MS);
-  }, [flushSlotBuffer]);
-
-  // Live stream handler — one delta at a time from the LaserStream worker.
+  // Live stream handler — queue one delta from the LaserStream worker.
   const handleHolderDelta = useCallback((delta: HolderDelta) => {
-    applyHolderDelta(delta);
-  }, [applyHolderDelta]);
+    enqueueDelta(delta);
+  }, [enqueueDelta]);
 
   // Poll fallback handler — adapt {added, removed, changed} into per-owner deltas
-  // and run them through the SAME apply logic so behaviour matches the live path.
+  // and run them through the SAME queue so behaviour matches the live path.
   const handleHolderDiff = useCallback(
     (diff: { added: { owner: string; amount: number }[]; removed: string[]; changed: { owner: string; amount: number }[] }) => {
-      for (const h of diff.changed) {
-        applyHolderDelta({ owner: h.owner, newBalance: h.amount, delta: 0, slot: 0, signature: '' });
-      }
-      for (const h of diff.added) {
-        applyHolderDelta({ owner: h.owner, newBalance: h.amount, delta: h.amount, slot: 0, signature: '' });
-      }
-      for (const owner of diff.removed) {
-        applyHolderDelta({ owner, newBalance: 0, delta: 0, slot: 0, signature: '' });
-      }
+      for (const h of diff.changed) enqueueDelta({ owner: h.owner, newBalance: h.amount, delta: 0, slot: 0, signature: '' });
+      for (const h of diff.added) enqueueDelta({ owner: h.owner, newBalance: h.amount, delta: h.amount, slot: 0, signature: '' });
+      for (const owner of diff.removed) enqueueDelta({ owner, newBalance: 0, delta: 0, slot: 0, signature: '' });
     },
-    [applyHolderDelta]
+    [enqueueDelta]
   );
 
   // Live: LaserStream worker via SSE (push-based). Falls back to polling when unavailable.
@@ -248,7 +289,7 @@ export function useGraphData(): UseGraphDataReturn {
   useEffect(() => {
     return () => {
       stopPoll();
-      if (slotFlushTimerRef.current) clearTimeout(slotFlushTimerRef.current);
+      if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 

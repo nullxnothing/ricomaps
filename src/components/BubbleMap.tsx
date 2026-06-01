@@ -56,6 +56,7 @@ const LEGEND_ENTRIES: { type: NodeType; label: string }[] = [
   { type: 'sniper', label: 'Sniper' },
   { type: 'bundled', label: 'Bundled' },
   { type: 'token', label: 'Token' },
+  { type: 'pool', label: 'Liquidity Pool' },
   { type: 'holder', label: 'Holder' },
   { type: 'funder', label: 'Funder' },
   { type: 'funded', label: 'Funded' },
@@ -66,6 +67,15 @@ function computeSupplyPct(node: GraphNode, totalSupply: number): number {
   const amount = node.tokenAmount || node.solBalance || node.val || 0;
   if (totalSupply <= 0) return 0;
   return (amount / totalSupply) * 100;
+}
+
+const MIN_RADIUS = 6;
+const MAX_RADIUS = 45;
+
+// Bubble radius from a holder's amount, scaled against the largest holder (sqrt = area-proportional).
+function computeRadius(amount: number, maxAmount: number): number {
+  const ratio = Math.sqrt(Math.max(0, amount) / Math.max(maxAmount, 1));
+  return MIN_RADIUS + ratio * (MAX_RADIUS - MIN_RADIUS);
 }
 
 function assignClusters(nodes: GraphNode[], links: GraphLink[]): Map<string, number> {
@@ -138,8 +148,6 @@ export function BubbleMap({ data, onNodeClick, filter = null }: BubbleMapProps) 
   // Track data identity to avoid restarting sim on poll updates
   const prevNodeCountRef = useRef(0);
   const dataVersionRef = useRef(0);
-  // Hide graph until auto-fit completes — prevents double-load visual
-  const revealedRef = useRef(false);
 
   // Tooltip is the only piece of React state — it drives the overlay DOM
   const [tooltip, setTooltip] = useState<TooltipData | null>(null);
@@ -188,52 +196,115 @@ export function BubbleMap({ data, onNodeClick, filter = null }: BubbleMapProps) 
     return null;
   }, []);
 
-  // Detect full scan vs incremental poll update
+  // Detect full scan vs incremental live update by node-set overlap, not raw count.
+  // A new scan replaces the dataset (little overlap with the previous nodes); live
+  // deltas add/remove a few nodes (high overlap) and must stay incremental so the
+  // graph doesn't relayout under the user on every buy.
+  const prevNodeIdsRef = useRef<Set<string>>(new Set());
   const nodeCount = data?.nodes.length || 0;
   const prevCount = prevNodeCountRef.current;
-  const isNewScan = prevCount === 0 || Math.abs(nodeCount - prevCount) > prevCount * 0.2;
-  if (nodeCount > 0) prevNodeCountRef.current = nodeCount;
+  let isNewScan: boolean;
+  if (prevCount === 0 || nodeCount === 0) {
+    isNewScan = true;
+  } else {
+    const prevSet = prevNodeIdsRef.current;
+    const currentIds = data!.nodes.map(n => n.id);
+    const overlap = currentIds.filter(id => prevSet.has(id)).length;
+    // <50% of the previous graph survived → treat as a new scan (full rebuild).
+    isNewScan = overlap < prevCount * 0.5;
+  }
+  if (nodeCount > 0) {
+    prevNodeCountRef.current = nodeCount;
+    prevNodeIdsRef.current = new Set(data!.nodes.map(n => n.id));
+  }
   if (isNewScan) {
     dataVersionRef.current++;
   }
   const dataVersion = dataVersionRef.current;
 
-  // Incremental update — update node data in-place, NO radius recalc, NO sim reheat
-  // Incremental poll update — update metadata in-place, no sim disturbance.
-  // Poll only changes balances and removes sold holders. No new nodes.
+  // Incremental live update — handles streaming deltas without rebuilding the graph:
+  //   • existing node balance changed → update radius + supplyPct
+  //   • new buyer in data           → add a bubble node (+ its links), gently reheat
+  //   • holder removed (sold to 0)   → drop node, its links, and particles
+  // A full rebuild only happens on a new scan (isNewScan, handled by the sim effect).
   useEffect(() => {
     if (!data || isNewScan || nodesRef.current.length === 0) return;
+    const sim = simRef.current;
 
     const dataNodeMap = new Map(data.nodes.map(n => [n.id, n]));
     const holders = data.nodes.filter(n => n.type !== 'token');
     const totalSupply = holders.reduce((sum, n) => sum + (n.tokenAmount || n.solBalance || 0), 0);
+    const maxAmount = Math.max(...holders.map(n => n.tokenAmount || n.solBalance || 0), 1);
+    const clusterMap = assignClusters(data.nodes, data.links);
+    const { width, height } = sizeRef.current;
 
-    // Update originalNode + supplyPct in-place. NO radius change. NO sim reheat.
+    // 1. Update existing nodes in place — radius now tracks live balance changes.
     for (const node of nodesRef.current) {
       const updated = dataNodeMap.get(node.id);
-      if (updated) {
-        node.originalNode = updated;
-        node.supplyPct = computeSupplyPct(updated, totalSupply);
-      }
+      if (!updated) continue;
+      node.originalNode = updated;
+      node.supplyPct = computeSupplyPct(updated, totalSupply);
+      node.radius = computeRadius(updated.tokenAmount || updated.solBalance || 0, maxAmount);
+      node.clusterId = clusterMap.get(node.id) ?? -1;
     }
 
-    // Remove sold holders — filter from refs, remove their links and particles
+    // 2. Add new buyers as fresh bubbles near center, so they fly in and settle.
+    const existingIds = new Set(nodesRef.current.map(n => n.id));
+    let added = 0;
+    for (const node of data.nodes) {
+      if (node.type === 'token' || existingIds.has(node.id)) continue;
+      const amount = node.tokenAmount || node.solBalance || 0;
+      nodesRef.current.push({
+        id: node.id,
+        label: node.label,
+        type: node.type,
+        radius: computeRadius(amount, maxAmount),
+        supplyPct: computeSupplyPct(node, totalSupply),
+        clusterId: clusterMap.get(node.id) ?? -1,
+        originalNode: node,
+        x: (width || 800) / 2 + (Math.random() - 0.5) * 80,
+        y: (height || 600) / 2 + (Math.random() - 0.5) * 80,
+      });
+      added++;
+    }
+
+    // 3. Drop holders that sold to zero (removed from data).
     const dataIds = new Set(data.nodes.map(n => n.id));
     const before = nodesRef.current.length;
     nodesRef.current = nodesRef.current.filter(n => dataIds.has(n.id));
+    const removed = before - nodesRef.current.length;
 
-    if (nodesRef.current.length < before) {
-      // Clean up links and particles for removed nodes
-      const activeIds = new Set(nodesRef.current.map(n => n.id));
-      linksRef.current = linksRef.current.filter(l => {
-        const src = (l.source as BubbleNode).id;
-        const tgt = (l.target as BubbleNode).id;
-        return activeIds.has(src) && activeIds.has(tgt);
-      });
-      // Update simulation node list (no reheat — nodes just vanish)
-      simRef.current?.nodes(nodesRef.current);
+    // 4. Rebuild links against the current node set (covers both adds and removals).
+    const nodeIds = new Set(nodesRef.current.map(n => n.id));
+    const endpoints = (l: GraphLink) => {
+      const s = typeof l.source === 'string' ? l.source : (l.source as unknown as { id: string }).id;
+      const t = typeof l.target === 'string' ? l.target : (l.target as unknown as { id: string }).id;
+      return { s, t };
+    };
+    linksRef.current = data.links.reduce<BubbleLink[]>((acc, l) => {
+      const { s, t } = endpoints(l);
+      if (nodeIds.has(s) && nodeIds.has(t)) {
+        acc.push({ source: s, target: t, suspicious: l.suspicious || false });
+      }
+      return acc;
+    }, []);
+
+    if (sim) {
+      sim.nodes(nodesRef.current);
+      const linkForce = sim.force('link') as ReturnType<typeof forceLink<BubbleNode, BubbleLink>> | undefined;
+      linkForce?.links(linksRef.current);
+      // Seed particles for any new links.
+      for (const l of linksRef.current) {
+        const key = `${(l.source as BubbleNode).id ?? l.source}-${(l.target as BubbleNode).id ?? l.target}`;
+        if (!particlesRef.current.has(key)) {
+          particlesRef.current.set(key, [{ t: 0 }, { t: 0.33 }, { t: 0.66 }]);
+        }
+      }
+      // Gentle reheat only when the graph structure changed, so new bubbles settle.
+      if (added > 0 || removed > 0) {
+        sim.alpha(Math.min(0.3, sim.alpha() + 0.2)).restart();
+      }
     }
-    // No sim.restart() — graph stays perfectly still
   }, [data]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Simulation + render loop (only on new scan, not poll updates) ──
@@ -268,15 +339,13 @@ export function BubbleMap({ data, onNodeClick, filter = null }: BubbleMapProps) 
     const totalSupply = holders.reduce((sum, n) => sum + (n.tokenAmount || n.solBalance || 0), 0);
     const clusterMap = assignClusters(data.nodes, data.links);
 
-    const minR = 6, maxR = 45;
     const maxAmount = Math.max(...holders.map(n => n.tokenAmount || n.solBalance || 0), 1);
 
     const bubbleNodes: BubbleNode[] = data.nodes
       .filter(n => n.type !== 'token')
       .map(node => {
         const amount = node.tokenAmount || node.solBalance || 0;
-        const ratio = Math.sqrt(amount / maxAmount);
-        const radius = minR + ratio * (maxR - minR);
+        const radius = computeRadius(amount, maxAmount);
         return {
           id: node.id,
           label: node.label,
@@ -373,7 +442,6 @@ export function BubbleMap({ data, onNodeClick, filter = null }: BubbleMapProps) 
     }
 
     // ── Force simulation — adapts to graph density ──
-    const nNodes = bubbleNodes.length;
     const nLinks = bubbleLinks.length;
     // Charge scales: sparse graphs get light repulsion, dense get more
     const chargeStr = nLinks > 10 ? -60 : -25;
@@ -396,46 +464,57 @@ export function BubbleMap({ data, onNodeClick, filter = null }: BubbleMapProps) 
       )
       .force('cluster', clusterForce)
       .force('center', forceCenter(width / 2, height / 2).strength(centerStr))
-      .force('collide', forceCollide<BubbleNode>().radius(d => d.radius + 3).strength(0.8).iterations(2))
-      .alphaDecay(0.0228)
+      .force('collide', forceCollide<BubbleNode>().radius(d => d.radius + 3).strength(0.8).iterations(1))
+      .alphaDecay(0.035)
       .velocityDecay(0.4);
+
+    // Pre-warm the layout synchronously (no paint) so the graph appears already
+    // settled instead of visibly churning for ~1.5s on load. Cheap: a few dozen
+    // ticks up front beats animating every frame of the settling process.
+    sim.stop();
+    const WARMUP_TICKS = bubbleNodes.length > 120 ? 60 : 120;
+    sim.tick(WARMUP_TICKS);
+    sim.restart();
 
     simRef.current = sim;
 
-    // Auto-fit after enough ticks for layout to stabilize, then stop sim later
-    let tickCount = 0;
-    const REVEAL_AFTER_TICKS = 80; // ~1.3s at 60fps — layout is stable by then
+    // Fit the viewport to the current node bounds.
+    function autoFit() {
+      let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+      for (const node of bubbleNodes) {
+        if (node.x == null || node.y == null) continue;
+        const r = node.radius;
+        minX = Math.min(minX, node.x - r);
+        maxX = Math.max(maxX, node.x + r);
+        minY = Math.min(minY, node.y - r);
+        maxY = Math.max(maxY, node.y + r);
+      }
+      const graphW = maxX - minX;
+      const graphH = maxY - minY;
+      if (graphW > 0 && graphH > 0) {
+        const padding = 60;
+        const scaleX = (width - padding * 2) / graphW;
+        const scaleY = (height - padding * 2) / graphH;
+        const targetK = Math.min(scaleX, scaleY, 0.9);
+        const graphCx = (minX + maxX) / 2;
+        const graphCy = (minY + maxY) / 2;
+        transformRef.current = {
+          x: width / 2 - graphCx * targetK,
+          y: height / 2 - graphCy * targetK,
+          k: targetK,
+        };
+      }
+    }
 
+    // Layout was pre-warmed, so fit immediately — the graph shows already-arranged.
+    autoFit();
+
+    let tickCount = 0;
     sim.on('tick', () => {
       tickCount++;
-
-      // Fit viewport + reveal after layout stabilizes
-      if (tickCount === REVEAL_AFTER_TICKS) {
-        let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-        for (const node of bubbleNodes) {
-          if (node.x == null || node.y == null) continue;
-          const r = node.radius;
-          minX = Math.min(minX, node.x - r);
-          maxX = Math.max(maxX, node.x + r);
-          minY = Math.min(minY, node.y - r);
-          maxY = Math.max(maxY, node.y + r);
-        }
-        const graphW = maxX - minX;
-        const graphH = maxY - minY;
-        if (graphW > 0 && graphH > 0) {
-          const padding = 60;
-          const scaleX = (width - padding * 2) / graphW;
-          const scaleY = (height - padding * 2) / graphH;
-          const targetK = Math.min(scaleX, scaleY, 0.9);
-          const graphCx = (minX + maxX) / 2;
-          const graphCy = (minY + maxY) / 2;
-          transformRef.current = {
-            x: width / 2 - graphCx * targetK,
-            y: height / 2 - graphCy * targetK,
-            k: targetK,
-          };
-        }
-      }
+      // Re-fit over the first ~30 visible ticks while the pre-warmed layout relaxes
+      // the last bit, so the framing stays tight without a late jump.
+      if (tickCount <= 30) autoFit();
 
       // Stop simulation once fully settled
       if (sim.alpha() < 0.001) {
@@ -601,16 +680,17 @@ export function BubbleMap({ data, onNodeClick, filter = null }: BubbleMapProps) 
         const isNeighbor = connectedNodes.has(node.id);
         const isDimmed = hovered && !isHovered && !isNeighbor;
 
-        // Determine node color: heatmap mode uses threat color, normal uses cluster
+        // Color priority: heatmap > semantic type (pool/cabal/sniper/bundled/token) >
+        // cluster color > unlinked. Semantic types must override the cluster hue so a
+        // pool/AMM, cabal funder, sniper, etc. always read distinctly. getNodeColor
+        // falls back to the cluster color for generic types (holder/funder/connected).
         const threatLevel = node.originalNode.metadata?.threatLevel;
         const threatScore = node.originalNode.metadata?.threatScore || 0;
         let color: string;
         if (isHeatmap && threatLevel) {
           color = THREAT_COLORS[threatLevel] || UNLINKED_COLOR;
         } else {
-          color = node.clusterId >= 0
-            ? CLUSTER_COLORS[node.clusterId % CLUSTER_COLORS.length]
-            : UNLINKED_COLOR;
+          color = getNodeColor(node.originalNode.type, node.clusterId);
         }
 
         const nodeFilterDim = activeFilter && !matchesFilter(node);

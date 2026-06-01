@@ -1,5 +1,5 @@
 // Graph Node Types
-export type NodeType = 'target' | 'funder' | 'funded' | 'connected' | 'holder' | 'token' | 'cabal-funder' | 'sniper' | 'bundled';
+export type NodeType = 'target' | 'funder' | 'funded' | 'connected' | 'holder' | 'token' | 'cabal-funder' | 'sniper' | 'bundled' | 'pool';
 
 export interface GraphNode {
   id: string;                    // Wallet address
@@ -63,6 +63,7 @@ export interface GraphNode {
     sharedFunderGroup?: string;  // ID of the funder cluster this wallet belongs to
     cabalConfidence?: number;    // 0-100 confidence score
     isBundled?: boolean;         // Detected in Jito bundle cluster
+    isPool?: boolean;            // Liquidity pool / AMM / treasury, not a real holder
     threatScore?: number;        // Composite threat score 0-100
     threatLevel?: 'critical' | 'high' | 'medium' | 'low' | 'safe';
     transferPatterns?: {
@@ -236,6 +237,7 @@ export const NODE_COLORS = {
   connected: '#ff9f43',    // Orange — connected to cabal
   sniper: '#00ffcc',       // Cyan — sniped early (bought in first blocks)
   bundled: '#a78bfa',      // Purple — detected in Jito bundle cluster
+  pool: '#9ca3af',         // Gray — liquidity pool / AMM (infrastructure, not a real holder)
   default: '#2a3a2a',      // Dark green-gray fallback
   unlinked: '#1a2a1a',     // Faded dark — isolated nodes
   hub: '#ffcc00',          // Yellow — high-centrality nodes
