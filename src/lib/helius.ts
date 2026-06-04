@@ -688,6 +688,66 @@ export async function getAsset(address: string): Promise<HeliusAsset | null> {
 }
 
 /**
+ * Count fungible tokens created by an address via DAS searchAssets.
+ * Used for serial-deployer detection. ~10 credits. Returns null on error.
+ * NOTE: only meaningful for a human signer — querying a program/PDA creator
+ * returns thousands of unrelated tokens (callers must filter those out first).
+ */
+export async function searchAssetsByCreator(
+  creator: string,
+  opts: { limit?: number } = {},
+): Promise<{ count: number; sample: string[] } | null> {
+  const limit = opts.limit ?? 50;
+  const cacheKey = `search-creator:${creator}:${limit}`;
+  const cached = getCached<{ count: number; sample: string[] } | null>(cacheKey);
+  if (cached.hit) return cached.value;
+
+  try {
+    const response = await fetchWithRetry(() => getThrottledRpcUrl(), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      // NOTE: `tokenType` requires `ownerAddress`; for a creator-wide search we
+      // omit it and count fungible results client-side instead.
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 'search-creator',
+        method: 'searchAssets',
+        params: { creatorAddress: creator, page: 1, limit },
+      }),
+    });
+
+    const data = await response.json();
+    if (data.error || !data.result) {
+      setCache(cacheKey, null);
+      return null;
+    }
+
+    const items = (data.result.items ?? []) as { id?: string; interface?: string }[];
+    // Count fungible tokens (FungibleToken / FungibleAsset); ignore NFTs.
+    const fungible = items.filter(i => i.interface?.startsWith('Fungible'));
+    const result = {
+      count: fungible.length,
+      sample: fungible.map(i => i.id).filter((id): id is string => Boolean(id)).slice(0, 10),
+    };
+    setCache(cacheKey, result);
+    return result;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Extract the fee payer (signer) of a gTFA transaction — accountKeys[0].
+ * For a token's first mint tx this is the true deployer/dev, even when the
+ * on-chain creator/authority is the pump.fun program.
+ */
+export function getMintTxSigner(tx: GtfaTransaction): string {
+  const msg = getGtfaMessage(tx);
+  const keys = msg.message?.accountKeys ?? [];
+  return keys.length > 0 ? getRawAccountKey(keys[0]) : '';
+}
+
+/**
  * Get comprehensive security info for a token
  */
 export async function getTokenSecurity(mintAddress: string): Promise<TokenSecurityInfo | null> {

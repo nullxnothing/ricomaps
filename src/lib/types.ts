@@ -105,6 +105,34 @@ export interface SupplyConcentration {
   supplyDenominatorSource: 'mint' | 'sum'; // 'mint' = on-chain supply, 'sum' = holder fallback
 }
 
+// Token-level rug verdict — the fast entry signal
+export interface RugFactor {
+  label: string;
+  severity: 'critical' | 'high' | 'medium' | 'low';
+  points: number;
+}
+
+export interface RugScore {
+  score: number;                       // 0–100, higher = riskier
+  level: 'green' | 'yellow' | 'red';   // traffic light
+  confidence: 'high' | 'medium' | 'low'; // driven by holder-coverage, NOT the score
+  factors: RugFactor[];                // sorted desc by points; UI shows top 3
+  coverageNote?: string;               // shown when confidence !== 'high'
+}
+
+// Deployer / dev intel — the single biggest rug predictor
+export interface DeployerInfo {
+  address: string;
+  source: 'mint-tx-signer' | 'creator' | 'update-authority';
+  stillHolds: boolean | null;   // null = outside analyzed coverage (unknown, not "dumped")
+  heldSupplyPct: number | null; // % of circulating supply, if found in holder set
+  inAnalyzedSet: boolean;       // whether deployer was within the analyzed top-N
+  pastLaunchCount: number | null; // tokens created by this address (null = lookup skipped/failed)
+  isSerialDeployer: boolean;
+  fundedBy: { address: string; amount: number; source: string } | null;
+  notes: string[];              // attribution + coverage caveats
+}
+
 // API Response Types
 export interface TraceResponse {
   success: boolean;
@@ -135,9 +163,11 @@ export interface TokenResponse {
     bundleClustersDetected?: number;
     bundledWallets?: string[];
     supplyConcentration?: SupplyConcentration;
+    rugScore?: RugScore;
   };
   tokenSecurity?: TokenSecurityInfo | null;
   tokenMetadata?: TokenMetadata | null;
+  deployerInfo?: DeployerInfo | null;
   error?: string;
 }
 
@@ -371,9 +401,11 @@ export interface ScanResponse {
     bundleClustersDetected?: number;
     bundledWallets?: string[];
     supplyConcentration?: SupplyConcentration;
+    rugScore?: RugScore;
   };
   tokenSecurity?: TokenSecurityInfo | null;
   tokenMetadata?: TokenMetadata | null;
+  deployerInfo?: DeployerInfo | null;
   error?: string;
 }
 

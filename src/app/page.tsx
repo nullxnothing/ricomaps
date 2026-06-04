@@ -65,6 +65,7 @@ function HomeContent() {
     stats,
     tokenSecurity,
     tokenMetadata,
+    deployerInfo,
     detectedMode,
     isLoading,
     isDetecting,
@@ -217,6 +218,18 @@ function HomeContent() {
             {/* Security badges */}
             {tokenSecurity && (
               <div className="flex items-center gap-1 px-3 pb-2 flex-wrap">
+                {stats?.rugScore && (
+                  <span
+                    className="text-[10px] font-bold px-1.5 py-0.5 rounded"
+                    style={{
+                      color: stats.rugScore.level === 'red' ? 'var(--red-primary)' : stats.rugScore.level === 'yellow' ? 'var(--amber-primary)' : 'var(--green-primary)',
+                      background: stats.rugScore.level === 'red' ? 'var(--red-ghost)' : stats.rugScore.level === 'yellow' ? 'var(--amber-ghost)' : 'var(--green-ghost)',
+                    }}
+                    title={`Rug score ${stats.rugScore.score}/100 · ${stats.rugScore.confidence} confidence`}
+                  >
+                    RUG {stats.rugScore.score}
+                  </span>
+                )}
                 <span className={`text-[10px] px-1.5 py-0.5 rounded ${tokenSecurity.hasFreezeAuthority ? 'bg-red-ghost text-red-primary' : 'bg-green-ghost text-green-primary'}`}>
                   {tokenSecurity.hasFreezeAuthority ? 'Freeze' : 'No Freeze'}
                 </span>
@@ -545,6 +558,7 @@ function HomeContent() {
             mode={detectedMode || 'wallet'}
             stats={stats || undefined}
             tokenSecurity={tokenSecurity}
+            deployerInfo={deployerInfo}
             onFilter={setGraphFilter}
             activeFilter={graphFilter}
           />

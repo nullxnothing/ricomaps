@@ -42,6 +42,7 @@ export async function POST(request: NextRequest) {
       stats: result.stats,
       tokenSecurity: result.tokenSecurity,
       tokenMetadata: result.tokenMetadata,
+      deployerInfo: result.deployerInfo,
     };
 
     return NextResponse.json(response);

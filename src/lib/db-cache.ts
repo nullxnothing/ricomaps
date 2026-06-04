@@ -1,4 +1,4 @@
-import { GraphData, TokenSecurityInfo, TokenMetadata } from './types';
+import { GraphData, TokenSecurityInfo, TokenMetadata, DeployerInfo } from './types';
 import { getPool } from './db-pool';
 
 const pool = getPool();
@@ -12,6 +12,7 @@ interface CachedTokenScan {
   stats: Record<string, unknown>;
   tokenSecurity: TokenSecurityInfo | null;
   tokenMetadata: TokenMetadata | null;
+  deployerInfo: DeployerInfo | null;
   createdAt: Date;
 }
 
@@ -28,9 +29,12 @@ export async function initCacheTable(): Promise<void> {
         stats JSONB,
         token_security JSONB,
         token_metadata JSONB,
+        deployer_info JSONB,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         expires_at TIMESTAMP NOT NULL
       );
+
+      ALTER TABLE token_scan_cache ADD COLUMN IF NOT EXISTS deployer_info JSONB;
 
       CREATE INDEX IF NOT EXISTS idx_token_cache_expires ON token_scan_cache(expires_at);
     `);
@@ -46,7 +50,7 @@ export async function getCachedTokenScan(address: string): Promise<CachedTokenSc
   if (!pool) return null;
   try {
     const result = await pool.query(
-      `SELECT data, stats, token_security, token_metadata, created_at
+      `SELECT data, stats, token_security, token_metadata, deployer_info, created_at
        FROM token_scan_cache
        WHERE address = $1 AND expires_at > NOW()`,
       [address]
@@ -64,6 +68,7 @@ export async function getCachedTokenScan(address: string): Promise<CachedTokenSc
       stats: row.stats || {},
       tokenSecurity: row.token_security,
       tokenMetadata: row.token_metadata,
+      deployerInfo: row.deployer_info ?? null,
       createdAt: row.created_at,
     };
   } catch (error) {
@@ -80,22 +85,24 @@ export async function setCachedTokenScan(
   data: GraphData,
   stats: Record<string, unknown>,
   tokenSecurity: TokenSecurityInfo | null,
-  tokenMetadata: TokenMetadata | null
+  tokenMetadata: TokenMetadata | null,
+  deployerInfo: DeployerInfo | null = null
 ): Promise<void> {
   if (!pool) return;
   try {
     await pool.query(
-      `INSERT INTO token_scan_cache (address, data, stats, token_security, token_metadata, expires_at)
-       VALUES ($1, $2, $3, $4, $5, NOW() + make_interval(secs => $6))
+      `INSERT INTO token_scan_cache (address, data, stats, token_security, token_metadata, deployer_info, expires_at)
+       VALUES ($1, $2, $3, $4, $5, $7, NOW() + make_interval(secs => $6))
        ON CONFLICT (address)
        DO UPDATE SET
          data = $2,
          stats = $3,
          token_security = $4,
          token_metadata = $5,
+         deployer_info = $7,
          created_at = CURRENT_TIMESTAMP,
          expires_at = NOW() + make_interval(secs => $6)`,
-      [address, JSON.stringify(data), JSON.stringify(stats), JSON.stringify(tokenSecurity), JSON.stringify(tokenMetadata), CACHE_TTL_SECONDS]
+      [address, JSON.stringify(data), JSON.stringify(stats), JSON.stringify(tokenSecurity), JSON.stringify(tokenMetadata), CACHE_TTL_SECONDS, JSON.stringify(deployerInfo)]
     );
   } catch (error) {
     console.error('[DB Cache] Set error:', error);

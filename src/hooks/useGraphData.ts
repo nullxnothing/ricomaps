@@ -11,6 +11,9 @@ import {
   TokenMetadata,
   HolderDelta,
   NODE_COLORS,
+  SupplyConcentration,
+  RugScore,
+  DeployerInfo,
 } from '@/lib/types';
 import { useHolderPolling } from './useHolderPolling';
 import { useHolderStream } from './useHolderStream';
@@ -53,6 +56,8 @@ interface Stats {
   sniperWallets?: string[];
   bundleClustersDetected?: number;
   bundledWallets?: string[];
+  supplyConcentration?: SupplyConcentration;
+  rugScore?: RugScore;
 }
 
 interface StreamingStats {
@@ -70,6 +75,7 @@ interface UseGraphDataReturn {
   stats: Stats | null;
   tokenSecurity: TokenSecurityInfo | null;
   tokenMetadata: TokenMetadata | null;
+  deployerInfo: DeployerInfo | null;
   detectedMode: AppMode | null;
   isLoading: boolean;
   isDetecting: boolean;
@@ -93,6 +99,7 @@ export function useGraphData(): UseGraphDataReturn {
   const [stats, setStats] = useState<Stats | null>(null);
   const [tokenSecurity, setTokenSecurity] = useState<TokenSecurityInfo | null>(null);
   const [tokenMetadata, setTokenMetadata] = useState<TokenMetadata | null>(null);
+  const [deployerInfo, setDeployerInfo] = useState<DeployerInfo | null>(null);
   const [detectedMode, setDetectedMode] = useState<AppMode | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isDetecting, setIsDetecting] = useState(false);
@@ -345,6 +352,7 @@ export function useGraphData(): UseGraphDataReturn {
       setStats(result.stats || null);
       setTokenSecurity(result.tokenSecurity || null);
       setTokenMetadata(result.tokenMetadata || null);
+      setDeployerInfo(result.deployerInfo || null);
       setDetectedMode(mode);
 
       // Store mint for polling (only for token mode)
@@ -384,6 +392,7 @@ export function useGraphData(): UseGraphDataReturn {
         setStats(quick.stats || null);
         setTokenSecurity(quick.tokenSecurity || null);
         setTokenMetadata(quick.tokenMetadata || null);
+        setDeployerInfo(quick.deployerInfo || null);
         setDetectedMode('token'); // quick-scan only returns token graphs
         setScannedMint(address);
       })
@@ -408,6 +417,7 @@ export function useGraphData(): UseGraphDataReturn {
       setStats(result.stats || null);
       setTokenSecurity(result.tokenSecurity || null);
       setTokenMetadata(result.tokenMetadata || null);
+      setDeployerInfo(result.deployerInfo || null);
       setDetectedMode(result.mode || null);
 
       // Store mint for polling (only for token mode)
@@ -502,6 +512,7 @@ export function useGraphData(): UseGraphDataReturn {
     setStats(null);
     setTokenSecurity(null);
     setTokenMetadata(null);
+    setDeployerInfo(null);
     setDetectedMode(null);
     setError(null);
     setScannedMint(null);
@@ -529,6 +540,7 @@ export function useGraphData(): UseGraphDataReturn {
     stats,
     tokenSecurity,
     tokenMetadata,
+    deployerInfo,
     detectedMode,
     isLoading,
     isDetecting,

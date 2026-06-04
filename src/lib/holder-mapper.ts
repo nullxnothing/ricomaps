@@ -1,11 +1,13 @@
 import {
   getTokenLargestAccounts, getMultipleAccountsParsed, getMintEarlyTransactions,
   getAsset, deriveTokenSecurity, batchIdentifyWallets, batchGetEarlyTransactions,
-  batchGetFirstIncomingSolTransfers,
+  batchGetFirstIncomingSolTransfers, searchAssetsByCreator, getWalletFundedBy,
 } from './helius';
-import { GraphNode, GraphLink, GraphData, NODE_COLORS, TokenSecurityInfo, TokenMetadata, EnrichedFunderInfo, BundleCluster, SupplyConcentration } from './types';
+import { GraphNode, GraphLink, GraphData, NODE_COLORS, TokenSecurityInfo, TokenMetadata, EnrichedFunderInfo, BundleCluster, SupplyConcentration, RugScore, DeployerInfo } from './types';
 import { computeThreatScore, getThreatLevel } from './threat-scorer';
 import { computeSupplyConcentration } from './supply-metrics';
+import { computeRugScore } from './rug-scorer';
+import { extractDeployer, computeDeployerHoldings, buildDeployerInfo } from './deployer';
 import { shouldFilterAddress } from './address-utils';
 import { createNode } from './graph-utils';
 import { detectBundleClusters } from './bundle-detector';
@@ -63,9 +65,11 @@ export async function mapTokenHolders(mintAddress: string, options: MapOptions =
     snipersDetected: number; sniperWallets: string[];
     bundleClustersDetected: number; bundledWallets: string[];
     supplyConcentration: SupplyConcentration;
+    rugScore: RugScore;
   };
   tokenSecurity: TokenSecurityInfo | null;
   tokenMetadata: TokenMetadata | null;
+  deployerInfo: DeployerInfo | null;
 }> {
   const opts = { ...DEFAULT_OPTIONS, ...options };
   const nodes: GraphNode[] = [];
@@ -108,6 +112,9 @@ export async function mapTokenHolders(mintAddress: string, options: MapOptions =
     mintSlot: mintEarlyTxs[0].slot,
   } : null;
 
+  // Resolve deployer (CPU only) so its history/funding can be fetched alongside Phase 2.
+  const resolvedDeployer = extractDeployer(mintEarlyTxs, asset);
+
   // ═══════════════════════════════════════════════════════════
   // PHASE 1b: Resolve token accounts → owner wallets (~80ms)
   // ═══════════════════════════════════════════════════════════
@@ -147,10 +154,16 @@ export async function mapTokenHolders(mintAddress: string, options: MapOptions =
   // ═══════════════════════════════════════════════════════════
   // PHASE 2: Fetch early txs for launch clustering and first incoming SOL funders
   // ═══════════════════════════════════════════════════════════
+  // Deployer history (only for an attributable human signer — never a program/PDA)
+  // and the deployer's own funding source. Overlapped with holder fetches → no
+  // added wall-clock.
+  const runDeployerHistory = resolvedDeployer && !resolvedDeployer.unattributable;
   const p2Start = Date.now();
-  const [holderEarlyTxs, firstFunders] = await Promise.all([
+  const [holderEarlyTxs, firstFunders, deployerHistory, deployerFundedBy] = await Promise.all([
     batchGetEarlyTransactions(holderAddresses, 5),
     batchGetFirstIncomingSolTransfers(holderAddresses, { fallbackToFundedBy: true, concurrency: 8 }),
+    runDeployerHistory ? searchAssetsByCreator(resolvedDeployer.address, { limit: 50 }) : Promise.resolve(null),
+    runDeployerHistory ? getWalletFundedBy(resolvedDeployer.address) : Promise.resolve(null),
   ]);
   console.error(`[PERF] Phase 2: ${Date.now() - p2Start}ms (${holderAddresses.length} holders)`);
 
@@ -560,6 +573,25 @@ export async function mapTokenHolders(mintAddress: string, options: MapOptions =
     mintSupply,
   });
 
+  const rugScore = computeRugScore({
+    security: tokenSecurity,
+    supply: supplyConcentration,
+    snipersDetected: sniperWallets.length,
+    bundleClustersDetected: bundleClusters.length,
+  });
+
+  // Assemble deployer intel from the resolved signer + overlapped lookups.
+  const deployerInfo: DeployerInfo | null = resolvedDeployer
+    ? buildDeployerInfo({
+        resolved: resolvedDeployer,
+        holdings: computeDeployerHoldings(resolvedDeployer.address, holderNodes, supplyConcentration),
+        pastLaunchCount: resolvedDeployer.unattributable ? null : (deployerHistory?.count ?? null),
+        fundedBy: deployerFundedBy
+          ? { address: deployerFundedBy.address, amount: deployerFundedBy.amount, source: deployerFundedBy.txSource }
+          : null,
+      })
+    : null;
+
   return {
     data: { nodes, links },
     stats: {
@@ -571,7 +603,8 @@ export async function mapTokenHolders(mintAddress: string, options: MapOptions =
       bundleClustersDetected: bundleClusters.length,
       bundledWallets: Array.from(bundledWalletSet),
       supplyConcentration,
+      rugScore,
     },
-    tokenSecurity, tokenMetadata,
+    tokenSecurity, tokenMetadata, deployerInfo,
   };
 }

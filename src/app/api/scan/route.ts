@@ -48,6 +48,7 @@ export async function POST(request: NextRequest) {
           stats: cached.stats as ScanResponse['stats'],
           tokenSecurity: cached.tokenSecurity,
           tokenMetadata: cached.tokenMetadata,
+          deployerInfo: cached.deployerInfo,
         });
       }
 
@@ -61,7 +62,8 @@ export async function POST(request: NextRequest) {
         result.data,
         result.stats as Record<string, unknown>,
         result.tokenSecurity,
-        result.tokenMetadata
+        result.tokenMetadata,
+        result.deployerInfo
       ).catch(err => console.error('Cache store error:', err));
 
       return NextResponse.json<ScanResponse>({
@@ -71,6 +73,7 @@ export async function POST(request: NextRequest) {
         stats: result.stats,
         tokenSecurity: result.tokenSecurity,
         tokenMetadata: result.tokenMetadata,
+        deployerInfo: result.deployerInfo,
       });
     } else {
       const data = await traceFundingChain(address, {

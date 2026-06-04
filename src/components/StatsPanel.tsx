@@ -2,10 +2,11 @@
 
 import { useMemo } from 'react';
 import Link from 'next/link';
-import { GraphData, AppMode, TokenSecurityInfo, SupplyConcentration } from '@/lib/types';
+import { GraphData, AppMode, TokenSecurityInfo, SupplyConcentration, RugScore, DeployerInfo } from '@/lib/types';
 import { analyzeGraph, calculateGraphStats } from '@/lib/graph-analysis';
 import { giniLabel } from '@/lib/supply-metrics';
 import { TokenSecurityBadge } from './TokenSecurityBadge';
+import { DeployerCard } from './DeployerCard';
 import { BorderBeam } from './ui/border-beam';
 
 export type StatsFilter = 'cabal' | 'snipers' | 'bundles' | null;
@@ -31,8 +32,10 @@ interface StatsPanelProps {
     bundleClustersDetected?: number;
     bundledWallets?: string[];
     supplyConcentration?: SupplyConcentration;
+    rugScore?: RugScore;
   };
   tokenSecurity?: TokenSecurityInfo | null;
+  deployerInfo?: DeployerInfo | null;
   streaming?: {
     isStreaming: boolean;
     transactionCount: number;
@@ -41,7 +44,7 @@ interface StatsPanelProps {
   activeFilter?: StatsFilter;
 }
 
-export function StatsPanel({ data, mode, stats, tokenSecurity, onFilter, activeFilter = null }: StatsPanelProps) {
+export function StatsPanel({ data, mode, stats, tokenSecurity, deployerInfo, onFilter, activeFilter = null }: StatsPanelProps) {
   const graphStats = useMemo(() => {
     if (!data || data.nodes.length === 0) return null;
     const analyzedNodes = analyzeGraph(data.nodes, data.links);
@@ -55,6 +58,11 @@ export function StatsPanel({ data, mode, stats, tokenSecurity, onFilter, activeF
 
   return (
     <div className="glass-panel w-full md:w-56 xl:w-64 2xl:w-72 max-h-[40vh] sm:max-h-[60vh] overflow-y-auto themed-scrollbar p-2.5 sm:p-3.5">
+      {/* Rug verdict — the 5-second entry signal */}
+      {mode === 'token' && stats.rugScore && (
+        <RugScoreHeadline rug={stats.rugScore} />
+      )}
+
       {/* Security badge (compact) */}
       {mode === 'token' && (
         <div className="mb-3">
@@ -165,15 +173,9 @@ export function StatsPanel({ data, mode, stats, tokenSecurity, onFilter, activeF
         )}
       </div>
 
-      {/* Risk indicator */}
-      {mode === 'token' && (
-        <div className="mt-3 pt-3 border-t border-border-base">
-          <RiskBadge
-            cabalCount={cabalFunders.length}
-            sniperCount={stats.snipersDetected || 0}
-            totalHolders={stats.analyzedHolders || data.nodes.length}
-          />
-        </div>
+      {/* Deployer / dev intel */}
+      {mode === 'token' && deployerInfo && (
+        <DeployerCard deployer={deployerInfo} />
       )}
 
       {/* Clean status for no cabal */}
@@ -284,47 +286,48 @@ function BigStat({ label, value, color }: { label: string; value: string; color:
   );
 }
 
-function RiskBadge({ cabalCount, sniperCount, totalHolders }: { cabalCount: number; sniperCount: number; totalHolders: number }) {
-  const cabalRatio = totalHolders > 0 ? cabalCount / totalHolders : 0;
-  const sniperRatio = totalHolders > 0 ? sniperCount / totalHolders : 0;
+const RUG_LEVEL_STYLE = {
+  green:  { color: 'var(--green-primary)', bg: 'var(--green-ghost)', label: 'LOW RISK' },
+  yellow: { color: 'var(--amber-primary)', bg: 'var(--amber-ghost)', label: 'CAUTION' },
+  red:    { color: 'var(--red-primary)',   bg: 'var(--red-ghost)',   label: 'HIGH RISK' },
+} as const;
 
-  let level: 'low' | 'medium' | 'high';
-  let label: string;
-
-  if (cabalRatio > 0.1 || cabalCount >= 5) {
-    level = 'high';
-    label = 'High risk';
-  } else if (cabalCount > 0 || sniperRatio > 0.15) {
-    level = 'medium';
-    label = 'Medium risk';
-  } else {
-    level = 'low';
-    label = 'Low risk';
-  }
-
-  const colorMap = {
-    low: 'var(--green-primary)',
-    medium: 'var(--amber-primary)',
-    high: 'var(--red-primary)',
-  };
-
-  const bgMap = {
-    low: 'var(--green-ghost)',
-    medium: 'var(--amber-ghost)',
-    high: 'var(--red-ghost)',
-  };
+function RugScoreHeadline({ rug }: { rug: RugScore }) {
+  const s = RUG_LEVEL_STYLE[rug.level];
+  const topFactors = rug.factors.slice(0, 3);
 
   return (
-    <div className="flex items-center justify-between">
-      <span className="text-xs text-text-tertiary">Risk</span>
-      <span
-        className="text-xs font-medium px-2 py-0.5 rounded"
-        style={{ color: colorMap[level], background: bgMap[level] }}
-      >
-        {label}
-      </span>
+    <div className="mb-3 pb-3 border-b border-border-base">
+      <div className="flex items-center gap-2.5 rounded-lg px-2.5 py-2" style={{ background: s.bg }}>
+        <span className="text-2xl font-bold tabular-nums leading-none" style={{ color: s.color }}>{rug.score}</span>
+        <div className="flex flex-col">
+          <span className="text-xs font-bold uppercase tracking-wide" style={{ color: s.color }}>{s.label}</span>
+          <span className="text-[10px] text-text-tertiary">Rug score · {rug.confidence} confidence</span>
+        </div>
+      </div>
+
+      {topFactors.length > 0 && (
+        <ul className="mt-1.5 space-y-0.5">
+          {topFactors.map((f, i) => (
+            <li key={i} className="flex items-start gap-1 text-[10px] leading-tight text-text-secondary">
+              <span style={{ color: severityColor(f.severity) }}>▰</span>
+              {f.label}
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {rug.coverageNote && (
+        <p className="mt-1 text-[10px] leading-tight text-text-tertiary">{rug.coverageNote}</p>
+      )}
     </div>
   );
+}
+
+function severityColor(severity: RugScore['factors'][number]['severity']): string {
+  if (severity === 'critical' || severity === 'high') return 'var(--red-primary)';
+  if (severity === 'medium') return 'var(--amber-primary)';
+  return 'var(--text-tertiary)';
 }
 
 export default StatsPanel;
