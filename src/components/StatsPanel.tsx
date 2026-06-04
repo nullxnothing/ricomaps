@@ -2,8 +2,9 @@
 
 import { useMemo } from 'react';
 import Link from 'next/link';
-import { GraphData, AppMode, TokenSecurityInfo } from '@/lib/types';
+import { GraphData, AppMode, TokenSecurityInfo, SupplyConcentration } from '@/lib/types';
 import { analyzeGraph, calculateGraphStats } from '@/lib/graph-analysis';
+import { giniLabel } from '@/lib/supply-metrics';
 import { TokenSecurityBadge } from './TokenSecurityBadge';
 import { BorderBeam } from './ui/border-beam';
 
@@ -29,6 +30,7 @@ interface StatsPanelProps {
     sniperWallets?: string[];
     bundleClustersDetected?: number;
     bundledWallets?: string[];
+    supplyConcentration?: SupplyConcentration;
   };
   tokenSecurity?: TokenSecurityInfo | null;
   streaming?: {
@@ -58,6 +60,11 @@ export function StatsPanel({ data, mode, stats, tokenSecurity, onFilter, activeF
         <div className="mb-3">
           <TokenSecurityBadge security={tokenSecurity || null} />
         </div>
+      )}
+
+      {/* Supply concentration — the headline metric traders screenshot */}
+      {mode === 'token' && stats.supplyConcentration && (
+        <SupplyConcentrationPanel sc={stats.supplyConcentration} />
       )}
 
       {/* Core stats */}
@@ -181,6 +188,98 @@ export function StatsPanel({ data, mode, stats, tokenSecurity, onFilter, activeF
           Partial analysis (API limits)
         </div>
       )}
+    </div>
+  );
+}
+
+// Severity color for a supply-held %. Higher concentration in insider hands = redder.
+function pctColor(pct: number): string {
+  if (pct >= 20) return 'var(--red-primary)';
+  if (pct >= 10) return 'var(--amber-primary)';
+  return 'var(--green-primary)';
+}
+
+function fmtPct(pct: number | undefined): string {
+  return `${(pct ?? 0).toFixed(1)}%`;
+}
+
+function SupplyConcentrationPanel({ sc }: { sc: SupplyConcentration }) {
+  const gini = giniLabel(sc.giniCoefficient ?? 0);
+  const giniColor =
+    gini === 'Extreme' ? 'var(--red-primary)'
+    : gini === 'Concentrated' ? 'var(--amber-primary)'
+    : 'var(--green-primary)';
+
+  // Low coverage = the analyzed top holders represent only a small slice of supply
+  // (rest is in the AMM pool / untracked). Concentration metrics are then "among
+  // top holders", not token-wide — say so instead of implying false safety.
+  // Older cached scans may lack analyzedSupplyPct; treat unknown coverage as full
+  // so we don't show a misleading low-coverage warning on legacy payloads.
+  const lowCoverage = sc.analyzedSupplyPct !== undefined && sc.analyzedSupplyPct < 50;
+
+  return (
+    <div className="mb-3 pb-3 border-b border-border-base">
+      <div className="grid grid-cols-3 gap-1.5 mb-2">
+        <BigStat label="Bundled" value={fmtPct(sc.bundledSupplyPct)} color={pctColor(sc.bundledSupplyPct)} />
+        <BigStat label="Sniped" value={fmtPct(sc.sniperSupplyPct)} color={pctColor(sc.sniperSupplyPct)} />
+        <BigStat label="Top 10" value={fmtPct(sc.top10Pct)} color={pctColor(sc.top10Pct)} />
+      </div>
+
+      <div className="space-y-0">
+        {(sc.bundledSupplyPct > 0 || sc.sniperSupplyPct > 0) && (
+          <div className="stats-item">
+            <span className="stats-label">Insiders hold</span>
+            <span className="stats-value" style={{ color: pctColor(sc.insiderStillHoldingPct) }}>
+              {fmtPct(sc.insiderStillHoldingPct)}
+            </span>
+          </div>
+        )}
+        {sc.cabalSupplyPct > 0 && (
+          <div className="stats-item">
+            <span className="stats-label text-red-primary">Cabal supply</span>
+            <span className="stats-value text-red-primary">{fmtPct(sc.cabalSupplyPct)}</span>
+          </div>
+        )}
+        <div className="stats-item">
+          <span className="stats-label">{lowCoverage ? 'Spread (top holders)' : 'Concentration'}</span>
+          <span className="stats-value" style={{ color: giniColor }}>
+            {gini} <span className="text-text-tertiary">({sc.giniCoefficient.toFixed(2)})</span>
+          </span>
+        </div>
+        {sc.freshWalletPct > 0 && (
+          <div className="stats-item">
+            <span className="stats-label">Fresh wallets</span>
+            <span className="stats-value">{fmtPct(sc.freshWalletPct)}</span>
+          </div>
+        )}
+        <div className="stats-item">
+          <span className="stats-label">Real holders</span>
+          <span className="stats-value">{sc.realHolderCount}</span>
+        </div>
+        {sc.analyzedSupplyPct !== undefined && (
+          <div className="stats-item">
+            <span className="stats-label">Supply covered</span>
+            <span className="stats-value" style={{ color: lowCoverage ? 'var(--amber-primary)' : 'var(--green-primary)' }}>
+              {fmtPct(sc.analyzedSupplyPct)}
+            </span>
+          </div>
+        )}
+      </div>
+
+      <p className="mt-1.5 text-[10px] leading-tight text-text-tertiary">
+        {lowCoverage
+          ? `Top ${sc.realHolderCount} holders = ${fmtPct(sc.analyzedSupplyPct)} of supply (rest in pool/untracked). %s are of total supply held.`
+          : `% of circulating supply held${sc.supplyDenominatorSource === 'sum' ? ' (est. — mint supply unavailable)' : ''}.`}
+      </p>
+    </div>
+  );
+}
+
+function BigStat({ label, value, color }: { label: string; value: string; color: string }) {
+  return (
+    <div className="flex flex-col items-center rounded bg-white/[0.02] py-1.5">
+      <span className="text-sm font-semibold tabular-nums" style={{ color }}>{value}</span>
+      <span className="text-[10px] uppercase tracking-wide text-text-tertiary">{label}</span>
     </div>
   );
 }

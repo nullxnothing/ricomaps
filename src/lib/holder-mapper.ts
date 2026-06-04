@@ -3,8 +3,9 @@ import {
   getAsset, deriveTokenSecurity, batchIdentifyWallets, batchGetEarlyTransactions,
   batchGetFirstIncomingSolTransfers,
 } from './helius';
-import { GraphNode, GraphLink, GraphData, NODE_COLORS, TokenSecurityInfo, TokenMetadata, EnrichedFunderInfo, BundleCluster } from './types';
+import { GraphNode, GraphLink, GraphData, NODE_COLORS, TokenSecurityInfo, TokenMetadata, EnrichedFunderInfo, BundleCluster, SupplyConcentration } from './types';
 import { computeThreatScore, getThreatLevel } from './threat-scorer';
+import { computeSupplyConcentration } from './supply-metrics';
 import { shouldFilterAddress } from './address-utils';
 import { createNode } from './graph-utils';
 import { detectBundleClusters } from './bundle-detector';
@@ -61,6 +62,7 @@ export async function mapTokenHolders(mintAddress: string, options: MapOptions =
     dexFundedHolders: number; freshWalletFunders: number;
     snipersDetected: number; sniperWallets: string[];
     bundleClustersDetected: number; bundledWallets: string[];
+    supplyConcentration: SupplyConcentration;
   };
   tokenSecurity: TokenSecurityInfo | null;
   tokenMetadata: TokenMetadata | null;
@@ -530,6 +532,34 @@ export async function mapTokenHolders(mintAddress: string, options: MapOptions =
     node.metadata = { ...node.metadata, threatScore: score, threatLevel: getThreatLevel(score) };
   }
 
+  // ═══════════════════════════════════════════════════════════
+  // PHASE 5: Supply-held concentration metrics (CPU only, zero API calls)
+  // Derived from the built holder nodes so pool/bundle/sniper/cabal tagging is
+  // the single source of truth and matches what the graph renders.
+  // ═══════════════════════════════════════════════════════════
+  const holderNodes = nodes.filter(n => n.depth === 1 && n.tokenAmount !== undefined);
+  const poolNodeSet = new Set(holderNodes.filter(n => n.type === 'pool' || n.metadata?.isPool).map(n => n.id));
+  const cabalWalletSet = new Set(holderNodes.filter(n => n.metadata?.sharedFunderGroup).map(n => n.id));
+
+  const supplyDecimals = tokenSecurity?.decimals;
+  const mintSupplyRaw = tokenSecurity?.supply;
+  const mintSupply = mintSupplyRaw && supplyDecimals !== undefined
+    ? Number(mintSupplyRaw) / 10 ** supplyDecimals
+    : undefined;
+
+  const supplyConcentration = computeSupplyConcentration({
+    holders: holderNodes.map(n => ({
+      owner: n.id,
+      amount: n.tokenAmount ?? 0,
+      firstFundedAt: n.fundingSource?.timestamp,
+    })),
+    bundledWallets: bundledWalletSet,
+    sniperWallets: new Set(sniperWallets),
+    cabalWallets: cabalWalletSet,
+    poolWallets: poolNodeSet,
+    mintSupply,
+  });
+
   return {
     data: { nodes, links },
     stats: {
@@ -540,6 +570,7 @@ export async function mapTokenHolders(mintAddress: string, options: MapOptions =
       snipersDetected: sniperWallets.length, sniperWallets,
       bundleClustersDetected: bundleClusters.length,
       bundledWallets: Array.from(bundledWalletSet),
+      supplyConcentration,
     },
     tokenSecurity, tokenMetadata,
   };

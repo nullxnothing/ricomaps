@@ -88,6 +88,23 @@ export interface GraphData {
   links: GraphLink[];
 }
 
+// Supply-held concentration metrics (all % are share of circulating supply, NOT volume)
+export interface SupplyConcentration {
+  bundledSupplyPct: number;          // Supply held by bundled wallets
+  sniperSupplyPct: number;           // Supply held by snipers
+  cabalSupplyPct: number;            // Supply held by shared-funder cluster members
+  insiderStillHoldingPct: number;    // Current supply held by bundled ∪ sniper wallets
+  top10Pct: number;                  // Supply held by top 10 real holders
+  top25Pct: number;                  // Supply held by top 25 real holders
+  giniCoefficient: number;           // 0 (even) → 1 (fully concentrated)
+  freshWalletPct: number;            // % of real holders funded < 7d ago (proxy)
+  realHolderCount: number;           // Analyzed holders excluding pools
+  poolSupplyPct: number;             // Supply parked in pool/AMM/treasury wallets
+  analyzedSupplyPct: number;         // Coverage: % of supply the analyzed holders represent
+  circulatingSupplyUsed: number;     // Denominator used (UI units)
+  supplyDenominatorSource: 'mint' | 'sum'; // 'mint' = on-chain supply, 'sum' = holder fallback
+}
+
 // API Response Types
 export interface TraceResponse {
   success: boolean;
@@ -115,6 +132,9 @@ export interface TokenResponse {
     freshWalletFunders?: number;
     snipersDetected?: number;
     sniperWallets?: string[];
+    bundleClustersDetected?: number;
+    bundledWallets?: string[];
+    supplyConcentration?: SupplyConcentration;
   };
   tokenSecurity?: TokenSecurityInfo | null;
   tokenMetadata?: TokenMetadata | null;
@@ -350,6 +370,7 @@ export interface ScanResponse {
     sniperWallets?: string[];      // Addresses of snipers
     bundleClustersDetected?: number;
     bundledWallets?: string[];
+    supplyConcentration?: SupplyConcentration;
   };
   tokenSecurity?: TokenSecurityInfo | null;
   tokenMetadata?: TokenMetadata | null;
