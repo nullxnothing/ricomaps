@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { expandNode } from '@/lib/graph-builder';
 import { isValidSolanaAddress } from '@/lib/address-utils';
 import { checkRateLimit } from '@/lib/rate-limit';
+import { requireGate } from '@/lib/gate-guard';
 import { ExpandResponse } from '@/lib/types';
 
 const MAX_EXISTING_NODES = 500;
@@ -15,6 +16,10 @@ export async function POST(request: NextRequest) {
       { status: 429, headers: { 'Retry-After': String(Math.ceil(retryAfterMs / 1000)) } }
     );
   }
+
+  // Gated: on-demand expansion costs multiple Helius calls per click.
+  const gate = await requireGate(request);
+  if (gate instanceof NextResponse) return gate;
 
   try {
     const body = await request.json();

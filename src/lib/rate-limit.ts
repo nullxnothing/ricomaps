@@ -13,6 +13,9 @@ const ROUTE_LIMITS: Record<string, number> = {
   'cross-token': 10,
   'token-history': 40,
   'prices-stream': 20,
+  gate: 20,
+  explain: 10,
+  watchlist: 30,
   default: 30,
 };
 

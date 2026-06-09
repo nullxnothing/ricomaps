@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
+import { GateProvider } from "@/components/GateProvider";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -53,7 +54,9 @@ export default function RootLayout({
   return (
     <html lang="en" className={`dark ${inter.variable} ${jetbrainsMono.variable}`}>
       <body className="antialiased font-sans">
-        {children}
+        <GateProvider>
+          {children}
+        </GateProvider>
       </body>
     </html>
   );
