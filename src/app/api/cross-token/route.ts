@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { analyzeCrossTokenHoldings } from '@/lib/cross-token-analyzer';
 import { isValidSolanaAddress } from '@/lib/address-utils';
 import { checkRateLimit } from '@/lib/rate-limit';
+import { requireGate } from '@/lib/gate-guard';
 
 const MAX_WALLETS = 20;
 const CREDITS_PER_WALLET = 100;
@@ -15,6 +16,10 @@ export async function POST(request: NextRequest) {
       { status: 429, headers: { 'Retry-After': String(Math.ceil(retryAfterMs / 1000)) } }
     );
   }
+
+  // Gated: deep scan = ~100 Helius credits per wallet across the cabal.
+  const gate = await requireGate(request);
+  if (gate instanceof NextResponse) return gate;
 
   try {
     const body = await request.json();

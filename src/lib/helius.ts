@@ -829,6 +829,37 @@ export async function isTokenMint(address: string): Promise<boolean> {
   return fungibleInterfaces.includes(asset.interface);
 }
 
+/**
+ * UI-unit balance of a single mint for one owner (1 RPC credit).
+ * Used by the token gate — far cheaper than the full /balances portfolio call.
+ * Sums across all token accounts the owner holds for the mint.
+ */
+export async function getTokenBalanceForMint(owner: string, mint: string): Promise<number> {
+  try {
+    const response = await fetchWithRetry(() => getThrottledRpcUrl(), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 'gate-balance',
+        method: 'getTokenAccountsByOwner',
+        params: [owner, { mint }, { encoding: 'jsonParsed' }],
+      }),
+    });
+    const data = await response.json();
+    const accounts = data.result?.value ?? [];
+    let total = 0;
+    for (const acc of accounts) {
+      const amount = acc.account?.data?.parsed?.info?.tokenAmount?.uiAmount;
+      if (typeof amount === 'number') total += amount;
+    }
+    return total;
+  } catch (error) {
+    console.error('[Gate] balance check failed:', error);
+    return 0;
+  }
+}
+
 // ============================================================================
 // SNIPER DETECTION - Get token launch time and early buyers
 // ============================================================================

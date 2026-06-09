@@ -141,6 +141,9 @@ export function CrossTokenPanel({ isOpen, onClose, cabalWallets }: CrossTokenPan
 
       const json = await res.json();
       if (!json.success) {
+        if (res.status === 403 && json.gated) {
+          throw new Error(json.message || 'Hold $RICO and connect your wallet to unlock Deep Scan.');
+        }
         throw new Error(json.error || 'Analysis failed');
       }
 

@@ -225,6 +225,22 @@ export function NodeDetailPanel({
         </div>
       )}
 
+      {node.metadata?.behavioralCluster && (
+        <div className="border-t px-3.5 py-2" style={{ borderColor: 'var(--border-base)' }}>
+          <div className="flex items-center justify-between text-xs">
+            <span style={{ color: 'var(--text-tertiary)' }}>Behavioral cluster</span>
+            <span className="font-mono text-[11px]" style={{ color: 'var(--amber-primary)' }}>
+              {node.metadata.behavioralCluster}
+            </span>
+          </div>
+          {node.metadata.sharedFunderGroup && (
+            <p className="text-[10px] mt-1" style={{ color: 'var(--red-primary)' }}>
+              ⚠ Flagged by both funding chain and behavior — high confidence.
+            </p>
+          )}
+        </div>
+      )}
+
       {/* Loading */}
       {isLoading && (
         <div className="flex items-center justify-center gap-2 px-3.5 py-2 border-t text-xs" style={{ borderColor: 'var(--border-base)', color: 'var(--text-tertiary)' }}>

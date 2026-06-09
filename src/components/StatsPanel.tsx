@@ -2,14 +2,15 @@
 
 import { useMemo } from 'react';
 import Link from 'next/link';
-import { GraphData, AppMode, TokenSecurityInfo, SupplyConcentration, RugScore, DeployerInfo } from '@/lib/types';
+import { GraphData, AppMode, TokenSecurityInfo, SupplyConcentration, RugScore, DeployerInfo, CabalFingerprintResult } from '@/lib/types';
 import { analyzeGraph, calculateGraphStats } from '@/lib/graph-analysis';
 import { giniLabel } from '@/lib/supply-metrics';
 import { TokenSecurityBadge } from './TokenSecurityBadge';
 import { DeployerCard } from './DeployerCard';
+import { CabalRapSheet } from './CabalRapSheet';
 import { BorderBeam } from './ui/border-beam';
 
-export type StatsFilter = 'cabal' | 'snipers' | 'bundles' | null;
+export type StatsFilter = 'cabal' | 'snipers' | 'bundles' | 'behavioral' | null;
 
 interface StatsPanelProps {
   data: GraphData | null;
@@ -31,8 +32,11 @@ interface StatsPanelProps {
     sniperWallets?: string[];
     bundleClustersDetected?: number;
     bundledWallets?: string[];
+    behavioralClustersDetected?: number;
+    behaviorallyClusteredWallets?: string[];
     supplyConcentration?: SupplyConcentration;
     rugScore?: RugScore;
+    cabalFingerprint?: CabalFingerprintResult;
   };
   tokenSecurity?: TokenSecurityInfo | null;
   deployerInfo?: DeployerInfo | null;
@@ -42,9 +46,10 @@ interface StatsPanelProps {
   };
   onFilter?: (filter: StatsFilter) => void;
   activeFilter?: StatsFilter;
+  onTokenScan?: (mint: string) => void;
 }
 
-export function StatsPanel({ data, mode, stats, tokenSecurity, deployerInfo, onFilter, activeFilter = null }: StatsPanelProps) {
+export function StatsPanel({ data, mode, stats, tokenSecurity, deployerInfo, onFilter, activeFilter = null, onTokenScan }: StatsPanelProps) {
   const graphStats = useMemo(() => {
     if (!data || data.nodes.length === 0) return null;
     const analyzedNodes = analyzeGraph(data.nodes, data.links);
@@ -124,6 +129,11 @@ export function StatsPanel({ data, mode, stats, tokenSecurity, deployerInfo, onF
           </button>
         )}
 
+        {/* Rap sheet — this crew's prior tokens (matched by funding fingerprint) */}
+        {mode === 'token' && stats.cabalFingerprint && stats.cabalFingerprint.matches.length > 0 && (
+          <CabalRapSheet fingerprint={stats.cabalFingerprint} onTokenScan={onTokenScan} />
+        )}
+
         {/* Snipers */}
         {mode === 'token' && stats.snipersDetected !== undefined && stats.snipersDetected > 0 && (
           <button
@@ -170,6 +180,25 @@ export function StatsPanel({ data, mode, stats, tokenSecurity, deployerInfo, onF
               </svg>
             </Link>
           </div>
+        )}
+
+        {/* Behavioral clusters — funding-independent crews */}
+        {mode === 'token' && stats.behavioralClustersDetected !== undefined && stats.behavioralClustersDetected > 0 && (
+          <button
+            type="button"
+            className="stats-item-btn relative"
+            onClick={() => onFilter?.(activeFilter === 'behavioral' ? null : 'behavioral')}
+            aria-pressed={activeFilter === 'behavioral'}
+            title="Filter to behaviorally-clustered wallets (funding-independent)"
+          >
+            <span className="stats-label" style={{ color: 'var(--amber-primary)' }}>Behavioral</span>
+            <span className="stats-value" style={{ color: 'var(--amber-primary)' }}>
+              {stats.behavioralClustersDetected} ({stats.behaviorallyClusteredWallets?.length || 0} wallets)
+            </span>
+            {activeFilter === 'behavioral' && (
+              <BorderBeam size={45} duration={4} colorFrom="#f59e0b" colorTo="#fcd34d" />
+            )}
+          </button>
         )}
       </div>
 

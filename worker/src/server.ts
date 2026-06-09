@@ -29,6 +29,7 @@ app.get('/health', (_req, res) => {
     ok: true,
     connected: manager.isConnected(),
     watchedMints: manager.watchedMints().length,
+    watchedWallets: manager.watchedWallets().length,
   });
 });
 
@@ -72,6 +73,57 @@ app.get('/stream/holders', async (req: Request, res: Response) => {
     client.send('ready', { mint });
   } catch (err) {
     console.error('[worker] failed to subscribe client:', err);
+    client.send('error', { message: 'failed to subscribe to LaserStream' });
+    cleanup();
+    res.end();
+  }
+});
+
+// Watch a cabal's funding wallets for native-SOL fan-out (the pre-launch tell).
+const MAX_WATCHED_WALLETS = 25;
+
+app.get('/stream/cabal', async (req: Request, res: Response) => {
+  const wallets = String(req.query.wallets ?? '')
+    .split(',')
+    .map((w) => w.trim())
+    .filter((w) => BASE58_RE.test(w))
+    .slice(0, MAX_WATCHED_WALLETS);
+
+  if (wallets.length === 0) {
+    res.status(400).json({ error: 'At least one valid wallet address required' });
+    return;
+  }
+
+  res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.writeHead(200);
+  res.flushHeaders?.();
+
+  const client: SseClient = {
+    send: (event, data) => {
+      res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+    },
+  };
+
+  const heartbeat = setInterval(() => client.send('heartbeat', {}), HEARTBEAT_MS);
+
+  let cleanedUp = false;
+  const cleanup = () => {
+    if (cleanedUp) return;
+    cleanedUp = true;
+    clearInterval(heartbeat);
+    for (const wallet of wallets) manager.removeWalletClient(wallet, client);
+  };
+  req.on('close', cleanup);
+  res.on('error', cleanup);
+
+  try {
+    await Promise.all(wallets.map((wallet) => manager.addWalletClient(wallet, client)));
+    client.send('ready', { wallets });
+  } catch (err) {
+    console.error('[worker] failed to subscribe cabal client:', err);
     client.send('error', { message: 'failed to subscribe to LaserStream' });
     cleanup();
     res.end();
