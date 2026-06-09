@@ -1,6 +1,7 @@
 import express, { type Request, type Response } from 'express';
 import cors from 'cors';
 import { LaserStreamManager, type SseClient } from './laserstream.js';
+import { AtlasEngine } from './atlas.js';
 
 const PORT = Number(process.env.PORT ?? 8080);
 const API_KEY = process.env.HELIUS_LASERSTREAM_API_KEY ?? '';
@@ -20,6 +21,21 @@ if (!API_KEY || !ENDPOINT) {
 }
 
 const manager = new LaserStreamManager(API_KEY, ENDPOINT);
+
+// Atlas ingestion needs the app's internal endpoints; without both env vars it stays off
+// and the worker behaves exactly as before.
+const ATLAS_APP_URL = (process.env.ATLAS_APP_URL ?? '').replace(/\/$/, '');
+const INTERNAL_API_SECRET = process.env.INTERNAL_API_SECRET ?? '';
+const atlas = ATLAS_APP_URL && INTERNAL_API_SECRET ? new AtlasEngine(ATLAS_APP_URL, INTERNAL_API_SECRET) : null;
+if (atlas) {
+  manager.attachAtlas(atlas);
+  atlas.attachManager(manager);
+  manager.start().catch((err) => console.error('[worker] atlas boot connect failed:', err));
+  console.log(`[worker] atlas ingestion enabled → ${ATLAS_APP_URL}`);
+} else {
+  console.log('[worker] atlas ingestion disabled (set ATLAS_APP_URL + INTERNAL_API_SECRET)');
+}
+
 const app = express();
 
 app.use(cors({ origin: APP_ORIGIN }));
@@ -30,7 +46,44 @@ app.get('/health', (_req, res) => {
     connected: manager.isConnected(),
     watchedMints: manager.watchedMints().length,
     watchedWallets: manager.watchedWallets().length,
+    atlas: atlas ? { enabled: true, clients: atlas.clientCount() } : { enabled: false },
   });
+});
+
+// Global atlas feed — pump.fun creates, graduations, cabal hits, rug events.
+app.get('/stream/atlas', (req: Request, res: Response) => {
+  if (!atlas) {
+    res.status(503).json({ error: 'Atlas ingestion not enabled on this worker' });
+    return;
+  }
+
+  res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.writeHead(200);
+  res.flushHeaders?.();
+
+  const client: SseClient = {
+    send: (event, data) => {
+      res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+    },
+  };
+
+  const heartbeat = setInterval(() => client.send('heartbeat', {}), HEARTBEAT_MS);
+
+  let cleanedUp = false;
+  const cleanup = () => {
+    if (cleanedUp) return;
+    cleanedUp = true;
+    clearInterval(heartbeat);
+    atlas.removeClient(client);
+  };
+  req.on('close', cleanup);
+  res.on('error', cleanup);
+
+  atlas.addClient(client);
+  client.send('ready', {});
 });
 
 app.get('/stream/holders', async (req: Request, res: Response) => {

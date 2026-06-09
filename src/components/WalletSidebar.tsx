@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { GraphNode } from '@/lib/types';
 import { THREAT_COLORS } from '@/lib/threat-scorer';
 import { truncateAddress } from '@/lib/address-utils';
+import { formatUsd, formatCompact, timeAgo } from '@/lib/format';
 
 interface WalletProfileData {
   success: boolean;
@@ -173,7 +174,7 @@ export function WalletSidebar({ address, onClose, graphNodes }: WalletSidebarPro
               <Section title="Top Holdings">
                 <div className="mb-2">
                   <span className="text-[11px] font-mono font-semibold" style={{ color: 'var(--text-primary)' }}>
-                    ${formatUsd(profile.balances.totalUsdValue)}
+                    {formatUsd(profile.balances.totalUsdValue)}
                   </span>
                   <span className="text-[10px] ml-1" style={{ color: 'var(--text-tertiary)' }}>total</span>
                 </div>
@@ -186,7 +187,7 @@ export function WalletSidebar({ address, onClose, graphNodes }: WalletSidebarPro
                       <div key={b.mint} className="flex justify-between items-center text-[11px]">
                         <span style={{ color: 'var(--text-secondary)' }}>{b.symbol || truncateAddress(b.mint, 3)}</span>
                         <span className="font-mono" style={{ color: 'var(--text-tertiary)' }}>
-                          {formatCompact(b.balance)} <span style={{ color: 'var(--text-tertiary)' }}>(${formatUsd(b.usdValue)})</span>
+                          {formatCompact(b.balance)} <span style={{ color: 'var(--text-tertiary)' }}>({formatUsd(b.usdValue)})</span>
                         </span>
                       </div>
                     ))
@@ -277,27 +278,3 @@ function SkeletonBlock({ lines }: { lines: number }) {
   );
 }
 
-function formatUsd(n: number): string {
-  if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
-  if (n >= 1e3) return (n / 1e3).toFixed(1) + 'K';
-  return n.toFixed(2);
-}
-
-function formatCompact(n: number): string {
-  if (n >= 1e12) return (n / 1e12).toFixed(1) + 'T';
-  if (n >= 1e9) return (n / 1e9).toFixed(1) + 'B';
-  if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
-  if (n >= 1e3) return (n / 1e3).toFixed(1) + 'K';
-  return n.toFixed(1);
-}
-
-function timeAgo(timestamp: number): string {
-  const seconds = Math.floor((Date.now() / 1000) - timestamp);
-  if (seconds < 60) return `${seconds}s ago`;
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  return `${days}d ago`;
-}

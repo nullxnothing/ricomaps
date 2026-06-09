@@ -6,6 +6,8 @@ import {
   type SubscribeUpdate,
 } from 'helius-laserstream';
 import { parseHolderDeltas, parseSolMovements, type HolderDelta, type SolMovementDelta } from './parse.js';
+import { PUMP_PROGRAM, PUMPSWAP_PROGRAM, PUMP_MINT_AUTHORITY } from './pumpfun.js';
+import type { AtlasEngine } from './atlas.js';
 
 /** A connected browser; the worker writes SSE frames to it. */
 export interface SseClient {
@@ -14,6 +16,9 @@ export interface SseClient {
 
 const TX_FILTER_LABEL = 'holders';
 const CABAL_FILTER_LABEL = 'cabal';
+const ATLAS_CREATES_LABEL = 'atlas-creates';
+const ATLAS_MIGRATIONS_LABEL = 'atlas-migrations';
+const ATLAS_WALLETS_LABEL = 'atlas-wallets';
 const UNSUBSCRIBE_DEBOUNCE_MS = 30_000;
 
 /**
@@ -33,11 +38,32 @@ export class LaserStreamManager {
   private readonly walletClients = new Map<string, Set<SseClient>>();
   private readonly removalTimers = new Map<string, NodeJS.Timeout>();
   private connected = false;
+  private atlas: AtlasEngine | null = null;
+  private atlasWallets: string[] = []; // roster wallets watched for live cabal buys
 
   constructor(
     private readonly apiKey: string,
     private readonly endpoint: string,
   ) {}
+
+  /** Atlas ingestion rides the same gRPC connection; call before start(). */
+  attachAtlas(engine: AtlasEngine): void {
+    this.atlas = engine;
+  }
+
+  /** Replace the cabal-roster wallets watched for live buys; re-applies the live subscription. */
+  setAtlasWallets(wallets: string[]): void {
+    const next = [...new Set(wallets)];
+    const changed = next.length !== this.atlasWallets.length || next.some((w, i) => w !== this.atlasWallets[i]);
+    if (!changed) return;
+    this.atlasWallets = next;
+    void this.applySubscription();
+  }
+
+  /** Connect at boot (atlas ingestion must run with zero SSE clients attached). */
+  async start(): Promise<void> {
+    await this.ensureConnected();
+  }
 
   isConnected(): boolean {
     return this.connected;
@@ -139,6 +165,16 @@ export class LaserStreamManager {
     if (wallets.length > 0) {
       transactions[CABAL_FILTER_LABEL] = { vote: false, failed: false, accountInclude: wallets, accountExclude: [], accountRequired: [] };
     }
+    if (this.atlas) {
+      // Creates: the pump.fun mint authority signs every create and appears nowhere else.
+      transactions[ATLAS_CREATES_LABEL] = { vote: false, failed: false, accountInclude: [PUMP_MINT_AUTHORITY], accountExclude: [], accountRequired: [] };
+      // Graduations: only migration txs touch both the bonding curve and PumpSwap.
+      transactions[ATLAS_MIGRATIONS_LABEL] = { vote: false, failed: false, accountInclude: [PUMP_PROGRAM], accountExclude: [], accountRequired: [PUMP_PROGRAM, PUMPSWAP_PROGRAM] };
+      // Roster wallets: watched for live token buys → cabal-buy beams.
+      if (this.atlasWallets.length > 0) {
+        transactions[ATLAS_WALLETS_LABEL] = { vote: false, failed: false, accountInclude: this.atlasWallets, accountExclude: [], accountRequired: [] };
+      }
+    }
     return {
       transactions,
       commitment: CommitmentLevel.CONFIRMED,
@@ -185,6 +221,8 @@ export class LaserStreamManager {
 
     const watchedWallets = new Set(this.walletClients.keys());
     if (watchedWallets.size > 0) this.dispatchSolMovements(update, watchedWallets);
+
+    this.atlas?.handleUpdate(update);
   }
 
   private dispatchHolderDeltas(update: SubscribeUpdate, watched: Set<string>): void {

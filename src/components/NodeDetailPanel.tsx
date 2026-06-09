@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { GraphNode } from '@/lib/types';
 import { truncateAddress } from '@/lib/address-utils';
 import { CATEGORY_INFO, WalletCategory } from '@/lib/wallet-labels';
+import { formatUsd, formatCompact } from '@/lib/format';
 
 interface NodeDetailPanelProps {
   node: GraphNode | null;
@@ -33,20 +34,6 @@ const THREAT_LEVEL_COLORS: Record<string, string> = {
   low: '#ffcc00',
   safe: '#00cc66',
 };
-
-function formatUsd(n: number): string {
-  if (n >= 1e6) return '$' + (n / 1e6).toFixed(2) + 'M';
-  if (n >= 1e3) return '$' + (n / 1e3).toFixed(1) + 'K';
-  return '$' + n.toFixed(2);
-}
-
-function formatAmount(amount: number): string {
-  if (amount >= 1e9) return (amount / 1e9).toFixed(2) + 'B';
-  if (amount >= 1e6) return (amount / 1e6).toFixed(2) + 'M';
-  if (amount >= 1e3) return (amount / 1e3).toFixed(2) + 'K';
-  if (amount < 0.01) return amount.toFixed(6);
-  return amount.toFixed(2);
-}
 
 export function NodeDetailPanel({
   node,
@@ -134,13 +121,13 @@ export function NodeDetailPanel({
         {node.solBalance !== undefined && (
           <div className="flex justify-between text-xs">
             <span style={{ color: 'var(--text-tertiary)' }}>Balance</span>
-            <span className="font-mono" style={{ color: 'var(--text-primary)' }}>{formatAmount(node.solBalance)} SOL</span>
+            <span className="font-mono" style={{ color: 'var(--text-primary)' }}>{formatCompact(node.solBalance)} SOL</span>
           </div>
         )}
         {node.tokenAmount !== undefined && (
           <div className="flex justify-between text-xs">
             <span style={{ color: 'var(--text-tertiary)' }}>Holdings</span>
-            <span className="font-mono" style={{ color: 'var(--text-primary)' }}>{formatAmount(node.tokenAmount)}</span>
+            <span className="font-mono" style={{ color: 'var(--text-primary)' }}>{formatCompact(node.tokenAmount)}</span>
           </div>
         )}
         {node.metadata?.fundedCount && node.metadata.fundedCount > 1 && (
@@ -177,7 +164,7 @@ export function NodeDetailPanel({
           <div className="flex justify-between text-xs">
             <span style={{ color: 'var(--text-tertiary)' }}>SOL · tokens</span>
             <span className="font-mono" style={{ color: 'var(--text-secondary)' }}>
-              {formatAmount(node.portfolio.solBalance)} · {node.portfolio.tokenCount}
+              {formatCompact(node.portfolio.solBalance)} · {node.portfolio.tokenCount}
             </span>
           </div>
           {node.portfolio.topHoldings?.slice(0, 3).map(h => (

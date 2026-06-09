@@ -13,6 +13,7 @@ interface NavbarProps {
 }
 
 const NAV_LINKS = [
+  { href: '/atlas', label: 'Atlas' },
   { href: '/docs', label: 'Docs' },
   { href: '/roadmap', label: 'Roadmap' },
   { href: '/blacklist', label: 'Blacklist' },

@@ -3,19 +3,12 @@
 import { useState } from 'react';
 import { BundleCluster } from '@/lib/types';
 import { truncateAddress } from '@/lib/address-utils';
+import { timeAgo } from '@/lib/format';
 
 interface ClusterCardProps {
   cluster: BundleCluster;
   onWalletClick?: (address: string) => void;
   onTokenScan?: (mint: string) => void;
-}
-
-function timeAgo(timestamp: number): string {
-  const seconds = Math.floor(Date.now() / 1000 - timestamp);
-  if (seconds < 60) return 'just now';
-  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
-  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
-  return `${Math.floor(seconds / 86400)}d ago`;
 }
 
 function ConfidenceBadge({ confidence }: { confidence: number }) {
@@ -69,7 +62,7 @@ export function ClusterCard({ cluster, onWalletClick, onTokenScan }: ClusterCard
           </span>
           <ConfidenceBadge confidence={cluster.confidence} />
           <span className="text-xs" style={{ color: 'var(--text-tertiary)' }}>
-            {timeAgo(cluster.lastSeenTimestamp)}
+            {timeAgo(cluster.lastSeenTimestamp, true)}
           </span>
           <svg
             width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"

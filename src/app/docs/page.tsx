@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { PageShell } from '@/components/layout/PageShell';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { Container } from '@/components/layout/Container';
@@ -15,7 +15,12 @@ function EmbedCodeGenerator() {
   const [height, setHeight] = useState('500px');
   const [copied, setCopied] = useState(false);
 
-  const baseUrl = typeof window !== 'undefined' ? window.location.origin : 'https://ricomaps.fun';
+  // Start with the canonical origin so SSR and the first client render match,
+  // then swap to the live origin after mount to avoid a hydration mismatch.
+  const [baseUrl, setBaseUrl] = useState('https://ricomaps.fun');
+  useEffect(() => {
+    setBaseUrl(window.location.origin);
+  }, []);
   const embedUrl = `${baseUrl}/embed?address=${address}&view=${view}`;
   const embedCode = `<iframe
   src="${embedUrl}"

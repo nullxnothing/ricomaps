@@ -1,6 +1,7 @@
 'use client';
 
 import { EnrichedToken } from '@/lib/types';
+import { formatMarketCap } from '@/lib/format';
 
 interface TokenCardProps {
   token: EnrichedToken;
@@ -21,13 +22,6 @@ function formatVolume(volume: number): string {
   if (volume >= 1e6) return `$${(volume / 1e6).toFixed(2)}M`;
   if (volume >= 1e3) return `$${(volume / 1e3).toFixed(1)}K`;
   return `$${volume.toFixed(0)}`;
-}
-
-function formatMarketCap(mc: number): string {
-  if (mc >= 1e9) return `$${(mc / 1e9).toFixed(2)}B`;
-  if (mc >= 1e6) return `$${(mc / 1e6).toFixed(2)}M`;
-  if (mc >= 1e3) return `$${(mc / 1e3).toFixed(1)}K`;
-  return `$${mc.toFixed(0)}`;
 }
 
 export function TokenCard({ token, rank, onClick }: TokenCardProps) {

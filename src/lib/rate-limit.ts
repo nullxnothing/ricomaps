@@ -16,6 +16,8 @@ const ROUTE_LIMITS: Record<string, number> = {
   gate: 20,
   explain: 10,
   watchlist: 30,
+  atlas: 30,
+  'cabal-intel': 15,
   default: 30,
 };
 

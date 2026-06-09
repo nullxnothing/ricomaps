@@ -118,6 +118,53 @@ export function parseHolderDeltas(update: SubscribeUpdate, watchedMints: Set<str
   return deltas;
 }
 
+/**
+ * One watched wallet's BUY of a token in a single tx — a positive token-balance
+ * delta for an owner in `watchedWallets`. This is the atlas "crew is buying X"
+ * signal: same pre/post diff as `parseHolderDeltas`, but keyed on OWNER (not
+ * mint) and emitting increases only. Skips WSOL (that's the rail, not the bag).
+ */
+export interface WalletBuyDelta {
+  wallet: string;   // the watched owner that bought
+  mint: string;     // token bought
+  amount: number;   // UI tokens gained
+  slot: number;
+  signature: string;
+}
+
+const WSOL_MINT = 'So11111111111111111111111111111111111111112';
+
+export function parseWalletBuys(update: SubscribeUpdate, watchedWallets: Set<string>): WalletBuyDelta[] {
+  const txUpdate = update.transaction;
+  const info = txUpdate?.transaction;
+  const meta = info?.meta;
+  if (!txUpdate || !info || !meta) return [];
+
+  const pre = (meta.preTokenBalances ?? []) as TokenBalance[];
+  const post = (meta.postTokenBalances ?? []) as TokenBalance[];
+  if (post.length === 0) return [];
+
+  const slot = toSlot(txUpdate.slot);
+  const signature = info.signature ? bs58.encode(info.signature as Uint8Array) : '';
+
+  const preByKey = new Map<string, TokenBalance>();
+  for (const b of pre) {
+    if (b.accountIndex == null || !b.mint) continue;
+    preByKey.set(KEY(b.accountIndex, b.mint), b);
+  }
+
+  const buys: WalletBuyDelta[] = [];
+  for (const b of post) {
+    if (b.accountIndex == null || !b.mint || !b.owner) continue;
+    if (b.mint === WSOL_MINT || !watchedWallets.has(b.owner)) continue;
+
+    const delta = uiAmount(b) - uiAmount(preByKey.get(KEY(b.accountIndex, b.mint)));
+    if (delta <= 0) continue;
+    buys.push({ wallet: b.owner, mint: b.mint, amount: delta, slot, signature });
+  }
+  return buys;
+}
+
 /** Resolve transaction account keys to base58 strings, in index order. */
 function resolveAccountKeys(info: NonNullable<NonNullable<SubscribeUpdate['transaction']>['transaction']>): string[] {
   const msg = info.transaction?.message;

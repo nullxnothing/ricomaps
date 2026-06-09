@@ -7,6 +7,7 @@ import { Container } from './layout/Container';
 import { useGateContext } from './GateProvider';
 import { useCabalAlertStream, type CabalAlertFrame, type FanoutRollup } from '@/hooks/useCabalAlertStream';
 import { truncateAddress } from '@/lib/address-utils';
+import { timeAgo } from '@/lib/format';
 
 interface WatchlistEntry {
   id: string;
@@ -25,14 +26,6 @@ interface ActivityRow {
   threatScore: number;
   detectedAt: number;
   signature: string;
-}
-
-function timeAgo(ts: number): string {
-  const s = Math.floor(Date.now() / 1000 - ts);
-  if (s < 60) return `${s}s ago`;
-  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
-  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
-  return `${Math.floor(s / 86400)}d ago`;
 }
 
 function threatColor(score: number): string {

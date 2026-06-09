@@ -159,6 +159,41 @@ interface DexTokenResponse {
 }
 
 /**
+ * Batch market snapshot for up to 30 mints (DexScreener tokens/v1 endpoint).
+ * Returns only mints that have at least one Solana pair; callers treat absence
+ * as zero liquidity. Used by the atlas outcome tracker.
+ */
+export async function fetchMarketDataBatch(
+  mints: string[]
+): Promise<Map<string, { liquidityUsd: number; marketCapUsd?: number }>> {
+  const out = new Map<string, { liquidityUsd: number; marketCapUsd?: number }>();
+  if (mints.length === 0) return out;
+
+  try {
+    const res = await fetch(`https://api.dexscreener.com/tokens/v1/solana/${mints.slice(0, 30).join(',')}`, {
+      headers: { Accept: 'application/json' },
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!res.ok) return out;
+
+    const pairs: DexPair[] = await res.json();
+    for (const pair of pairs) {
+      if (pair.chainId !== 'solana') continue;
+      const mint = (pair as DexPair & { baseToken?: { address?: string } }).baseToken?.address;
+      if (!mint) continue;
+      const liquidityUsd = pair.liquidity?.usd ?? 0;
+      const existing = out.get(mint);
+      if (!existing || liquidityUsd > existing.liquidityUsd) {
+        out.set(mint, { liquidityUsd, marketCapUsd: pair.marketCap ?? pair.fdv });
+      }
+    }
+  } catch {
+    // Network failure → empty map; outcome pass skips this round rather than mislabeling.
+  }
+  return out;
+}
+
+/**
  * Fetch market data + social links for a Solana token from DexScreener.
  * Returns a partial TokenMetadata — merged into the main metadata after DAS fetch.
  */

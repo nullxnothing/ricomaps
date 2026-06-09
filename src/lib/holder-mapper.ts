@@ -13,6 +13,7 @@ import { createNode } from './graph-utils';
 import { detectBundleClusters } from './bundle-detector';
 import { generateClusterId, persistBundleClusters } from './db-blacklist';
 import { computeFingerprintId, deriveFingerprintComponents, upsertCabalFingerprint, findMatchingCabals } from './cabal-fingerprint';
+import { upsertAtlasToken } from './db-cabal';
 import { extractBehavioralFeatures, clusterByBehavior } from './behavioral-cluster';
 import { fetchTokenMarketData } from './dexscreener';
 import { getVenumPriceUsd } from './venum';
@@ -706,6 +707,20 @@ export async function mapTokenHolders(mintAddress: string, options: MapOptions =
           : null,
       })
     : null;
+
+  // Atlas registry: every scan (user or automated) feeds the global cabal map.
+  await upsertAtlasToken({
+    mint: mintAddress,
+    name: tokenMetadata?.name,
+    symbol: tokenMetadata?.symbol,
+    image: tokenMetadata?.image,
+    status: 'scanned',
+    scannedAt: Math.floor(Date.now() / 1000),
+    liquidityUsd: tokenMetadata?.liquidity,
+    marketCapUsd: tokenMetadata?.marketCap,
+    rugLevel: rugScore.level,
+    cabalSupplyPct: supplyConcentration.cabalSupplyPct,
+  });
 
   return {
     data: { nodes, links },

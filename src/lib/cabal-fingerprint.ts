@@ -291,6 +291,24 @@ export async function findMatchingCabals(id: string, funderAddresses: string[]):
   }
 }
 
+/** Fetch a single cabal fingerprint by id (atlas drill-down). */
+export async function getCabalById(id: string): Promise<CabalFingerprint | null> {
+  if (!pool) return memoryStore.get(id) ?? null;
+  try {
+    const res = await pool.query(
+      `SELECT id, components, tokens, total_appearances, confidence, known_wallets,
+              EXTRACT(EPOCH FROM first_seen)::bigint AS first_seen_ts,
+              EXTRACT(EPOCH FROM last_seen)::bigint AS last_seen_ts, metadata
+       FROM cabal_fingerprints WHERE id = $1`,
+      [id]
+    );
+    return res.rows.length ? rowToFingerprint(res.rows[0]) : null;
+  } catch (error) {
+    console.error('[Cabal Fingerprint] PG getById error:', error);
+    return memoryStore.get(id) ?? null;
+  }
+}
+
 export async function getCabalFingerprints(
   options: { limit?: number; offset?: number; minConfidence?: number } = {}
 ): Promise<{ fingerprints: CabalFingerprint[]; total: number }> {

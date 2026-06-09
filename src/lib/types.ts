@@ -657,3 +657,86 @@ export interface BlacklistResponse {
   totalPages: number;
   error?: string;
 }
+
+// ============================================================================
+// ATLAS — the global cabal map (ecosystem-wide, not per-token)
+// ============================================================================
+
+export type AtlasTokenStatus = 'watching' | 'scanned' | 'alive' | 'rugged' | 'dead';
+
+export interface AtlasToken {
+  mint: string;
+  name?: string;
+  symbol?: string;
+  image?: string;          // token logo from metadata — rendered on the map node
+  status: AtlasTokenStatus;
+  createdAt: number;          // unix seconds — pump.fun create (or first seen)
+  graduatedAt?: number;
+  scannedAt?: number;
+  lastCheckedAt?: number;
+  liquidityUsd?: number;
+  peakLiquidityUsd?: number;  // high-water mark; extraction estimates measure the fall from here
+  marketCapUsd?: number;
+  rugLevel?: 'green' | 'yellow' | 'red';
+  cabalSupplyPct?: number;
+  estExtractedUsd?: number;
+}
+
+export interface AtlasStats {
+  cabalsTracked: number;
+  cabalsActive24h: number;
+  tokensTracked: number;
+  rugs24h: number;
+  totalExtractedUsd: number;
+}
+
+export interface AtlasCabalNode {
+  id: string;
+  confidence: number;
+  tokenCount: number;
+  walletCount: number;
+  funderCategory: string;
+  lastSeen: number;
+  ruggedCount: number;
+  estExtractedUsd: number;
+}
+
+export interface AtlasGraph {
+  cabals: AtlasCabalNode[];
+  tokens: AtlasToken[];
+  edges: { cabalId: string; mint: string; supplyPct?: number }[];
+  stats: AtlasStats;
+}
+
+// On-demand cabal intel (drill-down): live bags + SOL-flow PnL.
+export interface CabalPosition {
+  mint: string;
+  symbol: string;
+  name: string;
+  usdValue: number;
+  holderCount: number;
+  logoUri?: string;
+}
+
+export interface CabalWalletPnl {
+  address: string;
+  realizedSol: number;
+  portfolioUsd: number;
+}
+
+export interface CabalIntel {
+  id: string;
+  walletsAnalyzed: number;
+  walletsTotal: number;
+  totalPortfolioUsd: number;
+  netRealizedSol: number;
+  positions: CabalPosition[];
+  topWallets: CabalWalletPnl[];
+}
+
+// Live frames from the worker's /stream/atlas SSE feed.
+export interface AtlasSpawnEvent { mint: string; name?: string; symbol?: string; slot: number; signature: string; ts: number }
+export interface AtlasGraduationEvent { mint: string; name?: string; symbol?: string; slot: number; signature: string; ts: number }
+export interface AtlasCabalActivityEvent { mint: string; symbol?: string; ts: number; rugLevel?: string; fingerprintMatches: number; cabalSupplyPct?: number }
+export interface AtlasRugEvent { mint: string; symbol?: string; estExtractedUsd: number; ts: number }
+export interface AtlasCabalBuyEvent { cabalId: string; mint: string; wallet: string; symbol?: string; amountUsd?: number; ts: number }

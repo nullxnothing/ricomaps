@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { CrossTokenResult, SharedToken } from '@/lib/cross-token-analyzer';
+import { formatUsd } from '@/lib/format';
 
 interface CrossTokenPanelProps {
   isOpen: boolean;
@@ -21,13 +22,6 @@ function formatBalance(value: number): string {
   if (value >= 1_000) return `${(value / 1_000).toFixed(1)}K`;
   if (value >= 1) return value.toFixed(1);
   return value.toFixed(4);
-}
-
-function formatUsd(value: number): string {
-  if (value < 0.01) return '<$0.01';
-  if (value >= 1_000_000) return `$${(value / 1_000_000).toFixed(1)}M`;
-  if (value >= 1_000) return `$${(value / 1_000).toFixed(1)}K`;
-  return `$${value.toFixed(2)}`;
 }
 
 function TokenRow({ token, totalWallets }: { token: SharedToken; totalWallets: number }) {
