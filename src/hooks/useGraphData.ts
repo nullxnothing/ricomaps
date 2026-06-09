@@ -14,6 +14,7 @@ import {
   SupplyConcentration,
   RugScore,
   DeployerInfo,
+  CabalFingerprintResult,
 } from '@/lib/types';
 import { useHolderPolling } from './useHolderPolling';
 import { useHolderStream } from './useHolderStream';
@@ -56,8 +57,11 @@ interface Stats {
   sniperWallets?: string[];
   bundleClustersDetected?: number;
   bundledWallets?: string[];
+  behavioralClustersDetected?: number;
+  behaviorallyClusteredWallets?: string[];
   supplyConcentration?: SupplyConcentration;
   rugScore?: RugScore;
+  cabalFingerprint?: CabalFingerprintResult;
 }
 
 interface StreamingStats {

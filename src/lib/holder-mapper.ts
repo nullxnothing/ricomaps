@@ -3,7 +3,7 @@ import {
   getAsset, deriveTokenSecurity, batchIdentifyWallets, batchGetEarlyTransactions,
   batchGetFirstIncomingSolTransfers, searchAssetsByCreator, getWalletFundedBy,
 } from './helius';
-import { GraphNode, GraphLink, GraphData, NODE_COLORS, TokenSecurityInfo, TokenMetadata, EnrichedFunderInfo, BundleCluster, SupplyConcentration, RugScore, DeployerInfo } from './types';
+import { GraphNode, GraphLink, GraphData, NODE_COLORS, TokenSecurityInfo, TokenMetadata, EnrichedFunderInfo, BundleCluster, SupplyConcentration, RugScore, DeployerInfo, CabalFingerprintResult } from './types';
 import { computeThreatScore, getThreatLevel } from './threat-scorer';
 import { computeSupplyConcentration } from './supply-metrics';
 import { computeRugScore } from './rug-scorer';
@@ -12,6 +12,8 @@ import { shouldFilterAddress } from './address-utils';
 import { createNode } from './graph-utils';
 import { detectBundleClusters } from './bundle-detector';
 import { generateClusterId, persistBundleClusters } from './db-blacklist';
+import { computeFingerprintId, deriveFingerprintComponents, upsertCabalFingerprint, findMatchingCabals } from './cabal-fingerprint';
+import { extractBehavioralFeatures, clusterByBehavior } from './behavioral-cluster';
 import { fetchTokenMarketData } from './dexscreener';
 import { getVenumPriceUsd } from './venum';
 
@@ -64,8 +66,10 @@ export async function mapTokenHolders(mintAddress: string, options: MapOptions =
     dexFundedHolders: number; freshWalletFunders: number;
     snipersDetected: number; sniperWallets: string[];
     bundleClustersDetected: number; bundledWallets: string[];
+    behavioralClustersDetected: number; behaviorallyClusteredWallets: string[];
     supplyConcentration: SupplyConcentration;
     rugScore: RugScore;
+    cabalFingerprint?: CabalFingerprintResult;
   };
   tokenSecurity: TokenSecurityInfo | null;
   tokenMetadata: TokenMetadata | null;
@@ -539,7 +543,33 @@ export async function mapTokenHolders(mintAddress: string, options: MapOptions =
     }
   }
 
-  // Compute threat scores for all nodes
+  // 4f: Behavioral clustering — funding-independent crew detection.
+  // Catches crews that launder their funding (no shared funder link) but still act
+  // as one hand: same buy-slot, same co-buy cohort, similar age/size.
+  const sameSlotMap = new Map<string, number>();
+  for (const [, buyers] of mintSlotBuyers) {
+    for (const b of buyers) sameSlotMap.set(b, Math.max(sameSlotMap.get(b) ?? 0, buyers.length - 1));
+  }
+  const depth1Nodes = nodes.filter(n => n.depth === 1 && n.tokenAmount !== undefined);
+  const behavioralFeatures = extractBehavioralFeatures(depth1Nodes, sameSlotMap);
+  const behavioralClusters = clusterByBehavior(behavioralFeatures);
+  const behavioralClusterOf = new Map<string, number>();
+  for (const c of behavioralClusters) for (const w of c.wallets) behavioralClusterOf.set(w, c.clusterId);
+
+  const behaviorallyClusteredWallets: string[] = [];
+  for (const node of nodes) {
+    const bc = behavioralClusterOf.get(node.id);
+    if (bc === undefined) continue;
+    behaviorallyClusteredWallets.push(node.id);
+    node.metadata = { ...node.metadata, behavioralCluster: `bhv-${bc}` };
+    // Flagged by BOTH funding-cabal AND behavior → higher confidence.
+    if (node.metadata.sharedFunderGroup) {
+      node.metadata.cabalConfidence = Math.min(100, (node.metadata.cabalConfidence ?? 50) + 20);
+      node.metadata.suspicious = true;
+    }
+  }
+
+  // Compute threat scores for all nodes (after the behavioral confidence boost)
   for (const node of nodes) {
     const score = computeThreatScore(node);
     node.metadata = { ...node.metadata, threatScore: score, threatLevel: getThreatLevel(score) };
@@ -580,6 +610,91 @@ export async function mapTokenHolders(mintAddress: string, options: MapOptions =
     bundleClustersDetected: bundleClusters.length,
   });
 
+  // ═══════════════════════════════════════════════════════════
+  // PHASE 5b: Persistent cabal fingerprint (funding-source + topology basis)
+  // Keyed so the crew is recognized across tokens even after wallet rotation.
+  // Runs after rugScore/supplyConcentration so the rap-sheet carries outcomes.
+  // ═══════════════════════════════════════════════════════════
+  let cabalFingerprint: CabalFingerprintResult | undefined;
+  const sharedFunders = [...funderMap.entries()].filter(([, h]) => h.length > 1).map(([f]) => f);
+  if (sharedFunders.length > 0) {
+    try {
+      // Wallet-age proxy: a holder's first incoming SOL timestamp == its birth.
+      const nowSec = Math.floor(Date.now() / 1000);
+      const cabalAgesDays = holderNodes
+        .filter(n => n.metadata?.sharedFunderGroup && n.fundingSource?.timestamp)
+        .map(n => (nowSec - n.fundingSource!.timestamp) / 86400);
+
+      const funderRoutes = sharedFunders.map(f => fundedByResults.find(r => r.funder?.address === f)?.funder);
+      const components = deriveFingerprintComponents({
+        sharedFunders,
+        funderCategories: new Map(sharedFunders.map(f => [f, identities.get(f)?.category ?? null])),
+        fanoutWidths: sharedFunders.map(f => funderMap.get(f)!.length),
+        walletAgesDays: cabalAgesDays,
+        viaMixer: funderRoutes.some(r => r?.viaMixer),
+        viaBridge: funderRoutes.some(r => r?.txSource?.toUpperCase().includes('BRIDGE')),
+      });
+      const fpId = computeFingerprintId(components);
+      const matches = await findMatchingCabals(fpId, components.funderAddresses);
+      cabalFingerprint = { id: fpId, matches };
+
+      await upsertCabalFingerprint({
+        id: fpId,
+        components,
+        tokens: [{
+          mint: mintAddress,
+          tokenName: tokenMetadata?.name,
+          tokenSymbol: tokenMetadata?.symbol,
+          firstSeen: nowSec,
+          walletCount: cabalWalletSet.size,
+          rugLevel: rugScore.level,
+          cabalSupplyPct: supplyConcentration.cabalSupplyPct,
+        }],
+        totalAppearances: 1,
+        confidence: Math.min(100, 50 + matches.length * 15),
+        firstSeen: nowSec,
+        lastSeen: nowSec,
+        knownWallets: [...cabalWalletSet, ...sharedFunders],
+      });
+    } catch (error) {
+      console.error('[Fingerprint] derivation/upsert failed:', error);
+    }
+  }
+
+  // PHASE 5c: Laundered-cabal feedback — a behavioral cluster with NO shared funder
+  // is a crew that rotated/laundered funding. Fingerprint it on topology + behavior so
+  // the radar can still recognize them despite the funding break.
+  try {
+    const nowSec = Math.floor(Date.now() / 1000);
+    for (const c of behavioralClusters) {
+      const hasSharedFunder = c.wallets.some(w => cabalWalletSet.has(w));
+      if (hasSharedFunder || c.wallets.length < 2) continue;
+      const components = deriveFingerprintComponents({
+        sharedFunders: [],
+        funderCategories: new Map(),
+        fanoutWidths: [c.wallets.length],
+        walletAgesDays: c.wallets
+          .map(w => nodes.find(n => n.id === w)?.fundingSource?.timestamp)
+          .filter((t): t is number => !!t)
+          .map(t => (nowSec - t) / 86400),
+        laundered: true,
+      });
+      const fpId = computeFingerprintId(components);
+      await upsertCabalFingerprint({
+        id: fpId, components,
+        tokens: [{
+          mint: mintAddress, tokenName: tokenMetadata?.name, tokenSymbol: tokenMetadata?.symbol,
+          firstSeen: nowSec, walletCount: c.wallets.length, rugLevel: rugScore.level,
+        }],
+        totalAppearances: 1, confidence: Math.min(100, 40 + c.cohesion / 4),
+        firstSeen: nowSec, lastSeen: nowSec, knownWallets: c.wallets,
+        metadata: { reusedFunder: false },
+      });
+    }
+  } catch (error) {
+    console.error('[Fingerprint] laundered-cluster feedback failed:', error);
+  }
+
   // Assemble deployer intel from the resolved signer + overlapped lookups.
   const deployerInfo: DeployerInfo | null = resolvedDeployer
     ? buildDeployerInfo({
@@ -602,8 +717,11 @@ export async function mapTokenHolders(mintAddress: string, options: MapOptions =
       snipersDetected: sniperWallets.length, sniperWallets,
       bundleClustersDetected: bundleClusters.length,
       bundledWallets: Array.from(bundledWalletSet),
+      behavioralClustersDetected: behavioralClusters.length,
+      behaviorallyClusteredWallets,
       supplyConcentration,
       rugScore,
+      cabalFingerprint,
     },
     tokenSecurity, tokenMetadata, deployerInfo,
   };

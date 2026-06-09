@@ -6,7 +6,7 @@ import { GraphData, GraphNode, GraphLink, NODE_COLORS, NodeType } from '@/lib/ty
 import { THREAT_COLORS } from '@/lib/threat-scorer';
 import { isValidSolanaAddress, truncateAddress } from '@/lib/address-utils';
 
-export type BubbleMapFilter = 'cabal' | 'snipers' | 'bundles' | null;
+export type BubbleMapFilter = 'cabal' | 'snipers' | 'bundles' | 'behavioral' | null;
 
 interface BubbleMapProps {
   data: GraphData;
@@ -628,6 +628,7 @@ export function BubbleMap({ data, onNodeClick, onTraceFunders, filter = null }: 
         if (activeFilter === 'cabal') return t === 'cabal-funder';
         if (activeFilter === 'snipers') return Boolean(meta?.isSniper);
         if (activeFilter === 'bundles') return n.clusterId >= 0;
+        if (activeFilter === 'behavioral') return Boolean(meta?.behavioralCluster);
         return true;
       };
 

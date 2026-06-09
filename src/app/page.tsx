@@ -20,6 +20,8 @@ import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { LiveActivityFeed } from '@/components/LiveActivityFeed';
 import { AnimatedShinyText } from '@/components/ui/animated-shiny-text';
 import { ShimmerButton } from '@/components/ui/shimmer-button';
+import { useGateContext } from '@/components/GateProvider';
+import { NarrativePanel } from '@/components/NarrativePanel';
 
 function formatCompact(n: number): string {
   if (n >= 1e9) return `$${(n / 1e9).toFixed(2)}B`;
@@ -50,6 +52,7 @@ export default function Home() {
 
 function HomeContent() {
   const searchParams = useSearchParams();
+  const { unlocked: gateUnlocked, unlock: gateUnlock } = useGateContext();
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null);
   const [clipboardAddress, setClipboardAddress] = useState<string | null>(null);
   const autoScannedRef = useRef(false);
@@ -561,6 +564,7 @@ function HomeContent() {
             deployerInfo={deployerInfo}
             onFilter={setGraphFilter}
             activeFilter={graphFilter}
+            onTokenScan={handleScan}
           />
         </div>
 
@@ -580,6 +584,19 @@ function HomeContent() {
           </div>
         )}
 
+        {/* AI narrative — token mode, when nothing is selected (shares bottom-left with detail panel) */}
+        {detectedMode === 'token' && data && stats && !currentSelectedNode && (
+          <div className="absolute bottom-4 left-4 z-10 hidden sm:block" style={{ animation: 'slideUp 0.2s ease-out' }}>
+            <NarrativePanel
+              mint={scannedAddress}
+              data={data}
+              stats={stats || undefined}
+              tokenMetadata={tokenMetadata}
+              deployerInfo={deployerInfo}
+            />
+          </div>
+        )}
+
         {/* Deep Scan button — only visible when cabal funders exist */}
         {(() => {
           const cabalWallets = data.nodes.filter(n => n.type === 'cabal-funder').map(n => n.id);
@@ -592,7 +609,11 @@ function HomeContent() {
                 shimmerColor="#ef4444"
                 borderRadius="8px"
                 shimmerDuration="2.5s"
-                onClick={() => {
+                onClick={async () => {
+                  if (!gateUnlocked) {
+                    const ok = await gateUnlock();
+                    if (!ok) return;
+                  }
                   const cost = cabalWallets.length * 100;
                   if (window.confirm(`This will analyze ${cabalWallets.length} cabal wallets across all their token holdings.\nEstimated cost: ~${cost} credits.\n\nContinue?`)) {
                     setDeepScanOpen(true);

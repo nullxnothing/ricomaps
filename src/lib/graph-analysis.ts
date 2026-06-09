@@ -19,9 +19,10 @@ export interface EnhancedNodeAttributes {
 export interface AnalyzedNode extends GraphNode, EnhancedNodeAttributes {}
 
 /**
- * Union-Find data structure for efficient component detection
+ * Union-Find data structure for efficient component detection.
+ * Exported for reuse by the behavioral clusterer.
  */
-class UnionFind {
+export class UnionFind {
   private parent: Map<string, string> = new Map();
   private rank: Map<string, number> = new Map();
 

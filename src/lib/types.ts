@@ -61,6 +61,7 @@ export interface GraphNode {
     walletAgeDays?: number;
     totalTransfers?: number;     // Total in+out transfer count
     sharedFunderGroup?: string;  // ID of the funder cluster this wallet belongs to
+    behavioralCluster?: string;  // ID of the behavior-based cluster (funding-independent)
     cabalConfidence?: number;    // 0-100 confidence score
     isBundled?: boolean;         // Detected in Jito bundle cluster
     isPool?: boolean;            // Liquidity pool / AMM / treasury, not a real holder
@@ -162,8 +163,11 @@ export interface TokenResponse {
     sniperWallets?: string[];
     bundleClustersDetected?: number;
     bundledWallets?: string[];
+    behavioralClustersDetected?: number;
+    behaviorallyClusteredWallets?: string[];
     supplyConcentration?: SupplyConcentration;
     rugScore?: RugScore;
+    cabalFingerprint?: CabalFingerprintResult;
   };
   tokenSecurity?: TokenSecurityInfo | null;
   tokenMetadata?: TokenMetadata | null;
@@ -400,8 +404,11 @@ export interface ScanResponse {
     sniperWallets?: string[];      // Addresses of snipers
     bundleClustersDetected?: number;
     bundledWallets?: string[];
+    behavioralClustersDetected?: number;
+    behaviorallyClusteredWallets?: string[];
     supplyConcentration?: SupplyConcentration;
     rugScore?: RugScore;
+    cabalFingerprint?: CabalFingerprintResult;
   };
   tokenSecurity?: TokenSecurityInfo | null;
   tokenMetadata?: TokenMetadata | null;
@@ -591,6 +598,44 @@ export interface BundleCluster {
     avgClusterSize: number;
     maxSameSlotCount: number;
   };
+}
+
+// Persistent Cabal Identity — fingerprint keyed on funding source + topology so a
+// crew is recognized across tokens even after they rotate their buy wallets.
+export interface CabalFingerprintComponents {
+  funderAddresses: string[];        // sorted, deduped shared-funder deposit addresses
+  funderCategory: string | null;    // coarse source class: 'exchange' | 'bridge' | 'mixer' | 'laundered' | 'unknown'
+  fanoutDepth: number;              // distinct funder→holder hop layers observed
+  branchingBucket: string;          // bucketed fan-out width: '2-3' | '4-6' | '7-12' | '13+'
+  walletAgeBucket: string;          // creation-cadence bucket: 'fresh' | 'mixed' | 'aged'
+}
+
+export interface CabalTokenHistory {
+  mint: string;
+  tokenName?: string;
+  tokenSymbol?: string;
+  firstSeen: number;                // unix seconds
+  walletCount: number;
+  rugLevel?: 'green' | 'yellow' | 'red'; // outcome signal from rugScore.level
+  cabalSupplyPct?: number;          // from supplyConcentration.cabalSupplyPct
+}
+
+export interface CabalFingerprint {
+  id: string;                       // sha256(components) sliced 16 — STABLE across wallet rotation
+  components: CabalFingerprintComponents;
+  tokens: CabalTokenHistory[];
+  totalAppearances: number;
+  confidence: number;               // 0-100
+  firstSeen: number;
+  lastSeen: number;
+  knownWallets: string[];           // union of wallets ever seen (cross-reference only, NOT keyed on)
+  metadata?: { avgBranching?: number; reusedFunder?: boolean };
+}
+
+// Surfaced in scan responses: the current cabal's id + any prior crews it matches.
+export interface CabalFingerprintResult {
+  id: string;
+  matches: CabalFingerprint[];
 }
 
 export interface BlacklistEntry {
