@@ -5,7 +5,7 @@ import {
   type SubscribeRequest,
   type SubscribeUpdate,
 } from 'helius-laserstream';
-import { parseHolderDeltas, type HolderDelta } from './parse.js';
+import { parseHolderDeltas, parseSolMovements, type HolderDelta, type SolMovementDelta } from './parse.js';
 
 /** A connected browser; the worker writes SSE frames to it. */
 export interface SseClient {
@@ -13,6 +13,7 @@ export interface SseClient {
 }
 
 const TX_FILTER_LABEL = 'holders';
+const CABAL_FILTER_LABEL = 'cabal';
 const UNSUBSCRIBE_DEBOUNCE_MS = 30_000;
 
 /**
@@ -29,6 +30,7 @@ export class LaserStreamManager {
   private handle: StreamHandle | null = null;
   private connecting: Promise<void> | null = null;
   private readonly clientsByMint = new Map<string, Set<SseClient>>();
+  private readonly walletClients = new Map<string, Set<SseClient>>();
   private readonly removalTimers = new Map<string, NodeJS.Timeout>();
   private connected = false;
 
@@ -43,6 +45,10 @@ export class LaserStreamManager {
 
   watchedMints(): string[] {
     return [...this.clientsByMint.keys()];
+  }
+
+  watchedWallets(): string[] {
+    return [...this.walletClients.keys()];
   }
 
   async addClient(mint: string, client: SseClient): Promise<void> {
@@ -71,29 +77,70 @@ export class LaserStreamManager {
     if (set.size > 0) return;
 
     // No clients left for this mint — debounce the unsubscribe.
+    const timerKey = `mint:${mint}`;
     const timer = setTimeout(() => {
-      this.removalTimers.delete(mint);
+      this.removalTimers.delete(timerKey);
       const current = this.clientsByMint.get(mint);
       if (current && current.size === 0) {
         this.clientsByMint.delete(mint);
         void this.applySubscription();
       }
     }, UNSUBSCRIBE_DEBOUNCE_MS);
-    this.removalTimers.set(mint, timer);
+    this.removalTimers.set(timerKey, timer);
+  }
+
+  async addWalletClient(wallet: string, client: SseClient): Promise<void> {
+    const timerKey = `wallet:${wallet}`;
+    const pendingRemoval = this.removalTimers.get(timerKey);
+    if (pendingRemoval) {
+      clearTimeout(pendingRemoval);
+      this.removalTimers.delete(timerKey);
+    }
+
+    let set = this.walletClients.get(wallet);
+    const isNew = !set;
+    if (!set) {
+      set = new Set<SseClient>();
+      this.walletClients.set(wallet, set);
+    }
+    set.add(client);
+
+    await this.ensureConnected();
+    if (isNew) await this.applySubscription();
+  }
+
+  removeWalletClient(wallet: string, client: SseClient): void {
+    const set = this.walletClients.get(wallet);
+    if (!set) return;
+    set.delete(client);
+    if (set.size > 0) return;
+
+    const timerKey = `wallet:${wallet}`;
+    const timer = setTimeout(() => {
+      this.removalTimers.delete(timerKey);
+      const current = this.walletClients.get(wallet);
+      if (current && current.size === 0) {
+        this.walletClients.delete(wallet);
+        void this.applySubscription();
+      }
+    }, UNSUBSCRIBE_DEBOUNCE_MS);
+    this.removalTimers.set(timerKey, timer);
   }
 
   private buildRequest(): SubscribeRequest {
     const mints = [...this.clientsByMint.keys()];
+    const wallets = [...this.walletClients.keys()];
+    const transactions: Record<string, unknown> = {};
+    // Only include a filter when it has accounts — LaserStream rejects an empty
+    // accountInclude with no other constraints (would match the whole firehose).
+    if (mints.length > 0) {
+      transactions[TX_FILTER_LABEL] = { vote: false, failed: false, accountInclude: mints, accountExclude: [], accountRequired: [] };
+    }
+    if (wallets.length > 0) {
+      transactions[CABAL_FILTER_LABEL] = { vote: false, failed: false, accountInclude: wallets, accountExclude: [], accountRequired: [] };
+    }
     return {
-      transactions: {
-        [TX_FILTER_LABEL]: {
-          vote: false,
-          failed: false,
-          accountInclude: mints,
-          accountExclude: [],
-          accountRequired: [],
-        },
-      },
+      transactions,
       commitment: CommitmentLevel.CONFIRMED,
     } as SubscribeRequest;
   }
@@ -132,14 +179,20 @@ export class LaserStreamManager {
 
   private onUpdate(update: SubscribeUpdate): void {
     if (!update.transaction) return; // ignore ping/pong/slot/account updates
-    const watched = new Set(this.clientsByMint.keys());
-    if (watched.size === 0) return;
 
+    const watchedMints = new Set(this.clientsByMint.keys());
+    if (watchedMints.size > 0) this.dispatchHolderDeltas(update, watchedMints);
+
+    const watchedWallets = new Set(this.walletClients.keys());
+    if (watchedWallets.size > 0) this.dispatchSolMovements(update, watchedWallets);
+  }
+
+  private dispatchHolderDeltas(update: SubscribeUpdate, watched: Set<string>): void {
     let deltas: HolderDelta[];
     try {
       deltas = parseHolderDeltas(update, watched);
     } catch (err) {
-      console.error('[laserstream] parse error:', err);
+      console.error('[laserstream] holder parse error:', err);
       return;
     }
 
@@ -154,6 +207,30 @@ export class LaserStreamManager {
         signature: delta.signature,
       };
       for (const client of clients) client.send('holder', payload);
+    }
+  }
+
+  private dispatchSolMovements(update: SubscribeUpdate, watched: Set<string>): void {
+    let movements: SolMovementDelta[];
+    try {
+      movements = parseSolMovements(update, watched);
+    } catch (err) {
+      console.error('[laserstream] sol parse error:', err);
+      return;
+    }
+
+    for (const m of movements) {
+      const clients = this.walletClients.get(m.watchedFunder);
+      if (!clients || clients.size === 0) continue;
+      const payload = {
+        watchedFunder: m.watchedFunder,
+        recipient: m.recipient,
+        amount: m.amount,
+        slot: m.slot,
+        signature: m.signature,
+        ts: Math.floor(Date.now() / 1000),
+      };
+      for (const client of clients) client.send('cabal-alert', payload);
     }
   }
 
