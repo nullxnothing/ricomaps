@@ -35,6 +35,7 @@ export async function initCacheTable(): Promise<void> {
       );
 
       ALTER TABLE token_scan_cache ADD COLUMN IF NOT EXISTS deployer_info JSONB;
+      ALTER TABLE token_scan_cache ADD COLUMN IF NOT EXISTS narrative JSONB;
 
       CREATE INDEX IF NOT EXISTS idx_token_cache_expires ON token_scan_cache(expires_at);
     `);
@@ -106,6 +107,40 @@ export async function setCachedTokenScan(
     );
   } catch (error) {
     console.error('[DB Cache] Set error:', error);
+  }
+}
+
+export interface CachedNarrative {
+  narrative: string;
+  factors: string[];
+  confidence: 'high' | 'medium' | 'low';
+}
+
+/** Read a cached AI narrative for a token (avoids re-billing the model). */
+export async function getCachedNarrative(address: string): Promise<CachedNarrative | null> {
+  if (!pool) return null;
+  try {
+    const result = await pool.query(
+      `SELECT narrative FROM token_scan_cache WHERE address = $1 AND expires_at > NOW()`,
+      [address]
+    );
+    return result.rows[0]?.narrative ?? null;
+  } catch (error) {
+    console.error('[DB Cache] Get narrative error:', error);
+    return null;
+  }
+}
+
+/** Store an AI narrative onto an existing cache row (no-op if the row is absent). */
+export async function setCachedNarrative(address: string, narrative: CachedNarrative): Promise<void> {
+  if (!pool) return;
+  try {
+    await pool.query(
+      `UPDATE token_scan_cache SET narrative = $2 WHERE address = $1`,
+      [address, JSON.stringify(narrative)]
+    );
+  } catch (error) {
+    console.error('[DB Cache] Set narrative error:', error);
   }
 }
 
