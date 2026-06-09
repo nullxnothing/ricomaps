@@ -19,6 +19,14 @@ const CONFIDENCE_COLOR = {
   low: 'var(--text-tertiary)',
 } as const;
 
+function SparkleIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
+      <path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1" />
+    </svg>
+  );
+}
+
 export function NarrativePanel({ mint, data, stats, tokenMetadata, deployerInfo }: NarrativePanelProps) {
   const { unlocked, unlock } = useGateContext();
   const { text, factors, confidence, isStreaming, isDone, error, gated, generate } = useNarrativeStream();
@@ -36,53 +44,74 @@ export function NarrativePanel({ mint, data, stats, tokenMetadata, deployerInfo 
 
   const hasOutput = text.length > 0 || isStreaming;
 
+  // Idle state — a compact pill, not a loud full-width box.
+  if (!hasOutput && !error) {
+    return (
+      <button
+        onClick={run}
+        className="group inline-flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-medium backdrop-blur-md transition-colors"
+        style={{
+          background: 'rgba(0,0,0,0.7)',
+          border: '1px solid var(--border-base)',
+          color: 'var(--text-secondary)',
+        }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.borderColor = 'rgba(0,255,65,0.3)';
+          e.currentTarget.style.color = 'var(--green-primary)';
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.borderColor = 'var(--border-base)';
+          e.currentTarget.style.color = 'var(--text-secondary)';
+        }}
+      >
+        <span style={{ color: 'var(--green-primary)' }}><SparkleIcon /></span>
+        <span className="whitespace-nowrap">
+          {gated ? 'Hold $RICO for AI read' : 'AI read of this graph'}
+        </span>
+      </button>
+    );
+  }
+
+  // Output state — a contained, readable card.
   return (
-    <div className="glass-panel p-3 max-w-md">
-      <div className="flex items-center justify-between mb-2">
-        <span className="text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>
+    <div
+      className="w-[clamp(280px,32vw,400px)] rounded-lg p-3 backdrop-blur-md"
+      style={{ background: 'rgba(0,0,0,0.78)', border: '1px solid var(--border-base)' }}
+    >
+      <div className="mb-2 flex items-center justify-between">
+        <span className="inline-flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.08em]" style={{ color: 'var(--text-tertiary)' }}>
+          <span style={{ color: 'var(--green-primary)' }}><SparkleIcon /></span>
           AI Read
         </span>
         {confidence && isDone && (
-          <span className="text-[10px] px-1.5 py-0.5 rounded" style={{ color: CONFIDENCE_COLOR[confidence], background: 'var(--bg-elevated)' }}>
+          <span className="rounded px-1.5 py-0.5 text-[10px]" style={{ color: CONFIDENCE_COLOR[confidence], background: 'var(--bg-elevated)' }}>
             {confidence} confidence
           </span>
         )}
       </div>
 
-      {!hasOutput && !error && (
-        <button
-          onClick={run}
-          className="w-full py-2 rounded text-xs font-medium transition-colors"
-          style={{ background: 'var(--green-ghost)', color: 'var(--green-primary)', border: '1px solid rgba(0,255,65,0.25)' }}
-        >
-          {gated ? 'Hold $RICO to explain' : '✦ Explain this graph'}
-        </button>
-      )}
-
-      {gated && (
-        <p className="text-[10px] mt-1.5" style={{ color: 'var(--text-tertiary)' }}>
-          The AI read is a holder-only feature.
-        </p>
-      )}
-
       {hasOutput && (
         <p className="text-xs leading-relaxed" style={{ color: 'var(--text-primary)' }}>
           {text}
-          {isStreaming && <span className="inline-block w-1.5 h-3 ml-0.5 align-middle animate-pulse" style={{ background: 'var(--green-primary)' }} />}
+          {isStreaming && (
+            <span className="ml-0.5 inline-block h-3 w-[2px] animate-pulse align-middle" style={{ background: 'var(--green-primary)' }} />
+          )}
         </p>
       )}
 
       {factors.length > 0 && isDone && (
-        <div className="flex flex-wrap gap-1 mt-2">
+        <div className="mt-2 flex flex-wrap gap-1">
           {factors.map((f, i) => (
-            <span key={i} className="text-[10px] px-1.5 py-0.5 rounded" style={{ color: 'var(--red-primary)', background: 'var(--red-ghost)' }}>
+            <span key={i} className="rounded px-1.5 py-0.5 text-[10px]" style={{ color: 'var(--red-primary)', background: 'var(--red-ghost)' }}>
               {f}
             </span>
           ))}
         </div>
       )}
 
-      {error && <p className="text-[11px] mt-1" style={{ color: 'var(--red-primary)' }}>{error}</p>}
+      {error && (
+        <p className="mt-1 text-[11px]" style={{ color: 'var(--red-primary)' }}>{error}</p>
+      )}
     </div>
   );
 }
