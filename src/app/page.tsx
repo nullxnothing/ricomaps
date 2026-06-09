@@ -584,9 +584,10 @@ function HomeContent() {
           </div>
         )}
 
-        {/* AI narrative — token mode, when nothing is selected (shares bottom-left with detail panel) */}
+        {/* AI narrative — token mode, when nothing is selected. Bottom-center,
+            clear of the bottom-left legend and the bottom-right Deep Scan/zoom. */}
         {detectedMode === 'token' && data && stats && !currentSelectedNode && (
-          <div className="absolute bottom-4 left-4 z-10 hidden sm:block" style={{ animation: 'slideUp 0.2s ease-out' }}>
+          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10 hidden lg:block" style={{ animation: 'slideUp 0.2s ease-out' }}>
             <NarrativePanel
               mint={scannedAddress}
               data={data}
