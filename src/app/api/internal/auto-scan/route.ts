@@ -59,6 +59,8 @@ export async function POST(request: NextRequest) {
       mint,
       rugLevel: result.stats.rugScore?.level,
       cabalSupplyPct: result.stats.supplyConcentration?.cabalSupplyPct,
+      bundledSupplyPct: result.stats.supplyConcentration?.bundledSupplyPct,
+      bundleClusters: result.stats.bundleClustersDetected ?? 0,
       fingerprintMatches: result.stats.cabalFingerprint?.matches.length ?? 0,
     });
   } catch (error) {

@@ -4,6 +4,7 @@ import { isValidSolanaAddress } from '@/lib/address-utils';
 import { getCachedTokenScan } from '@/lib/db-cache';
 import { sendMessage, answerCallbackQuery } from './client';
 import { formatTokenCard, type ScanResultLike } from './format';
+import { addSubscription, removeSubscription, listSubscriptions } from './subscriptions';
 
 // --- Minimal subset of the Telegram update shape we consume ---
 interface TgChat { id: number; type: string }
@@ -20,8 +21,9 @@ const HELP = [
   '',
   'Send a token contract address, or use:',
   '<code>/scan &lt;CA&gt;</code> — full forensic card (rug score, insiders, cabal, bundles, deployer)',
+  '<code>/watchlist</code> — show the mints you\'re watching for live alerts',
   '',
-  'Tap <b>🫧 Live Bubble Map</b> on any card to open the interactive graph.',
+  'Tap <b>🫧 Live Bubble Map</b> on any card to open the interactive graph, or <b>🔔 Watch</b> to get alerts on bundle clusters, dev sells, blacklisted-bundler buys, and rugs.',
 ].join('\n');
 
 /** Cache-first scan with the lightweight quick-scan parameters. */
@@ -65,16 +67,55 @@ async function handleScan(chatId: number, mint: string, replyTo: number): Promis
   }
 }
 
+/** 🔔 Watch / 🔕 Unwatch inline-button callbacks. */
+async function handleCallback(cb: TgCallbackQuery): Promise<void> {
+  const data = cb.data ?? '';
+  const chatId = cb.message?.chat.id;
+
+  const watch = data.match(/^watch:(\S+)$/);
+  if (watch && chatId != null) {
+    const mint = watch[1];
+    if (!isValidSolanaAddress(mint)) {
+      await answerCallbackQuery(cb.id, '⚠️ Invalid address.');
+      return;
+    }
+    const ok = await addSubscription(chatId, 'mint', mint);
+    await answerCallbackQuery(
+      cb.id,
+      ok ? '🔔 Watching — I\'ll alert you on bundles, dev sells, blacklisted buys, and rugs.'
+         : '⚠️ Watchlist full. Unwatch something first.',
+    );
+    return;
+  }
+
+  const unwatch = data.match(/^unwatch:(\S+)$/);
+  if (unwatch && chatId != null) {
+    await removeSubscription(chatId, 'mint', unwatch[1]);
+    await answerCallbackQuery(cb.id, '🔕 Unwatched. No more alerts for this token.');
+    return;
+  }
+
+  await answerCallbackQuery(cb.id);
+}
+
+/** Render a chat's current watchlist. */
+async function handleWatchlist(chatId: number): Promise<void> {
+  const subs = await listSubscriptions(chatId);
+  const mints = subs.filter((s) => s.kind === 'mint');
+  if (mints.length === 0) {
+    await sendMessage({ chatId, text: 'No tokens watched yet. Tap <b>🔔 Watch</b> on any scan card to get live alerts.' });
+    return;
+  }
+  const lines = ['🔔 <b>Your watchlist</b>', ''];
+  for (const s of mints) lines.push(`• <code>${s.target}</code>`);
+  lines.push('', 'Tap <b>🔕 Unwatch</b> on an alert to stop, or re-scan a token to manage it.');
+  await sendMessage({ chatId, text: lines.join('\n') });
+}
+
 /** Top-level dispatcher. Always resolves — the webhook returns 200 regardless. */
 export async function handleUpdate(update: TgUpdate): Promise<void> {
   if (update.callback_query) {
-    const cb = update.callback_query;
-    // 🔔 Watch — alerts land in Phase 2; acknowledge for now.
-    if (cb.data?.startsWith('watch:')) {
-      await answerCallbackQuery(cb.id, '🔔 Alerts are coming soon — watchlists land in the next update.');
-    } else {
-      await answerCallbackQuery(cb.id);
-    }
+    await handleCallback(update.callback_query);
     return;
   }
 
@@ -85,6 +126,11 @@ export async function handleUpdate(update: TgUpdate): Promise<void> {
 
   if (/^\/(start|help)\b/i.test(text)) {
     await sendMessage({ chatId, text: HELP });
+    return;
+  }
+
+  if (/^\/watchlist\b/i.test(text)) {
+    await handleWatchlist(chatId);
     return;
   }
 

@@ -19,6 +19,17 @@ interface QueuedScan {
   symbol?: string;
 }
 
+/** Mirror of the app's AlertEvent (src/lib/telegram/alert-format.ts) — kept in sync by hand. */
+interface AlertEvent {
+  kind: 'bundle-cluster' | 'dev-sell' | 'blacklist-buy' | 'rug';
+  mint: string;
+  symbol?: string;
+  count?: number;
+  wallet?: string;
+  estExtractedUsd?: number;
+  supplyPct?: number;
+}
+
 /**
  * Always-on atlas ingestion: watches pump.fun creates/graduations from the shared
  * LaserStream connection, fans live events to /stream/atlas SSE clients, and drives
@@ -100,6 +111,9 @@ export class AtlasEngine {
         cabalId, mint: buy.mint, wallet: buy.wallet,
         ts: Math.floor(now / 1000),
       });
+      // A roster wallet is a known bundler from prior launches — a live buy on any
+      // watched mint is exactly the "blacklisted-bundler buy" alert. Dedup above keeps it to one per (cabal, mint).
+      void this.notify({ kind: 'blacklist-buy', mint: buy.mint, wallet: buy.wallet, count: 1 });
     }
     if (this.buyDedupe.size > 5_000) this.buyDedupe.clear(); // cheap bound; dedupe is best-effort
   }
@@ -152,12 +166,28 @@ export class AtlasEngine {
         createdAt: job.createdAt, graduatedAt: job.graduatedAt,
       });
       if (res.ok) {
-        const body = await res.json() as { rugLevel?: string; fingerprintMatches?: number; cabalSupplyPct?: number };
+        const body = await res.json() as {
+          rugLevel?: string; fingerprintMatches?: number; cabalSupplyPct?: number;
+          bundleClusters?: number; bundledSupplyPct?: number;
+        };
         this.broadcast('cabal-activity', {
           mint: job.mint, symbol: job.symbol, ts: Math.floor(Date.now() / 1000),
           rugLevel: body.rugLevel, fingerprintMatches: body.fingerprintMatches ?? 0,
           cabalSupplyPct: body.cabalSupplyPct,
         });
+        // Telegram alert funnel — fire on the forensic signals a watcher cares about.
+        // The notify route filters to chats actually subscribed to this mint.
+        if ((body.bundleClusters ?? 0) > 0) {
+          void this.notify({
+            kind: 'bundle-cluster', mint: job.mint, symbol: job.symbol,
+            count: body.bundleClusters, supplyPct: body.bundledSupplyPct,
+          });
+        }
+        if ((body.fingerprintMatches ?? 0) > 0) {
+          void this.notify({
+            kind: 'blacklist-buy', mint: job.mint, symbol: job.symbol, count: body.fingerprintMatches,
+          });
+        }
         return;
       }
       // Queue-full / transient errors: retry with bounded attempts.
@@ -185,9 +215,22 @@ export class AtlasEngine {
       const body = await res.json() as { rugEvents?: { mint: string; symbol?: string; estExtractedUsd: number }[] };
       for (const rug of body.rugEvents ?? []) {
         this.broadcast('rug-event', { ...rug, ts: Math.floor(Date.now() / 1000) });
+        void this.notify({ kind: 'rug', mint: rug.mint, symbol: rug.symbol, estExtractedUsd: rug.estExtractedUsd });
       }
     } catch (err) {
       console.error('[atlas] outcome pass error:', err);
+    }
+  }
+
+  /** Fire-and-forget Telegram alert funnel. The app route filters to subscribed chats. */
+  private async notify(event: AlertEvent): Promise<void> {
+    try {
+      const res = await this.post('/api/internal/telegram-notify', event);
+      if (!res.ok && res.status !== 404) {
+        console.error(`[atlas] telegram-notify ${event.kind} ${event.mint}: HTTP ${res.status}`);
+      }
+    } catch (err) {
+      console.error(`[atlas] telegram-notify failed for ${event.mint}:`, err);
     }
   }
 
