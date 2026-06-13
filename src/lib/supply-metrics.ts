@@ -23,6 +23,12 @@ interface ConcentrationInput {
   poolWallets: Set<string>;
   /** Total mint supply in UI units (token_info.supply / 10^decimals). 0/undefined → fall back to holder sum. */
   mintSupply?: number;
+  /**
+   * Per-wallet token amount grabbed in the launch window (peak balance seen while
+   * the wallet was flagged as bundled/sniper). Drives the "sniped X% → hold Y% now"
+   * entry-vs-exit read. Wallets absent here fall back to their current balance.
+   */
+  insiderEntryAmounts?: Map<string, number>;
 }
 
 /**
@@ -35,7 +41,7 @@ interface ConcentrationInput {
  * makes competing tools disagree on the same token.
  */
 export function computeSupplyConcentration(input: ConcentrationInput): SupplyConcentration {
-  const { holders, bundledWallets, sniperWallets, cabalWallets, poolWallets, mintSupply } = input;
+  const { holders, bundledWallets, sniperWallets, cabalWallets, poolWallets, mintSupply, insiderEntryAmounts } = input;
 
   const poolSupply = sumWhere(holders, h => poolWallets.has(h.owner));
   const holderSum = holders.reduce((sum, h) => sum + h.amount, 0);
@@ -58,6 +64,15 @@ export function computeSupplyConcentration(input: ConcentrationInput): SupplyCon
   const insiderWallets = new Set<string>([...bundledWallets, ...sniperWallets]);
   const insiderStillHolding = sumWhere(holders, h => insiderWallets.has(h.owner));
 
+  // Entry-side: what insiders grabbed in the launch window. Prefer the captured
+  // launch-window balance; fall back to current balance for any insider we never
+  // saw an entry amount for, so entry is always ≥ still-holding.
+  const insiderEntry = sumOver(insiderWallets, owner => {
+    const entry = insiderEntryAmounts?.get(owner);
+    if (entry && entry > 0) return entry;
+    return holders.find(h => h.owner === owner)?.amount ?? 0;
+  });
+
   const realHolders = holders.filter(h => !poolWallets.has(h.owner));
   const sortedReal = [...realHolders].sort((a, b) => b.amount - a.amount);
   const topNSupply = (n: number) =>
@@ -76,6 +91,7 @@ export function computeSupplyConcentration(input: ConcentrationInput): SupplyCon
     bundledSupplyPct: pct(sumWhere(holders, h => bundledWallets.has(h.owner))),
     sniperSupplyPct: pct(sumWhere(holders, h => sniperWallets.has(h.owner))),
     cabalSupplyPct: pct(sumWhere(holders, h => cabalWallets.has(h.owner))),
+    insiderEntrySupplyPct: pct(insiderEntry),
     insiderStillHoldingPct: pct(insiderStillHolding),
     top10Pct: topNSupply(10),
     top25Pct: topNSupply(25),
@@ -126,6 +142,12 @@ function isFreshWallet(holder: HolderAmount): boolean {
 
 function sumWhere(holders: HolderAmount[], predicate: (h: HolderAmount) => boolean): number {
   return holders.reduce((sum, h) => (predicate(h) ? sum + h.amount : sum), 0);
+}
+
+function sumOver(keys: Iterable<string>, amountOf: (key: string) => number): number {
+  let total = 0;
+  for (const key of keys) total += amountOf(key);
+  return total;
 }
 
 function clampPct(value: number): number {

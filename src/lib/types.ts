@@ -94,6 +94,7 @@ export interface SupplyConcentration {
   bundledSupplyPct: number;          // Supply held by bundled wallets
   sniperSupplyPct: number;           // Supply held by snipers
   cabalSupplyPct: number;            // Supply held by shared-funder cluster members
+  insiderEntrySupplyPct: number;     // Supply bundled ∪ sniper wallets grabbed in the launch window
   insiderStillHoldingPct: number;    // Current supply held by bundled ∪ sniper wallets
   top10Pct: number;                  // Supply held by top 10 real holders
   top25Pct: number;                  // Supply held by top 25 real holders

@@ -142,7 +142,15 @@ export function RiskRail({ data, rugScore, supply, deployer, meta, className }: 
       {supply && (
         <div>
           <div className="section-label mb-2">Holder Analysis</div>
-          <Row k="Insiders hold" v={pct(supply.insiderStillHoldingPct)} color={pctColor(supply.insiderStillHoldingPct)} />
+          <Row
+            k="Insiders hold"
+            v={
+              supply.insiderEntrySupplyPct > 0 && supply.insiderEntrySupplyPct > supply.insiderStillHoldingPct
+                ? `${pct(supply.insiderEntrySupplyPct)} → ${pct(supply.insiderStillHoldingPct)}`
+                : pct(supply.insiderStillHoldingPct)
+            }
+            color={pctColor(supply.insiderStillHoldingPct)}
+          />
           {gini && (
             <Row
               k={lowCoverage ? 'Spread (top)' : 'Spread'}

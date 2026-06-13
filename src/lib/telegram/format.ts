@@ -65,6 +65,34 @@ function rugEmoji(level: RugScore['level'] | undefined): string {
   return '⚪️';
 }
 
+// An insider that exited 90%+ of its launch grab is "fully exited"; a flat
+// held-vs-entry means they never sold.
+const INSIDER_EXIT_RATIO = 0.1;
+
+/**
+ * Render the insider supply line as an entry→exit read so a "0.0%" doesn't look
+ * like a broken card. "12.4% sniped → 0.0% held · fully exited" makes the dump a
+ * finding, not a null. Falls back to a single "still holding" figure when no
+ * launch-window entry was captured.
+ */
+function insiderLine(sc: SupplyConcentration): string {
+  const held = sc.insiderStillHoldingPct;
+  const entry = sc.insiderEntrySupplyPct;
+
+  // No entry data (older tokens) or genuinely no insiders → single-figure read.
+  if (entry == null || entry <= 0) {
+    return `<b>${pct(held)}</b> <i>still holding</i>`;
+  }
+
+  // Held ≈ entry: never sold. One number, framed as conviction.
+  if (held >= entry * (1 - INSIDER_EXIT_RATIO)) {
+    return `<b>${pct(held)}</b> <i>held · still in</i>`;
+  }
+
+  const tail = held <= entry * INSIDER_EXIT_RATIO ? ' <i>· fully exited</i>' : '';
+  return `<b>${pct(entry)}</b> <i>sniped →</i> <b>${pct(held)}</b> <i>held</i>${tail}`;
+}
+
 /**
  * Build the forensic token card. Leads with RicoMaps-only intelligence
  * (rug verdict, insider/cabal/bundle/sniper supply), then the familiar
@@ -224,7 +252,7 @@ export function formatTokenCard(mint: string, result: ScanResultLike): TokenCard
       : '<i>none in top holders</i>';
 
     const intel = [
-      leaf(T, 'Insider ', `<b>${pct(sc.insiderStillHoldingPct)}</b> <i>still holding</i>`),
+      leaf(T, 'Insider ', insiderLine(sc)),
       leaf(T, 'Cabal   ', `<b>${pct(sc.cabalSupplyPct)}</b> <i>shared funder</i>`),
       leaf(T, 'Bundled ', bundledVal),
       leaf(L, 'Snipers ', sniperVal),

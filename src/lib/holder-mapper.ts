@@ -218,6 +218,12 @@ export async function mapTokenHolders(mintAddress: string, options: MapOptions =
   // Sniper detection: wallets that received tokens within first N blocks of mint
   const sniperWallets: string[] = [];
   const sniperBuyInfo = new Map<string, { blocksAfterLaunch: number }>();
+  // Peak token balance each insider held in the launch window — the "sniped at
+  // launch" figure that powers the entry→exit read. Discarded today; kept now.
+  const insiderEntryAmounts = new Map<string, number>();
+  const recordEntry = (owner: string, amount: number) => {
+    if (amount > (insiderEntryAmounts.get(owner) ?? 0)) insiderEntryAmounts.set(owner, amount);
+  };
 
   if (launchInfo && launchInfo.mintTimestamp > 0) {
     const mintSlot = launchInfo.mintSlot;
@@ -226,9 +232,12 @@ export async function mapTokenHolders(mintAddress: string, options: MapOptions =
       const postBalances = tx.meta?.postTokenBalances ?? [];
       for (const bal of postBalances) {
         if (bal.mint === mintAddress && bal.owner && bal.uiTokenAmount.uiAmount && bal.uiTokenAmount.uiAmount > 0) {
-          if (holderSet.has(bal.owner) && !sniperWallets.includes(bal.owner)) {
-            sniperWallets.push(bal.owner);
-            sniperBuyInfo.set(bal.owner, { blocksAfterLaunch: tx.slot - mintSlot });
+          if (holderSet.has(bal.owner)) {
+            recordEntry(bal.owner, bal.uiTokenAmount.uiAmount);
+            if (!sniperWallets.includes(bal.owner)) {
+              sniperWallets.push(bal.owner);
+              sniperBuyInfo.set(bal.owner, { blocksAfterLaunch: tx.slot - mintSlot });
+            }
           }
         }
       }
@@ -249,6 +258,7 @@ export async function mapTokenHolders(mintAddress: string, options: MapOptions =
     const postBalances = tx.meta?.postTokenBalances ?? [];
     for (const bal of postBalances) {
       if (bal.mint === mintAddress && bal.owner && holderSet.has(bal.owner)) {
+        if (bal.uiTokenAmount.uiAmount) recordEntry(bal.owner, bal.uiTokenAmount.uiAmount);
         if (!mintSlotBuyers.has(tx.slot)) mintSlotBuyers.set(tx.slot, []);
         const buyers = mintSlotBuyers.get(tx.slot)!;
         if (!buyers.includes(bal.owner)) buyers.push(bal.owner);
@@ -666,6 +676,7 @@ export async function mapTokenHolders(mintAddress: string, options: MapOptions =
     sniperWallets: new Set(sniperWallets),
     cabalWallets: cabalWalletSet,
     poolWallets: poolNodeSet,
+    insiderEntryAmounts,
     mintSupply,
   });
 
