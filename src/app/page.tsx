@@ -98,9 +98,9 @@ function HomeContent() {
     checkClipboard();
   }, []);
 
-  // Auto-scan from URL param (e.g., /?address=xxx from blacklist)
+  // Auto-scan from URL param: ?address=xxx (blacklist) or ?mint=xxx (Telegram bot deep links)
   useEffect(() => {
-    const addressParam = searchParams.get('address');
+    const addressParam = searchParams.get('address') ?? searchParams.get('mint');
     if (addressParam && isValidSolanaAddress(addressParam) && !autoScannedRef.current && !data) {
       autoScannedRef.current = true;
       scanWithAutoDetect(addressParam);

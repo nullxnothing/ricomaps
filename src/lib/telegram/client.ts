@@ -57,6 +57,30 @@ export async function sendMessage(opts: SendMessageOptions): Promise<void> {
   });
 }
 
+interface SendPhotoOptions {
+  chatId: number | string;
+  photoUrl: string;
+  caption: string;
+  replyMarkup?: InlineKeyboard;
+}
+
+/**
+ * Send a photo with an HTML caption. Telegram fetches the photo URL server-side,
+ * so it handles dexscreener/IPFS-gateway https URLs. Captions cap at 1024 chars.
+ * Returns false if Telegram rejected the photo (bad/unreachable image) so the
+ * caller can fall back to a plain text card.
+ */
+export async function sendPhoto(opts: SendPhotoOptions): Promise<boolean> {
+  const res = await call<unknown>('sendPhoto', {
+    chat_id: opts.chatId,
+    photo: opts.photoUrl,
+    caption: opts.caption.slice(0, 1024),
+    parse_mode: 'HTML',
+    ...(opts.replyMarkup ? { reply_markup: { inline_keyboard: opts.replyMarkup } } : {}),
+  });
+  return res.ok;
+}
+
 export async function answerCallbackQuery(callbackQueryId: string, text?: string): Promise<void> {
   await call('answerCallbackQuery', {
     callback_query_id: callbackQueryId,

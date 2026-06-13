@@ -2,9 +2,12 @@ import 'server-only';
 import { mapTokenHolders } from '@/lib/holder-mapper';
 import { isValidSolanaAddress } from '@/lib/address-utils';
 import { getCachedTokenScan } from '@/lib/db-cache';
-import { sendMessage, answerCallbackQuery } from './client';
+import { sendMessage, sendPhoto, answerCallbackQuery } from './client';
 import { formatTokenCard, type ScanResultLike } from './format';
 import { addSubscription, removeSubscription, listSubscriptions } from './subscriptions';
+
+// Base58 token-length run — used to spot a CA anywhere inside a group message.
+const CA_RE = /[1-9A-HJ-NP-Za-km-z]{32,44}/g;
 
 // --- Minimal subset of the Telegram update shape we consume ---
 interface TgChat { id: number; type: string }
@@ -46,20 +49,30 @@ async function runScan(mint: string): Promise<ScanResultLike> {
   };
 }
 
-/** Pull a candidate mint from a /scan command or a bare address message. */
+/**
+ * Find the first valid Solana mint in a message. Handles "/scan ADDR",
+ * a bare address, or a CA embedded anywhere in a sentence (group chats).
+ */
 function extractMint(text: string): string | null {
-  const trimmed = text.trim();
-  // "/scan ADDR" or "/scan@Bot ADDR"
-  const cmd = trimmed.match(/^\/scan(?:@\w+)?\s+(\S+)/i);
-  const candidate = cmd ? cmd[1] : trimmed;
-  return isValidSolanaAddress(candidate) ? candidate : null;
+  const cmd = text.trim().match(/^\/scan(?:@\w+)?\s+(\S+)/i);
+  if (cmd && isValidSolanaAddress(cmd[1])) return cmd[1];
+  for (const candidate of text.match(CA_RE) ?? []) {
+    if (isValidSolanaAddress(candidate)) return candidate;
+  }
+  return null;
 }
 
 async function handleScan(chatId: number, mint: string, replyTo: number): Promise<void> {
   await sendMessage({ chatId, text: '🔍 Scanning…', replyToMessageId: replyTo });
   try {
     const result = await runScan(mint);
-    const { text, replyMarkup } = formatTokenCard(mint, result);
+    const { text, replyMarkup, photoUrl } = formatTokenCard(mint, result);
+    // Lead with the token logo when we have one; fall back to text if Telegram
+    // can't fetch the image (bad/unreachable URL → sendPhoto returns false).
+    if (photoUrl) {
+      const ok = await sendPhoto({ chatId, photoUrl, caption: text, replyMarkup });
+      if (ok) return;
+    }
     await sendMessage({ chatId, text, replyMarkup });
   } catch (err) {
     console.error('[telegram] scan failed', mint, err);
@@ -134,14 +147,16 @@ export async function handleUpdate(update: TgUpdate): Promise<void> {
     return;
   }
 
-  // In private chats we also accept a bare contract address (no /scan needed).
-  const isPrivate = msg.chat.type === 'private';
-  if (/^\/scan\b/i.test(text) || isPrivate) {
-    const mint = extractMint(text);
-    if (mint) {
-      await handleScan(chatId, mint, msg.message_id);
-    } else if (/^\/scan\b/i.test(text)) {
-      await sendMessage({ chatId, text: 'Usage: <code>/scan &lt;contract address&gt;</code>' });
-    }
+  // Ignore other slash-commands (e.g. /something@OtherBot) so we don't reply to noise.
+  const isScanCmd = /^\/scan\b/i.test(text);
+  if (text.startsWith('/') && !isScanCmd) return;
+
+  // Scan when: explicit /scan, a DM (any message), or a group message that
+  // contains a CA anywhere in the text (auto-detect — no /scan needed).
+  const mint = extractMint(text);
+  if (mint) {
+    await handleScan(chatId, mint, msg.message_id);
+  } else if (isScanCmd) {
+    await sendMessage({ chatId, text: 'Usage: <code>/scan &lt;contract address&gt;</code>' });
   }
 }
