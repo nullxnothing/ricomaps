@@ -2,7 +2,7 @@ import 'server-only';
 import { mapTokenHolders } from '@/lib/holder-mapper';
 import { isValidSolanaAddress } from '@/lib/address-utils';
 import { getCachedTokenScan } from '@/lib/db-cache';
-import { sendMessage, sendPhoto, answerCallbackQuery, type InlineKeyboard } from './client';
+import { sendMessage, sendPhoto, answerCallbackQuery, editMessageCaption, editMessageText, type InlineKeyboard } from './client';
 import { formatTokenCard, formatRapSheet, FOOTER_ROW, type ScanResultLike } from './format';
 import { addSubscription, removeSubscription, listSubscriptions } from './subscriptions';
 
@@ -13,7 +13,7 @@ const CA_RE = /[1-9A-HJ-NP-Za-km-z]{32,44}/g;
 
 // --- Minimal subset of the Telegram update shape we consume ---
 interface TgChat { id: number; type: string }
-interface TgMessage { message_id: number; chat: TgChat; text?: string }
+interface TgMessage { message_id: number; chat: TgChat; text?: string; photo?: unknown[] }
 interface TgCallbackQuery { id: string; data?: string; message?: TgMessage }
 export interface TgUpdate {
   message?: TgMessage;
@@ -52,16 +52,18 @@ const HELP_MARKUP: InlineKeyboard = [
   ...FOOTER_ROW,
 ];
 
-/** Cache-first scan with the lightweight quick-scan parameters. */
-async function runScan(mint: string): Promise<ScanResultLike> {
-  const cached = await getCachedTokenScan(mint);
-  if (cached) {
-    return {
-      stats: cached.stats as ScanResultLike['stats'],
-      tokenSecurity: cached.tokenSecurity,
-      tokenMetadata: cached.tokenMetadata,
-      deployerInfo: cached.deployerInfo,
-    };
+/** Cache-first scan with the lightweight quick-scan parameters. `force` skips the cache (Refresh). */
+async function runScan(mint: string, force = false): Promise<ScanResultLike> {
+  if (!force) {
+    const cached = await getCachedTokenScan(mint);
+    if (cached) {
+      return {
+        stats: cached.stats as ScanResultLike['stats'],
+        tokenSecurity: cached.tokenSecurity,
+        tokenMetadata: cached.tokenMetadata,
+        deployerInfo: cached.deployerInfo,
+      };
+    }
   }
   const result = await mapTokenHolders(mint, { topN: 15, fundersPerHolder: 1 });
   return {
@@ -128,6 +130,29 @@ async function handleCallback(cb: TgCallbackQuery): Promise<void> {
   if (unwatch && chatId != null) {
     await removeSubscription(chatId, 'mint', unwatch[1]);
     await answerCallbackQuery(cb.id, '🔕 Unwatched. No more alerts for this token.');
+    return;
+  }
+
+  // 🔄 Refresh: re-scan (cache-bypass) and edit the card in place.
+  const refresh = data.match(/^refresh:(\S+)$/);
+  if (refresh && chatId != null && cb.message) {
+    const mint = refresh[1];
+    if (!isValidSolanaAddress(mint)) {
+      await answerCallbackQuery(cb.id, '⚠️ Invalid address.');
+      return;
+    }
+    await answerCallbackQuery(cb.id, '🔄 Refreshing…');
+    try {
+      const result = await runScan(mint, true);
+      const { text, replyMarkup } = formatTokenCard(mint, result);
+      const messageId = cb.message.message_id;
+      const isPhoto = Array.isArray(cb.message.photo);
+      // ok:false here usually means "message is not modified" (no change); harmless.
+      if (isPhoto) await editMessageCaption({ chatId, messageId, caption: text, replyMarkup });
+      else await editMessageText({ chatId, messageId, text, replyMarkup });
+    } catch (err) {
+      console.error('[telegram] refresh failed', mint, err);
+    }
     return;
   }
 

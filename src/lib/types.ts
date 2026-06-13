@@ -507,6 +507,8 @@ export interface TokenMetadata {
   fdv?: number;
   dexUrl?: string;
   pairAddress?: string;
+  launchTimestamp?: number;   // unix seconds: first mint tx (token age)
+  twitterHandle?: string;     // resolved @handle for X-search links
 }
 
 // Enriched funder info with transaction context

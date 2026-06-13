@@ -117,6 +117,11 @@ export async function mapTokenHolders(mintAddress: string, options: MapOptions =
     mintSlot: mintEarlyTxs[0].slot,
   } : null;
 
+  // Surface token age on the metadata so cards can show it.
+  if (tokenMetadata && launchInfo?.mintTimestamp) {
+    tokenMetadata.launchTimestamp = launchInfo.mintTimestamp;
+  }
+
   // Resolve deployer (CPU only) so its history/funding can be fetched alongside Phase 2.
   const resolvedDeployer = extractDeployer(mintEarlyTxs, asset);
 

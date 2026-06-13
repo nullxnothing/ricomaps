@@ -88,6 +88,45 @@ export async function answerCallbackQuery(callbackQueryId: string, text?: string
   });
 }
 
+interface EditCaptionOptions {
+  chatId: number | string;
+  messageId: number;
+  caption: string;
+  replyMarkup?: InlineKeyboard;
+}
+
+/** Edit a photo card's caption in place (used by the 🔄 Refresh button). */
+export async function editMessageCaption(opts: EditCaptionOptions): Promise<boolean> {
+  const res = await call<unknown>('editMessageCaption', {
+    chat_id: opts.chatId,
+    message_id: opts.messageId,
+    caption: opts.caption.slice(0, 1024),
+    parse_mode: 'HTML',
+    ...(opts.replyMarkup ? { reply_markup: { inline_keyboard: opts.replyMarkup } } : {}),
+  });
+  return res.ok;
+}
+
+interface EditTextOptions {
+  chatId: number | string;
+  messageId: number;
+  text: string;
+  replyMarkup?: InlineKeyboard;
+}
+
+/** Edit a text card in place (refresh path when the card was sent as text). */
+export async function editMessageText(opts: EditTextOptions): Promise<boolean> {
+  const res = await call<unknown>('editMessageText', {
+    chat_id: opts.chatId,
+    message_id: opts.messageId,
+    text: opts.text.slice(0, 4096),
+    parse_mode: 'HTML',
+    link_preview_options: { is_disabled: true },
+    ...(opts.replyMarkup ? { reply_markup: { inline_keyboard: opts.replyMarkup } } : {}),
+  });
+  return res.ok;
+}
+
 // --- Setup helpers (used by scripts, not the request path) ---
 
 export async function getMe(): Promise<TelegramResponse<{ id: number; username: string; first_name: string }>> {

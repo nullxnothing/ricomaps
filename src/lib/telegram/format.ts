@@ -18,6 +18,7 @@ interface ScanStats {
   sniperWallets?: string[];
   bundleClustersDetected?: number;
   bundledWallets?: string[];
+  totalHolders?: number;
   supplyConcentration?: SupplyConcentration;
   rugScore?: RugScore;
   cabalFingerprint?: CabalFingerprintResult;
@@ -90,6 +91,41 @@ function signedPct(n: number): string {
   return `${n >= 0 ? '+' : ''}${n.toFixed(0)}%`;
 }
 
+/** Compact age from a unix-seconds launch timestamp: 45m, 2h, 3d, 5mo. */
+function age(launchTs: number | undefined): string | null {
+  if (!launchTs || launchTs <= 0) return null;
+  const mins = (Date.now() / 1000 - launchTs) / 60;
+  if (mins < 60) return `${Math.max(1, Math.round(mins))}m`;
+  if (mins < 1440) return `${Math.round(mins / 60)}h`;
+  if (mins < 43200) return `${Math.round(mins / 1440)}d`;
+  return `${Math.round(mins / 43200)}mo`;
+}
+
+/**
+ * Chart/explorer + trade-bot quick links, matching the reference scanner layout.
+ * Core trade-bot set (the ones people actually use), one tap to buy on each.
+ */
+function linkRows(mint: string, dexUrl: string): InlineKeyboard {
+  return [
+    [
+      { text: 'DexScreener', url: dexUrl },
+      { text: 'GeckoTerminal', url: `https://www.geckoterminal.com/solana/pools/${mint}` },
+      { text: 'Birdeye', url: `https://birdeye.so/token/${mint}?chain=solana` },
+    ],
+    [
+      { text: 'GMGN', url: `https://gmgn.ai/sol/token/${mint}` },
+      { text: 'Axiom', url: `https://axiom.trade/t/${mint}` },
+      { text: 'Trojan', url: `https://t.me/solana_trojanbot?start=${mint}` },
+      { text: 'Bloom', url: `https://t.me/BloomSolana_bot?start=${mint}` },
+    ],
+    [
+      { text: 'Photon', url: `https://photon-sol.tinyastro.io/en/lp/${mint}` },
+      { text: 'BullX', url: `https://bullx.io/terminal?chainId=1399811149&address=${mint}` },
+      { text: 'Maestro', url: `https://t.me/maestro?start=${mint}` },
+    ],
+  ];
+}
+
 export function formatTokenCard(mint: string, result: ScanResultLike): TokenCard {
   const { stats, tokenMetadata: meta, tokenSecurity: sec, deployerInfo: dep } = result;
   const sc = stats.supplyConcentration;
@@ -100,9 +136,19 @@ export function formatTokenCard(mint: string, result: ScanResultLike): TokenCard
 
   const lines: string[] = [];
 
-  // ── Header: pill · name (sym) · CA · rug verdict ─────────
+  // ── Header: pill · name (sym) · CA · meta line · rug verdict ──
   lines.push(`${rugEmoji(rug?.level)} <b>${esc(name)}</b>${sym ? ` (<b>${sym}</b>)` : ''}`);
-  lines.push(`${L}<code>${esc(mint)}</code>`);
+  lines.push(`${T}<code>${esc(mint)}</code>`);
+
+  // Meta line: chain · curve · age · holders (the "#SOL | Pump @ 85% | 2h | 👀 196" row).
+  const metaBits = ['#SOL'];
+  // Bonding status: a live DEX pair / liquidity means the curve completed (graduated).
+  if (meta?.pairAddress || (meta?.liquidity != null && meta.liquidity > 0)) metaBits.push('🎓 graduated');
+  const tokenAge = age(meta?.launchTimestamp);
+  if (tokenAge) metaBits.push(`🌱 ${tokenAge}`);
+  if (stats.totalHolders != null) metaBits.push(`👀 ${stats.totalHolders}`);
+  lines.push(`${L}<i>${metaBits.join('  |  ')}</i>`);
+
   if (rug) {
     const factor = rug.factors?.[0]?.label ? ` · ${esc(rug.factors[0].label)}` : '';
     lines.push(`${rugEmoji(rug.level)} <b>Rug ${rug.score}/100</b>${factor}`);
@@ -186,18 +232,22 @@ export function formatTokenCard(mint: string, result: ScanResultLike): TokenCard
   }
 
   const text = lines.join('\n');
-
   const dexUrl = meta?.dexUrl ?? `https://dexscreener.com/solana/${mint}`;
+  const xUrl = `https://x.com/search?q=${encodeURIComponent(mint)}`;
   const replyMarkup: InlineKeyboard = [
-    [{ text: '🫧 Live Bubble Map ↗', url: `${APP_URL}/?mint=${mint}` }],
+    [
+      { text: '🫧 Bubble Map ↗', url: `${APP_URL}/?mint=${mint}` },
+      { text: '🔄 Refresh', callback_data: `refresh:${mint}` },
+    ],
     // The blacklist is the moat: when a known crew is present, let the user pull
     // its rap sheet (prior launches + rug rate) right from the card.
     ...(fpMatches > 0 ? [[{ text: `🚩 Bundler rap sheet (${fpMatches})`, callback_data: `rap:${mint}` }]] : []),
     [
       { text: '🔔 Watch', callback_data: `watch:${mint}` },
-      { text: 'DexScreener ↗', url: dexUrl },
       { text: 'Solscan ↗', url: `https://solscan.io/token/${mint}` },
+      { text: 'X search ↗', url: xUrl },
     ],
+    ...linkRows(mint, dexUrl),
     ...FOOTER_ROW,
   ];
 
