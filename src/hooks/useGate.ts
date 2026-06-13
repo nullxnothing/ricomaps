@@ -6,9 +6,11 @@ import { needsMobileWalletDeepLink, openInWallet, type MobileWallet } from '@/li
 
 interface SolanaProvider {
   isPhantom?: boolean;
+  // Phantom returns { publicKey } from connect(); Solflare resolves without it and
+  // exposes the key on provider.publicKey instead — so both are optional here.
   publicKey?: { toString(): string } | null;
-  connect(opts?: { onlyIfTrusted?: boolean }): Promise<{ publicKey: { toString(): string } }>;
-  signMessage(message: Uint8Array, encoding?: string): Promise<{ signature: Uint8Array }>;
+  connect(opts?: { onlyIfTrusted?: boolean }): Promise<{ publicKey?: { toString(): string } } | void>;
+  signMessage(message: Uint8Array, encoding?: string): Promise<{ signature: Uint8Array } | Uint8Array>;
 }
 
 function getProvider(): SolanaProvider | null {
@@ -55,8 +57,12 @@ export function useGate() {
 
     setState(s => ({ ...s, loading: true, error: null, needsMobileWallet: false }));
     try {
-      const { publicKey } = await provider.connect();
-      const address = publicKey.toString();
+      // Phantom returns { publicKey }; Solflare resolves void and sets
+      // provider.publicKey. Read whichever is present and bail clearly if neither.
+      const res = await provider.connect();
+      const key = res?.publicKey ?? provider.publicKey;
+      if (!key) throw new Error('Wallet did not return an address. Try reconnecting.');
+      const address = key.toString();
 
       const nonceRes = await fetch('/api/gate/nonce', {
         method: 'POST',
@@ -67,8 +73,12 @@ export function useGate() {
       if (!message) throw new Error(error || 'Failed to start verification');
 
       const encoded = new TextEncoder().encode(message);
-      const { signature } = await provider.signMessage(encoded, 'utf8');
-      const signatureB58 = bs58.encode(signature);
+      // Phantom/Solflare return { signature }; some wallets return the bytes
+      // directly. Unwrap either and verify we got bytes before encoding.
+      const signed = await provider.signMessage(encoded, 'utf8');
+      const sigBytes = (signed as { signature?: Uint8Array })?.signature ?? (signed as unknown as Uint8Array);
+      if (!sigBytes || !(sigBytes instanceof Uint8Array)) throw new Error('Wallet returned no signature.');
+      const signatureB58 = bs58.encode(sigBytes);
 
       const verifyRes = await fetch('/api/gate/verify', {
         method: 'POST',
