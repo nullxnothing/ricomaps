@@ -102,7 +102,8 @@ export interface SupplyConcentration {
   realHolderCount: number;           // Analyzed holders excluding pools
   poolSupplyPct: number;             // Supply parked in pool/AMM/treasury wallets
   analyzedSupplyPct: number;         // Coverage: % of supply the analyzed holders represent
-  circulatingSupplyUsed: number;     // Denominator used (UI units)
+  circulatingSupplyUsed: number;     // Insider-% denominator (mint − pool, UI units)
+  totalMintSupply: number;           // Full on-chain mint supply (pool included); 0 if unknown. Bubble-% denominator.
   supplyDenominatorSource: 'mint' | 'sum'; // 'mint' = on-chain supply, 'sum' = holder fallback
 }
 

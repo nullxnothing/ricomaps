@@ -85,6 +85,7 @@ export function computeSupplyConcentration(input: ConcentrationInput): SupplyCon
     poolSupplyPct: pct(poolSupply),
     analyzedSupplyPct,
     circulatingSupplyUsed: circulatingSupply,
+    totalMintSupply: mintSupply && mintSupply > 0 ? mintSupply : 0,
     supplyDenominatorSource: denominatorSource,
   };
 }
