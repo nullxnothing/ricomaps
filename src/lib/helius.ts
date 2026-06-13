@@ -289,7 +289,12 @@ async function fetchWithRetry(url: string | (() => Promise<string>), options: Fe
       recordFailure();
       if (attempt < maxRetries - 1) {
         const delay = baseDelay * Math.pow(2, attempt);
-        console.warn(`Request failed (attempt ${attempt + 1}/${maxRetries}). Waiting ${delay}ms...`);
+        // Surface the actual reason (abort/timeout vs. network vs. DNS) — a bare
+        // "Request failed" gave log scans nothing to act on.
+        const reason = lastError.name === 'AbortError'
+          ? `timeout after ${FETCH_TIMEOUT_MS}ms`
+          : sanitizeUrl(lastError.message);
+        console.warn(`Request failed (attempt ${attempt + 1}/${maxRetries}): ${reason}. Waiting ${delay}ms...`);
         await sleep(delay);
       }
     }
