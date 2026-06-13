@@ -73,6 +73,8 @@ export interface TokenCard {
   replyMarkup: InlineKeyboard;
   /** Token logo for sendPhoto; undefined → send as text card. */
   photoUrl?: string;
+  /** Full charts/trade-bot/attribution link grid, sent as a follow-up message. */
+  linksText: string;
 }
 
 // Tree connectors: mid branch and last branch, matching the reference layout.
@@ -134,6 +136,32 @@ function socialLine(meta: TokenMetadata | null): string[] {
   if (web) socials.push(lnk('Web', web));
   if (tg) socials.push(lnk('TG', tg));
   return socials.length ? ['', `🔗 ${socials.join(' · ')}`] : [];
+}
+
+/**
+ * The full charts/explorer + trade-bot + attribution link grid as a STANDALONE
+ * text message. Sent as a follow-up to the photo card because the combined HTML
+ * blows the 1024-char photo-caption cap. Disable link previews when sending this.
+ */
+export function formatLinksMessage(mint: string, dexUrl: string): string {
+  const charts = [
+    lnk('DS', dexUrl),
+    lnk('GT', `https://www.geckoterminal.com/solana/pools/${mint}`),
+    lnk('BE', `https://birdeye.so/token/${mint}?chain=solana`),
+    lnk('SOL', `https://solscan.io/token/${mint}`),
+    lnk('Xs', `https://x.com/search?q=${encodeURIComponent(mint)}`),
+  ].join(' · ');
+  const bots = [
+    lnk('GMGN', `https://gmgn.ai/sol/token/${mint}`),
+    lnk('AXI', `https://axiom.trade/t/${mint}`),
+    lnk('TRO', `https://t.me/solana_trojanbot?start=${mint}`),
+    lnk('BLOOM', `https://t.me/BloomSolana_bot?start=${mint}`),
+    lnk('PHO', `https://photon-sol.tinyastro.io/en/lp/${mint}`),
+    lnk('BULLX', `https://bullx.io/terminal?chainId=1399811149&address=${mint}`),
+    lnk('MAE', `https://t.me/maestro?start=${mint}`),
+  ].join(' · ');
+  const attrib = `${lnk('💸 Trade $RICO', `https://pump.fun/coin/${RICO_MINT}`)} · ${lnk('⚡ Built with Daemon', `https://pump.fun/coin/${DAEMON_MINT}`)}`;
+  return [`📈 ${charts}`, `🤖 ${bots}`, '', attrib].join('\n');
 }
 
 export function formatTokenCard(mint: string, result: ScanResultLike): TokenCard {
@@ -259,7 +287,13 @@ export function formatTokenCard(mint: string, result: ScanResultLike): TokenCard
     ],
   ];
 
-  return { text, replyMarkup, photoUrl: resolvePhotoUrl(meta?.image) };
+  const dexUrl = meta?.dexUrl ?? `https://dexscreener.com/solana/${mint}`;
+  return {
+    text,
+    replyMarkup,
+    photoUrl: resolvePhotoUrl(meta?.image),
+    linksText: formatLinksMessage(mint, dexUrl),
+  };
 }
 
 /**

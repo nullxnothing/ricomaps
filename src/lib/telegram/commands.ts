@@ -91,14 +91,14 @@ async function handleScan(chatId: number, mint: string, replyTo: number): Promis
   await sendMessage({ chatId, text: '🔍 Scanning…', replyToMessageId: replyTo });
   try {
     const result = await runScan(mint);
-    const { text, replyMarkup, photoUrl } = formatTokenCard(mint, result);
+    const { text, replyMarkup, photoUrl, linksText } = formatTokenCard(mint, result);
     // Lead with the token logo when we have one; fall back to text if Telegram
     // can't fetch the image (bad/unreachable URL → sendPhoto returns false).
-    if (photoUrl) {
-      const ok = await sendPhoto({ chatId, photoUrl, caption: text, replyMarkup });
-      if (ok) return;
-    }
-    await sendMessage({ chatId, text, replyMarkup });
+    let sentCard = false;
+    if (photoUrl) sentCard = await sendPhoto({ chatId, photoUrl, caption: text, replyMarkup });
+    if (!sentCard) await sendMessage({ chatId, text, replyMarkup });
+    // Link grid as a follow-up (too long to fit the photo caption cap).
+    await sendMessage({ chatId, text: linksText });
   } catch (err) {
     console.error('[telegram] scan failed', mint, err);
     await sendMessage({ chatId, text: '⚠️ Scan failed. Double-check the contract address and try again.' });
