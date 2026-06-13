@@ -147,7 +147,11 @@ interface DexPair {
   pairAddress: string;
   priceUsd?: string;
   priceChange?: { h24?: number };
-  volume?: { h24?: number };
+  volume?: { m5?: number; h1?: number; h24?: number };
+  txns?: {
+    m5?: { buys: number; sells: number };
+    h1?: { buys: number; sells: number };
+  };
   liquidity?: { usd?: number };
   fdv?: number;
   marketCap?: number;
@@ -217,6 +221,10 @@ export async function fetchTokenMarketData(mint: string): Promise<Partial<TokenM
       priceUsd: best.priceUsd ? parseFloat(best.priceUsd) : undefined,
       priceChange24h: best.priceChange?.h24,
       volume24h: best.volume?.h24,
+      volume1h: best.volume?.h1,
+      volume5m: best.volume?.m5,
+      txns5m: best.txns?.m5,
+      txns1h: best.txns?.h1,
       liquidity: best.liquidity?.usd,
       fdv: best.fdv,
       marketCap: best.marketCap,

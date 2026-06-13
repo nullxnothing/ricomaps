@@ -2,6 +2,7 @@ import express, { type Request, type Response } from 'express';
 import cors from 'cors';
 import { LaserStreamManager, type SseClient } from './laserstream.js';
 import { AtlasEngine } from './atlas.js';
+import { XBot } from './x-bot.js';
 
 const PORT = Number(process.env.PORT ?? 8080);
 const API_KEY = process.env.HELIUS_LASERSTREAM_API_KEY ?? '';
@@ -36,6 +37,30 @@ if (atlas) {
   console.log('[worker] atlas ingestion disabled (set ATLAS_APP_URL + INTERNAL_API_SECRET)');
 }
 
+// X reply bot: polls @mentions, scans the CA via the app, replies. Off unless all
+// of its env vars are present (mirrors atlas), so the worker is unchanged otherwise.
+const X_USER_ID = process.env.X_USER_ID ?? '';
+const X_BEARER_TOKEN = process.env.X_BEARER_TOKEN ?? '';
+const X_ACCESS_TOKEN = process.env.X_ACCESS_TOKEN ?? '';
+const X_REFRESH_TOKEN = process.env.X_REFRESH_TOKEN ?? '';
+const X_CLIENT_ID = process.env.X_CLIENT_ID ?? '';
+const xBotReady = ATLAS_APP_URL && INTERNAL_API_SECRET && X_USER_ID && X_BEARER_TOKEN && X_ACCESS_TOKEN && X_REFRESH_TOKEN && X_CLIENT_ID;
+const xBot = xBotReady
+  ? new XBot({
+      appUrl: ATLAS_APP_URL,
+      internalSecret: INTERNAL_API_SECRET,
+      userId: X_USER_ID,
+      bearerToken: X_BEARER_TOKEN,
+      clientId: X_CLIENT_ID,
+      clientSecret: process.env.X_CLIENT_SECRET || undefined,
+      accessToken: X_ACCESS_TOKEN,
+      refreshToken: X_REFRESH_TOKEN,
+    })
+  : null;
+console.log(xBot
+  ? '[worker] X reply bot enabled'
+  : '[worker] X reply bot disabled (set X_USER_ID, X_BEARER_TOKEN, X_ACCESS_TOKEN, X_REFRESH_TOKEN, X_CLIENT_ID)');
+
 const app = express();
 
 app.use(cors({ origin: APP_ORIGIN }));
@@ -47,6 +72,7 @@ app.get('/health', (_req, res) => {
     watchedMints: manager.watchedMints().length,
     watchedWallets: manager.watchedWallets().length,
     atlas: atlas ? { enabled: true, clients: atlas.clientCount() } : { enabled: false },
+    xBot: xBot ? { enabled: true, ...xBot.stats() } : { enabled: false },
   });
 });
 

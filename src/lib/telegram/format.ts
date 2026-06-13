@@ -4,6 +4,7 @@ import type {
   DeployerInfo,
   RugScore,
   SupplyConcentration,
+  BotActivityScore,
   CabalFingerprintResult,
   CabalFingerprint,
 } from '@/lib/types';
@@ -21,6 +22,7 @@ interface ScanStats {
   totalHolders?: number;
   supplyConcentration?: SupplyConcentration;
   rugScore?: RugScore;
+  botActivityScore?: BotActivityScore;
   cabalFingerprint?: CabalFingerprintResult;
 }
 
@@ -234,6 +236,17 @@ export function formatTokenCard(mint: string, result: ScanResultLike): TokenCard
     if (sc.analyzedSupplyPct != null && sc.analyzedSupplyPct < 60) {
       lines.push(`<i>📐 Analyzed ${pct(sc.analyzedSupplyPct)} of supply (top ${sc.realHolderCount} holders). Launch-time metrics may understate older tokens.</i>`);
     }
+  }
+
+  const bot = stats.botActivityScore;
+  if (bot && bot.level !== 'green') {
+    const m = bot.metrics;
+    const rows = [
+      leaf(T, 'Velocity', `<b>${m.txs5m ?? 'n/a'}</b> tx/5m · <b>${m.txs1h ?? 'n/a'}</b> tx/1h`),
+      leaf(T, 'Launch  ', `<b>${m.maxSameSlotBuyers}</b> same-slot max · <b>${m.sameSlotGroupCount}</b> clusters`),
+      leaf(L, 'Churn   ', m.volumeToLiquidity1h != null ? `<b>${m.volumeToLiquidity1h.toFixed(1)}x</b> vol/liq` : '<i>n/a</i>'),
+    ];
+    lines.push(...section('🤖', 'Bot Activity', rows));
   }
 
   // ── Security ────────────────────────────────────────────

@@ -26,3 +26,16 @@ services:
       # Live crew-buy beams — cap on roster wallets watched on LaserStream.
       - key: ATLAS_MAX_WALLETS
         value: 200
+      # X (Twitter) reply bot: all five required to enable it (plus ATLAS_APP_URL + INTERNAL_API_SECRET).
+      - key: X_USER_ID
+        sync: false
+      - key: X_BEARER_TOKEN
+        sync: false
+      - key: X_ACCESS_TOKEN
+        sync: false
+      - key: X_REFRESH_TOKEN
+        sync: false
+      - key: X_CLIENT_ID
+        sync: false
+      - key: X_CLIENT_SECRET
+        sync: false

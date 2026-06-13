@@ -1,7 +1,6 @@
 import 'server-only';
-import { mapTokenHolders } from '@/lib/holder-mapper';
 import { isValidSolanaAddress } from '@/lib/address-utils';
-import { getCachedTokenScan } from '@/lib/db-cache';
+import { scanTokenForensics } from '@/lib/scan-core';
 import { sendMessage, sendPhoto, answerCallbackQuery, editMessageCaption, editMessageText, type InlineKeyboard } from './client';
 import { formatTokenCard, formatRapSheet, FOOTER_ROW, type ScanResultLike } from './format';
 import { addSubscription, removeSubscription, listSubscriptions } from './subscriptions';
@@ -53,25 +52,8 @@ const HELP_MARKUP: InlineKeyboard = [
 ];
 
 /** Cache-first scan with the lightweight quick-scan parameters. `force` skips the cache (Refresh). */
-async function runScan(mint: string, force = false): Promise<ScanResultLike> {
-  if (!force) {
-    const cached = await getCachedTokenScan(mint);
-    if (cached) {
-      return {
-        stats: cached.stats as ScanResultLike['stats'],
-        tokenSecurity: cached.tokenSecurity,
-        tokenMetadata: cached.tokenMetadata,
-        deployerInfo: cached.deployerInfo,
-      };
-    }
-  }
-  const result = await mapTokenHolders(mint, { topN: 15, fundersPerHolder: 1 });
-  return {
-    stats: result.stats,
-    tokenSecurity: result.tokenSecurity,
-    tokenMetadata: result.tokenMetadata,
-    deployerInfo: result.deployerInfo,
-  };
+function runScan(mint: string, force = false): Promise<ScanResultLike> {
+  return scanTokenForensics(mint, { force });
 }
 
 /**

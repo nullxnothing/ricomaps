@@ -6,8 +6,13 @@ import {
   EnrichedFunderInfo,
 } from './types';
 
+function cleanEnvValue(value: string | undefined): string | null {
+  const cleaned = value?.trim().replace(/^['"]|['"]$/g, '').replace(/\\r\\n$/g, '').trim();
+  return cleaned || null;
+}
+
 // Dedicated node / project RPC. Support both the old local name and the Vercel env name.
-const DEDICATED_RPC_URL = process.env.HELIUS_DEDICATED_RPC || process.env.HELIUS_RPC_URL || '';
+const DEDICATED_RPC_URL = cleanEnvValue(process.env.HELIUS_DEDICATED_RPC) || cleanEnvValue(process.env.HELIUS_RPC_URL) || '';
 const HELIUS_RPC_BASE = 'https://mainnet.helius-rpc.com/';
 export const NATIVE_SOL_MINT = 'So11111111111111111111111111111111111111111';
 export const WSOL_MINT = 'So11111111111111111111111111111111111111112';
@@ -18,7 +23,8 @@ const API_KEYS = [
   process.env.HELIUS_API_KEY_2,
   process.env.HELIUS_API_KEY_3,
   process.env.HELIUS_API_KEY_4,
-].filter(Boolean) as string[];
+].map(cleanEnvValue).filter((key): key is string => Boolean(key));
+const exhaustedKeys = new Set<string>();
 
 // RPC URL: use dedicated node if available (faster, no rate limits), fallback to keyed
 // Throttled URL resolvers
@@ -171,11 +177,16 @@ function acquireKey(): { key: string; waitMs: number } {
     throw new Error('No Helius API keys configured');
   }
 
+  const availableKeys = API_KEYS.filter(key => !exhaustedKeys.has(key));
+  if (availableKeys.length === 0) {
+    throw new Error('All Helius API keys are exhausted or unavailable');
+  }
+
   const now = Date.now();
-  let bestKey = API_KEYS[0];
+  let bestKey = availableKeys[0];
   let bestWait = Infinity;
 
-  for (const key of API_KEYS) {
+  for (const key of availableKeys) {
     const lastUsed = keyLastRequestTime.get(key) || 0;
     const elapsed = now - lastUsed;
     const wait = Math.max(0, PER_KEY_INTERVAL - elapsed);
@@ -239,10 +250,14 @@ async function fetchWithRetry(url: string | (() => Promise<string>), options: Fe
 
       // Handle rate limiting: mark this key as cooling off and retry with a different key
       if (response.status === 429) {
+        const body = await response.clone().text().catch(() => '');
+        const keyMatch = resolvedUrl.match(/api-key=([^&]+)/);
+        if (/max usage reached/i.test(body) && keyMatch) {
+          exhaustedKeys.add(keyMatch[1]);
+        }
         const retryAfter = response.headers.get('Retry-After');
         const cooldown = retryAfter ? parseInt(retryAfter) * 1000 : baseDelay * Math.pow(2, attempt);
         // Cool off the key that was just used so acquireKey() picks a different one
-        const keyMatch = resolvedUrl.match(/api-key=([^&]+)/);
         if (keyMatch) keyLastRequestTime.set(keyMatch[1], Date.now() + cooldown);
         console.warn(`Rate limited (attempt ${attempt + 1}/${maxRetries}). Waiting ${Math.min(cooldown, 2000)}ms...`);
         await sleep(Math.min(cooldown, 2000));

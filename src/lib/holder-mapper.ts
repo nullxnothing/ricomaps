@@ -3,10 +3,11 @@ import {
   getAsset, deriveTokenSecurity, batchIdentifyWallets, batchGetEarlyTransactions,
   batchGetFirstIncomingSolTransfers, searchAssetsByCreator, getWalletFundedBy,
 } from './helius';
-import { GraphNode, GraphLink, GraphData, NODE_COLORS, TokenSecurityInfo, TokenMetadata, EnrichedFunderInfo, BundleCluster, SupplyConcentration, RugScore, DeployerInfo, CabalFingerprintResult } from './types';
+import { GraphNode, GraphLink, GraphData, NODE_COLORS, TokenSecurityInfo, TokenMetadata, EnrichedFunderInfo, BundleCluster, SupplyConcentration, RugScore, DeployerInfo, CabalFingerprintResult, BotActivityScore } from './types';
 import { computeThreatScore, getThreatLevel } from './threat-scorer';
 import { computeSupplyConcentration } from './supply-metrics';
 import { computeRugScore } from './rug-scorer';
+import { computeBotActivityScore, mergeEntryRiskScore } from './bot-activity-scorer';
 import { extractDeployer, computeDeployerHoldings, buildDeployerInfo } from './deployer';
 import { shouldFilterAddress } from './address-utils';
 import { createNode } from './graph-utils';
@@ -70,6 +71,7 @@ export async function mapTokenHolders(mintAddress: string, options: MapOptions =
     behavioralClustersDetected: number; behaviorallyClusteredWallets: string[];
     supplyConcentration: SupplyConcentration;
     rugScore: RugScore;
+    botActivityScore: BotActivityScore;
     cabalFingerprint?: CabalFingerprintResult;
   };
   tokenSecurity: TokenSecurityInfo | null;
@@ -609,12 +611,19 @@ export async function mapTokenHolders(mintAddress: string, options: MapOptions =
     mintSupply,
   });
 
-  const rugScore = computeRugScore({
+  const holderRugScore = computeRugScore({
     security: tokenSecurity,
     supply: supplyConcentration,
     snipersDetected: sniperWallets.length,
     bundleClustersDetected: bundleClusters.length,
   });
+  const botActivityScore = computeBotActivityScore({
+    mintAddress,
+    mintEarlyTxs,
+    tokenMetadata,
+    top10Pct: supplyConcentration.top10Pct,
+  });
+  const rugScore = mergeEntryRiskScore(holderRugScore, botActivityScore);
 
   // ═══════════════════════════════════════════════════════════
   // PHASE 5b: Persistent cabal fingerprint (funding-source + topology basis)
@@ -741,6 +750,7 @@ export async function mapTokenHolders(mintAddress: string, options: MapOptions =
       behaviorallyClusteredWallets,
       supplyConcentration,
       rugScore,
+      botActivityScore,
       cabalFingerprint,
     },
     tokenSecurity, tokenMetadata, deployerInfo,

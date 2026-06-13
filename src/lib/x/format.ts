@@ -1,0 +1,75 @@
+import type { ScanResultLike } from '@/lib/scan-core';
+import type { RugScore } from '@/lib/types';
+
+const APP_URL = (process.env.NEXT_PUBLIC_APP_URL ?? 'https://ricomaps.fun').replace(/\/$/, '');
+
+// X counts every URL as 23 chars (t.co), regardless of real length.
+const TWEET_LIMIT = 280;
+const URL_WEIGHT = 23;
+
+function rugEmoji(level: RugScore['level'] | undefined): string {
+  if (level === 'red') return '🔴';
+  if (level === 'yellow') return '🟡';
+  if (level === 'green') return '🟢';
+  return '⚪️';
+}
+
+function pct(n: number | undefined): string {
+  if (n == null || Number.isNaN(n)) return 'n/a';
+  return `${Math.round(n)}%`;
+}
+
+/** Visible length of a line where the trailing map URL counts as 23 chars. */
+function weightedLength(line: string, mapUrl: string): number {
+  return line.includes(mapUrl) ? line.length - mapUrl.length + URL_WEIGHT : line.length;
+}
+
+/**
+ * Build a compact plain-text X reply (no HTML, no buttons) for a token scan.
+ * Single tweet, <=280 chars. Lines are priority-ordered; if over budget we drop
+ * from the bottom up, but the header and the map link are always kept.
+ */
+export function formatXReply(mint: string, result: ScanResultLike): string {
+  const { stats, tokenMetadata: meta, deployerInfo: dep } = result;
+  const sc = stats.supplyConcentration;
+  const rug = stats.rugScore;
+
+  const sym = meta?.symbol ? `$${meta.symbol}` : (meta?.name ?? 'Token');
+  const mapUrl = `${APP_URL}/?mint=${mint}`;
+
+  // Priority-ordered lines. [0] header and the final map line are mandatory.
+  const header = rug
+    ? `${rugEmoji(rug.level)} ${sym} · rug ${rug.score}/100`
+    : `${rugEmoji(undefined)} ${sym}`;
+
+  const optional: string[] = [];
+  if (sc) {
+    optional.push(`cabal ${pct(sc.cabalSupplyPct)} · bundled ${pct(sc.bundledSupplyPct)} · snipers ${pct(sc.sniperSupplyPct)}`);
+  }
+
+  const devBits: string[] = [];
+  if (dep) {
+    if (dep.isSerialDeployer) {
+      devBits.push(dep.pastLaunchCount != null ? `dev: serial (${dep.pastLaunchCount})` : 'dev: serial');
+    } else {
+      devBits.push('dev: clean');
+    }
+  }
+  const fpMatches = stats.cabalFingerprint?.matches?.length ?? 0;
+  if (fpMatches > 0) devBits.push(`🚩 ${fpMatches} known bundler${fpMatches === 1 ? '' : 's'}`);
+  if (devBits.length) optional.push(devBits.join(' · '));
+
+  const mapLine = `🫧 ${mapUrl}`;
+
+  // Assemble within budget: header + as many optional lines as fit + map line.
+  const lines = [header];
+  let used = header.length + 1 /*\n*/ + weightedLength(mapLine, mapUrl);
+  for (const line of optional) {
+    const cost = line.length + 1;
+    if (used + cost > TWEET_LIMIT) break;
+    lines.push(line);
+    used += cost;
+  }
+  lines.push(mapLine);
+  return lines.join('\n');
+}

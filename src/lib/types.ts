@@ -121,6 +121,23 @@ export interface RugScore {
   coverageNote?: string;               // shown when confidence !== 'high'
 }
 
+export interface BotActivityScore {
+  score: number;
+  level: 'green' | 'yellow' | 'red';
+  confidence: 'high' | 'medium' | 'low';
+  factors: RugFactor[];
+  metrics: {
+    earlyUniqueBuyers: number;
+    sameSlotGroupCount: number;
+    maxSameSlotBuyers: number;
+    txs5m?: number;
+    txs1h?: number;
+    buySellRatio5m?: number;
+    buySellRatio1h?: number;
+    volumeToLiquidity1h?: number;
+  };
+}
+
 //  Deployer / dev intel: the single biggest rug predictor
 export interface DeployerInfo {
   address: string;
@@ -167,6 +184,7 @@ export interface TokenResponse {
     behaviorallyClusteredWallets?: string[];
     supplyConcentration?: SupplyConcentration;
     rugScore?: RugScore;
+    botActivityScore?: BotActivityScore;
     cabalFingerprint?: CabalFingerprintResult;
   };
   tokenSecurity?: TokenSecurityInfo | null;
@@ -408,6 +426,7 @@ export interface ScanResponse {
     behaviorallyClusteredWallets?: string[];
     supplyConcentration?: SupplyConcentration;
     rugScore?: RugScore;
+    botActivityScore?: BotActivityScore;
     cabalFingerprint?: CabalFingerprintResult;
   };
   tokenSecurity?: TokenSecurityInfo | null;
@@ -502,6 +521,10 @@ export interface TokenMetadata {
   priceUsd?: number;
   priceChange24h?: number;
   volume24h?: number;
+  volume1h?: number;
+  volume5m?: number;
+  txns5m?: { buys: number; sells: number };
+  txns1h?: { buys: number; sells: number };
   marketCap?: number;
   liquidity?: number;
   fdv?: number;

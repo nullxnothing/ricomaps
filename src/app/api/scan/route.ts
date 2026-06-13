@@ -63,7 +63,8 @@ export async function POST(request: NextRequest) {
         result.stats as Record<string, unknown>,
         result.tokenSecurity,
         result.tokenMetadata,
-        result.deployerInfo
+        result.deployerInfo,
+        getTokenScanTtl(result.tokenMetadata?.launchTimestamp, result.stats.rugScore?.level, result.stats.botActivityScore?.level)
       ).catch(err => console.error('Cache store error:', err));
 
       return NextResponse.json<ScanResponse>({
@@ -100,4 +101,14 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     );
   }
+}
+
+function getTokenScanTtl(
+  launchTimestamp: number | undefined,
+  rugLevel: 'green' | 'yellow' | 'red' | undefined,
+  botLevel: 'green' | 'yellow' | 'red' | undefined,
+): number {
+  const ageSeconds = launchTimestamp ? Date.now() / 1000 - launchTimestamp : Infinity;
+  if (ageSeconds < 2 * 60 * 60 || rugLevel !== 'green' || botLevel !== 'green') return 30;
+  return 2 * 60 * 60;
 }

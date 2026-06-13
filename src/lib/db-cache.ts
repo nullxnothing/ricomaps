@@ -62,11 +62,15 @@ export async function getCachedTokenScan(address: string): Promise<CachedTokenSc
     }
 
     const row = result.rows[0];
+    const stats = row.stats || {};
+    if (!stats.botActivityScore) {
+      return null;
+    }
 
     return {
       address,
       data: row.data,
-      stats: row.stats || {},
+      stats,
       tokenSecurity: row.token_security,
       tokenMetadata: row.token_metadata,
       deployerInfo: row.deployer_info ?? null,
@@ -87,7 +91,8 @@ export async function setCachedTokenScan(
   stats: Record<string, unknown>,
   tokenSecurity: TokenSecurityInfo | null,
   tokenMetadata: TokenMetadata | null,
-  deployerInfo: DeployerInfo | null = null
+  deployerInfo: DeployerInfo | null = null,
+  ttlSeconds: number = CACHE_TTL_SECONDS,
 ): Promise<void> {
   if (!pool) return;
   try {
@@ -103,7 +108,7 @@ export async function setCachedTokenScan(
          deployer_info = $7,
          created_at = CURRENT_TIMESTAMP,
          expires_at = NOW() + make_interval(secs => $6)`,
-      [address, JSON.stringify(data), JSON.stringify(stats), JSON.stringify(tokenSecurity), JSON.stringify(tokenMetadata), CACHE_TTL_SECONDS, JSON.stringify(deployerInfo)]
+      [address, JSON.stringify(data), JSON.stringify(stats), JSON.stringify(tokenSecurity), JSON.stringify(tokenMetadata), ttlSeconds, JSON.stringify(deployerInfo)]
     );
   } catch (error) {
     console.error('[DB Cache] Set error:', error);
