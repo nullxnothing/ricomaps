@@ -76,6 +76,29 @@ app.get('/health', (_req, res) => {
   });
 });
 
+// One-shot duplicate-reply cleanup. GET = dry-run (lists groups, deletes
+// nothing); POST = execute. Secret-gated. Use to remove the duplicate replies
+// posted before the sinceId-persistence fix.
+app.all('/x-cleanup', async (req: Request, res: Response) => {
+  if (!INTERNAL_API_SECRET || req.header('x-internal-secret') !== INTERNAL_API_SECRET) {
+    res.status(401).json({ error: 'Unauthorized' });
+    return;
+  }
+  if (!xBot) {
+    res.status(503).json({ error: 'X bot not enabled' });
+    return;
+  }
+  const execute = req.method === 'POST';
+  try {
+    const result = await xBot.cleanupDuplicates({ execute });
+    const toDelete = result.groups.reduce((n, g) => n + g.deletable.length, 0);
+    res.json({ dryRun: !execute, dupGroups: result.groups.length, toDelete, ...result });
+  } catch (err) {
+    console.error('[x-cleanup] failed:', err);
+    res.status(500).json({ error: 'Cleanup failed' });
+  }
+});
+
 // Global atlas feed — pump.fun creates, graduations, cabal hits, rug events.
 app.get('/stream/atlas', (req: Request, res: Response) => {
   if (!atlas) {

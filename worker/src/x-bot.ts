@@ -126,6 +126,100 @@ export class XBot {
     return { mentionsHandled: this.mentionsHandled, repliesPosted: this.repliesPosted, sinceId: this.sinceId };
   }
 
+  /**
+   * Find and (optionally) delete duplicate replies the bot posted before the
+   * dedup fix: multiple replies to the same tweet. Keeps the newest reply in
+   * each group and removes the rest. Dry-run by default — pass execute:true to
+   * actually delete. Returns a per-group summary for confirmation.
+   */
+  async cleanupDuplicates(opts: { execute: boolean; maxPages?: number }): Promise<{
+    scanned: number; groups: { repliedTo: string; total: number; deletable: string[] }[];
+    deleted: string[]; failed: { id: string; status: number }[];
+  }> {
+    const tweets = await this.fetchRecentReplies(opts.maxPages ?? 3);
+
+    // Group the bot's replies by the tweet each one replies to.
+    const byParent = new Map<string, { id: string }[]>();
+    for (const t of tweets) {
+      if (!t.repliedTo) continue;
+      const arr = byParent.get(t.repliedTo) ?? [];
+      arr.push({ id: t.id });
+      byParent.set(t.repliedTo, arr);
+    }
+
+    // For each parent with >1 reply, keep the newest (highest snowflake id),
+    // mark the older ones for deletion.
+    const groups: { repliedTo: string; total: number; deletable: string[] }[] = [];
+    for (const [repliedTo, replies] of byParent) {
+      if (replies.length <= 1) continue;
+      const sorted = [...replies].sort((a, b) => (a.id < b.id ? 1 : -1)); // newest first
+      groups.push({ repliedTo, total: replies.length, deletable: sorted.slice(1).map(r => r.id) });
+    }
+
+    const deleted: string[] = [];
+    const failed: { id: string; status: number }[] = [];
+    if (opts.execute) {
+      for (const g of groups) {
+        for (const id of g.deletable) {
+          const status = await this.deleteTweet(id);
+          if (status === 200) deleted.push(id);
+          else failed.push({ id, status });
+        }
+      }
+    }
+    return { scanned: tweets.length, groups, deleted, failed };
+  }
+
+  /** Fetch the bot's recent tweets with their replied-to parent id. */
+  private async fetchRecentReplies(maxPages: number): Promise<{ id: string; repliedTo: string | null }[]> {
+    const out: { id: string; repliedTo: string | null }[] = [];
+    let paginationToken: string | undefined;
+    for (let page = 0; page < maxPages; page++) {
+      const url = new URL(`${X_API}/users/${this.cfg.userId}/tweets`);
+      url.searchParams.set('max_results', '100');
+      url.searchParams.set('tweet.fields', 'referenced_tweets,created_at');
+      if (paginationToken) url.searchParams.set('pagination_token', paginationToken);
+
+      const res = await fetch(url, {
+        headers: { Authorization: `Bearer ${this.cfg.bearerToken}` },
+        signal: AbortSignal.timeout(15_000),
+      });
+      if (!res.ok) {
+        console.error(`[x-bot] cleanup fetch failed: HTTP ${res.status} ${(await res.text()).slice(0, 200)}`);
+        break;
+      }
+      const body = await res.json() as {
+        data?: { id: string; referenced_tweets?: { type: string; id: string }[] }[];
+        meta?: { next_token?: string };
+      };
+      for (const t of body.data ?? []) {
+        const replied = t.referenced_tweets?.find(r => r.type === 'replied_to');
+        out.push({ id: t.id, repliedTo: replied?.id ?? null });
+      }
+      paginationToken = body.meta?.next_token;
+      if (!paginationToken) break;
+    }
+    return out;
+  }
+
+  /** Delete one tweet via the user token. Returns the HTTP status. */
+  private async deleteTweet(id: string): Promise<number> {
+    const token = await this.validAccessToken();
+    if (!token) return 401;
+    try {
+      const res = await fetch(`${X_API}/tweets/${id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+        signal: AbortSignal.timeout(15_000),
+      });
+      if (!res.ok) console.error(`[x-bot] delete ${id} failed: HTTP ${res.status} ${(await res.text()).slice(0, 150)}`);
+      return res.status;
+    } catch (err) {
+      console.error(`[x-bot] delete ${id} error:`, err);
+      return 0;
+    }
+  }
+
   /** Poll once; returns the delay (ms) before the next poll should run. */
   private async pollMentions(): Promise<number> {
     try {
