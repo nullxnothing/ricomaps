@@ -43,6 +43,19 @@ function weightedLength(line: string, mapUrl: string): number {
   return line.includes(mapUrl) ? line.length - mapUrl.length + URL_WEIGHT : line.length;
 }
 
+/**
+ * Compact UTC scan-freshness stamp ("as of 20:42:13Z"). Down to seconds so two
+ * replies with otherwise-identical card text never collide on X's duplicate-
+ * content block, which silently 403s repeat tweets.
+ */
+function stamp(): string {
+  const d = new Date();
+  const hh = String(d.getUTCHours()).padStart(2, '0');
+  const mm = String(d.getUTCMinutes()).padStart(2, '0');
+  const ss = String(d.getUTCSeconds()).padStart(2, '0');
+  return `as of ${hh}:${mm}:${ss}Z`;
+}
+
 // Tree connectors, mirroring the Telegram card so both channels read the same.
 const T = '├';
 const L = '└';
@@ -100,7 +113,10 @@ export function formatXReply(mint: string, result: ScanResultLike): string {
 
   // CTA: the map link trails after a blank line. X folds a trailing URL into its
   // link-preview card, so the "full map:" label keeps the text reading cleanly.
-  const ctaLine = `🔍 full map: ${mapUrl}`;
+  // A compact "as of HH:MM" stamp doubles as scan-freshness context AND keeps
+  // every reply unique — X 403s any tweet whose text exactly duplicates a recent
+  // one, which silently killed replies when two tokens produced the same card.
+  const ctaLine = `🔍 full map: ${mapUrl}  ·  ${stamp()}`;
 
   // Assemble within budget. Reserve header + blank + CTA up front, then add body
   // rows top-down while they fit (each costs +2 for the connector prefix + \n).

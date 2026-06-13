@@ -154,12 +154,17 @@ export class XBot {
       // Oldest first so replies land in chronological order.
       for (const tweet of [...tweets].reverse()) {
         if (this.seen.has(tweet.id)) continue;
+        const mint = this.extractMint(tweet.text);
+        // No CA in the tweet — mark seen so we never look at it again.
+        if (!mint) { this.seen.add(tweet.id); this.boundSeen(); continue; }
+        this.mentionsHandled++;
+        // Mark seen optimistically to avoid double-replying while in flight, but
+        // roll back on a transient failure (scan/post error) so the next poll
+        // retries. A duplicate-content 403 or notToken is a permanent skip.
         this.seen.add(tweet.id);
         this.boundSeen();
-        const mint = this.extractMint(tweet.text);
-        if (!mint) continue;
-        this.mentionsHandled++;
-        await this.handleMention(tweet.id, mint);
+        const outcome = await this.handleMention(tweet.id, mint);
+        if (outcome === 'retry') this.seen.delete(tweet.id);
       }
 
       return this.nextPollDelay(res);
@@ -197,7 +202,13 @@ export class XBot {
     return null;
   }
 
-  private async handleMention(tweetId: string, mint: string): Promise<void> {
+  /**
+   * Scan a mint and reply. Returns 'retry' for transient failures (scan down,
+   * post error) so the caller un-marks the tweet and the next poll tries again;
+   * 'done' when there's nothing more to do (replied, not a token, or a permanent
+   * reject like duplicate content).
+   */
+  private async handleMention(tweetId: string, mint: string): Promise<'done' | 'retry'> {
     let text: string;
     try {
       const res = await fetch(`${this.cfg.appUrl}/api/internal/x-scan`, {
@@ -208,23 +219,23 @@ export class XBot {
       });
       if (!res.ok) {
         console.error(`[x-bot] x-scan failed for ${mint}: HTTP ${res.status}`);
-        return;
+        return 'retry'; // app hiccup — try again next poll
       }
       const body = await res.json() as { success?: boolean; text?: string; notToken?: boolean };
-      // No text => not a token CA (e.g. a wallet address) or scan unavailable. Skip the reply.
-      if (!body.success || !body.text) return;
+      // No text => not a token CA (e.g. a wallet) or scan unavailable. Don't retry.
+      if (!body.success || !body.text) return 'done';
       text = body.text;
     } catch (err) {
       console.error(`[x-bot] x-scan error for ${mint}:`, err);
-      return;
+      return 'retry';
     }
-    await this.postReply(tweetId, text);
+    return this.postReply(tweetId, text);
   }
 
-  private async postReply(inReplyToTweetId: string, text: string): Promise<void> {
+  private async postReply(inReplyToTweetId: string, text: string): Promise<'done' | 'retry'> {
     try {
       const token = await this.validAccessToken();
-      if (!token) return;
+      if (!token) return 'retry'; // no usable token now (refresh backoff) — retry later
       const res = await fetch(`${X_API}/tweets`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
@@ -233,11 +244,16 @@ export class XBot {
       });
       if (res.ok) {
         this.repliesPosted++;
-        return;
+        return 'done';
       }
-      console.error(`[x-bot] reply failed for ${inReplyToTweetId}: HTTP ${res.status} ${await res.text()}`);
+      const detail = await res.text().catch(() => '');
+      console.error(`[x-bot] reply failed for ${inReplyToTweetId}: HTTP ${res.status} ${detail}`);
+      // 429/5xx are transient → retry. 4xx (dup content, bad request, auth) are
+      // permanent for this exact text → done, so we don't loop on it forever.
+      return (res.status === 429 || res.status >= 500) ? 'retry' : 'done';
     } catch (err) {
       console.error(`[x-bot] reply error for ${inReplyToTweetId}:`, err);
+      return 'retry';
     }
   }
 
