@@ -9,10 +9,11 @@ const X_API = 'https://api.x.com/2';
 const X_TOKEN_URL = 'https://api.x.com/2/oauth2/token';
 // Base cadence between mention polls. Lower = faster replies but more reads;
 // the adaptive backoff below stretches this automatically when X says we're
-// running low on the rate-limit window, so 15s is safe to default.
-const POLL_INTERVAL_MS = Number(process.env.X_POLL_INTERVAL_MS ?? 15_000);
+// running low on the rate-limit window, so a tight 5s is safe to default —
+// ~2.5s avg reply latency, the closest to "instant" polling can get.
+const POLL_INTERVAL_MS = Number(process.env.X_POLL_INTERVAL_MS ?? 5_000);
 // Never poll faster than this even if the window looks healthy.
-const MIN_POLL_INTERVAL_MS = 5_000;
+const MIN_POLL_INTERVAL_MS = 4_000;
 // When the mentions window has few requests left, slow down. If remaining drops
 // to/below this, the next poll waits until the window resets instead of racing
 // into a 429.
