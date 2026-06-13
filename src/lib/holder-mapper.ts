@@ -627,6 +627,7 @@ export async function mapTokenHolders(mintAddress: string, options: MapOptions =
     mintEarlyTxs,
     tokenMetadata,
     top10Pct: supplyConcentration.top10Pct,
+    bundleClustersDetected: bundleClusters.length,
   });
   const rugScore = mergeEntryRiskScore(holderRugScore, botActivityScore);
 

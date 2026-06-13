@@ -16,6 +16,13 @@ interface BotActivityInput {
   mintEarlyTxs: ParsedMintTx[];
   tokenMetadata: TokenMetadata | null;
   top10Pct: number;
+  /**
+   * Bundles confirmed by bundle-detector.ts (shared funder, or a tight cluster
+   * that isn't launch noise). This is the ONLY same-slot coordination signal we
+   * trust: raw same-slot co-occurrence is just Solana batching independent txns
+   * into one ~400ms slot, not evidence of botting.
+   */
+  bundleClustersDetected: number;
 }
 
 interface Signal {
@@ -31,9 +38,12 @@ export function computeBotActivityScore({
   mintEarlyTxs,
   tokenMetadata,
   top10Pct,
+  bundleClustersDetected,
 }: BotActivityInput): BotActivityScore {
   const factors: RugFactor[] = [];
   const signals: Signal[] = [];
+  // Slot groups are kept for METRICS/context only — they no longer drive scoring.
+  // Same-slot co-occurrence isn't coordination (a slot batches independent txns).
   const slotGroups = getEarlySlotGroups(mintAddress, mintEarlyTxs);
   const sameSlotGroupCount = slotGroups.filter(group => group.wallets >= 2).length;
   const maxSameSlotBuyers = Math.max(0, ...slotGroups.map(group => group.wallets));
@@ -47,15 +57,16 @@ export function computeBotActivityScore({
     ? tokenMetadata.volume1h / tokenMetadata.liquidity
     : undefined;
 
-  if (maxSameSlotBuyers >= 6) {
+  // Coordination signal: ONLY confirmed bundles (shared funder / tight non-noise
+  // cluster) from bundle-detector.ts. Raw same-slot co-occurrence scores zero.
+  if (bundleClustersDetected >= 3) {
     signals.push({
-      factor: { label: `Launch cluster: ${maxSameSlotBuyers} buyers in one slot`, severity: 'critical', points: 28 },
+      factor: { label: `${bundleClustersDetected} coordinated bundle clusters`, severity: 'critical', points: 28 },
       strong: true,
     });
-  }
-  if (sameSlotGroupCount >= 8) {
+  } else if (bundleClustersDetected >= 1) {
     signals.push({
-      factor: { label: `${sameSlotGroupCount} repeated same-slot buyer clusters`, severity: 'high', points: 22 },
+      factor: { label: `${bundleClustersDetected} coordinated bundle cluster${bundleClustersDetected === 1 ? '' : 's'}`, severity: 'high', points: 18 },
       strong: true,
     });
   }

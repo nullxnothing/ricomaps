@@ -1,0 +1,971 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; height: 100%; background: #050508; overscroll-behavior: none; }
+  body { font-family: 'Inter', system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #1c1c28; border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: #2a2a3a; }
+  ::selection { background: rgba(0,255,65,0.18); color: #fff; }
+  @keyframes rm-pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.35;transform:scale(.82)} }
+  @keyframes rm-slide { from{opacity:0;transform:translateY(10px)} to{opacity:1;transform:translateY(0)} }
+  @keyframes rm-tickin { from{opacity:0;transform:translateX(-8px)} to{opacity:1;transform:translateX(0)} }
+  @keyframes rm-spin { to { transform: rotate(360deg); } }
+  .rm-scroll { scrollbar-width: thin; scrollbar-color: #1c1c28 transparent; }
+  .rm-tap { cursor: pointer; transition: all .14s ease; }
+</style>
+</helmet>
+
+<div style="width:100vw;height:100vh;overflow:hidden;display:flex;flex-direction:column;background:#050508;color:#f0f0f0;font-family:'Inter',sans-serif;position:relative">
+
+  <!-- ===================== TOP BAR ===================== -->
+  <header style="height:58px;flex-shrink:0;display:flex;align-items:center;gap:16px;padding:0 16px;background:#09090e;border-bottom:1px solid #1c1c28;position:relative;z-index:30">
+    <div style="display:flex;align-items:center;gap:12px;flex-shrink:0">
+      <button class="rm-tap" style="width:36px;height:36px;display:flex;align-items:center;justify-content:center;background:#0d0d14;border:1px solid #1c1c28;border-radius:9px;color:#8a8a8a" onMouseOver="{{ hoverBtn }}" onMouseOut="{{ unhoverBtn }}" title="Back">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+      </button>
+      <div style="display:flex;align-items:center;gap:9px;user-select:none">
+        <span style="width:30px;height:30px;display:flex;align-items:center;justify-content:center;border-radius:9px;background:radial-gradient(circle at 50% 40%, rgba(0,255,65,0.16), rgba(0,255,65,0.02));border:1px solid rgba(0,255,65,0.25)">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#00FF41" stroke-width="1.6"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3.4" fill="#00FF41" stroke="none"/><path d="M12 1.5v4M12 18.5v4M1.5 12h4M18.5 12h4"/></svg>
+        </span>
+        <span style="font-size:15px;font-weight:700;letter-spacing:-0.02em">RicoMaps</span>
+      </div>
+    </div>
+
+    <div style="flex:1;max-width:540px;margin:0 auto;display:flex;align-items:center;gap:8px;background:#0d0d14;border:1px solid #1c1c28;border-radius:10px;padding:5px 6px 5px 14px">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#8a8a8a" stroke-width="2" style="flex-shrink:0"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+      <input placeholder="Search token or wallet address…" spellcheck="false" style="flex:1;background:transparent;border:none;outline:none;color:#f0f0f0;font-family:'JetBrains Mono',monospace;font-size:13px;min-width:0" />
+      <button class="rm-tap" style="display:flex;align-items:center;gap:6px;padding:7px 16px;background:linear-gradient(180deg,#0dff4a,#00d836);border:none;border-radius:7px;color:#03100a;font-weight:700;font-size:12.5px;font-family:'JetBrains Mono',monospace;letter-spacing:0.02em" onMouseOver="{{ hoverScan }}" onMouseOut="{{ unhoverScan }}">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+        Scan
+      </button>
+    </div>
+
+    <div style="display:flex;align-items:center;gap:10px;flex-shrink:0">
+      <div style="display:flex;background:#0d0d14;border:1px solid #1c1c28;border-radius:9px;padding:3px;gap:2px">
+        <button class="rm-tap" style="{{ tokenTabStyle }}" onClick="{{ goToken }}">Token Map</button>
+        <button class="rm-tap" style="{{ atlasTabStyle }}" onClick="{{ goAtlas }}">Atlas</button>
+      </div>
+      <button class="rm-tap" style="width:36px;height:36px;display:flex;align-items:center;justify-content:center;background:#0d0d14;border:1px solid #1c1c28;border-radius:9px;color:#8a8a8a" title="Share" onMouseOver="{{ hoverBtn }}" onMouseOut="{{ unhoverBtn }}">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="M8.6 13.5l6.8 4M15.4 6.5l-6.8 4"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- ===================== BODY ROW ===================== -->
+  <div style="flex:1;min-height:0;display:flex;position:relative">
+
+    <!-- ============ LEFT: IDENTITY RAIL (token) ============ -->
+    <sc-if value="{{ isToken }}" hint-placeholder-val="{{ true }}">
+    <aside class="rm-scroll" style="width:308px;flex-shrink:0;background:#09090e;border-right:1px solid #1c1c28;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:14px;z-index:20">
+
+      <!-- token header -->
+      <div style="display:flex;align-items:center;gap:11px">
+        <div style="width:46px;height:46px;border-radius:12px;flex-shrink:0;display:flex;align-items:center;justify-content:center;background:radial-gradient(circle at 50% 35%,#16361f,#0a1810);border:1px solid rgba(0,255,65,0.22);font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:700;color:#00FF41">SPCX</div>
+        <div style="min-width:0">
+          <div style="font-size:17px;font-weight:700;letter-spacing:-0.01em;line-height:1.1">SPCX69</div>
+          <div style="font-size:12px;color:#8a8a8a;font-family:'JetBrains Mono',monospace;margin-top:1px">$SPCX69</div>
+        </div>
+      </div>
+
+      <!-- authority badges -->
+      <div style="display:flex;flex-wrap:wrap;gap:6px">
+        <span style="font-size:10px;font-weight:700;font-family:'JetBrains Mono',monospace;padding:3px 8px;border-radius:5px;color:#00FF41;background:rgba(0,255,65,0.08);border:1px solid rgba(0,255,65,0.18)">RUG 24</span>
+        <span style="font-size:10px;font-weight:600;font-family:'JetBrains Mono',monospace;padding:3px 8px;border-radius:5px;color:#00FF41;background:rgba(0,255,65,0.06);border:1px solid rgba(0,255,65,0.14)">No Freeze</span>
+        <span style="font-size:10px;font-weight:600;font-family:'JetBrains Mono',monospace;padding:3px 8px;border-radius:5px;color:#00FF41;background:rgba(0,255,65,0.06);border:1px solid rgba(0,255,65,0.14)">No Mint</span>
+        <span style="font-size:10px;font-weight:600;font-family:'JetBrains Mono',monospace;padding:3px 8px;border-radius:5px;color:#f59e0b;background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.18)">Mutable</span>
+      </div>
+
+      <!-- price -->
+      <div style="background:#0d0d14;border:1px solid #1c1c28;border-radius:11px;padding:13px 14px">
+        <div style="font-size:9.5px;font-weight:700;letter-spacing:0.14em;color:#8a8a8a;font-family:'JetBrains Mono',monospace;margin-bottom:5px">PRICE</div>
+        <div style="display:flex;align-items:baseline;gap:9px">
+          <span style="font-size:21px;font-weight:700;font-family:'JetBrains Mono',monospace;letter-spacing:-0.01em">$6.09e-4</span>
+          <span style="font-size:12.5px;font-weight:700;font-family:'JetBrains Mono',monospace;color:#00FF41">+83.7%</span>
+        </div>
+      </div>
+
+      <!-- market grid -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <div style="background:#0d0d14;border:1px solid #1c1c28;border-radius:9px;padding:10px 11px">
+          <div style="font-size:9.5px;letter-spacing:0.08em;color:#8a8a8a;font-family:'JetBrains Mono',monospace">MKT CAP</div>
+          <div style="font-size:14px;font-weight:600;font-family:'JetBrains Mono',monospace;margin-top:4px">$609.3K</div>
+        </div>
+        <div style="background:#0d0d14;border:1px solid #1c1c28;border-radius:9px;padding:10px 11px">
+          <div style="font-size:9.5px;letter-spacing:0.08em;color:#8a8a8a;font-family:'JetBrains Mono',monospace">VOL 24H</div>
+          <div style="font-size:14px;font-weight:600;font-family:'JetBrains Mono',monospace;margin-top:4px">$1.47M</div>
+        </div>
+        <div style="background:#0d0d14;border:1px solid #1c1c28;border-radius:9px;padding:10px 11px">
+          <div style="font-size:9.5px;letter-spacing:0.08em;color:#8a8a8a;font-family:'JetBrains Mono',monospace">LIQUIDITY</div>
+          <div style="font-size:14px;font-weight:600;font-family:'JetBrains Mono',monospace;margin-top:4px">$58.3K</div>
+        </div>
+        <div style="background:#0d0d14;border:1px solid #1c1c28;border-radius:9px;padding:10px 11px">
+          <div style="font-size:9.5px;letter-spacing:0.08em;color:#8a8a8a;font-family:'JetBrains Mono',monospace">FDV</div>
+          <div style="font-size:14px;font-weight:600;font-family:'JetBrains Mono',monospace;margin-top:4px">$609.3K</div>
+        </div>
+      </div>
+
+      <!-- description -->
+      <p style="font-size:11.5px;line-height:1.65;color:#8a8a8a;margin:0">$SPCX69 — where Elon's legendary 69 obsession collides with his SpaceX moonshot empire.</p>
+
+      <!-- contract -->
+      <button class="rm-tap" style="display:flex;align-items:center;justify-content:space-between;width:100%;padding:9px 11px;background:#0d0d14;border:1px solid #1c1c28;border-radius:9px;color:#8a8a8a" onMouseOver="{{ hoverRow }}" onMouseOut="{{ unhoverRow }}">
+        <span style="font-size:11.5px;font-family:'JetBrains Mono',monospace">SPCXwB…a53N69</span>
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+      </button>
+
+      <!-- socials -->
+      <div style="display:flex;gap:7px">
+        <a class="rm-tap" style="width:34px;height:34px;display:flex;align-items:center;justify-content:center;border-radius:8px;background:#0d0d14;border:1px solid #1c1c28;color:#8a8a8a" onMouseOver="{{ hoverBtn }}" onMouseOut="{{ unhoverBtn }}" title="Website"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15 15 0 010 20M12 2a15 15 0 000 20"/></svg></a>
+        <a class="rm-tap" style="width:34px;height:34px;display:flex;align-items:center;justify-content:center;border-radius:8px;background:#0d0d14;border:1px solid #1c1c28;color:#8a8a8a" onMouseOver="{{ hoverBtn }}" onMouseOut="{{ unhoverBtn }}" title="X"><svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M18.24 2.25h3.31l-7.23 8.26 8.5 11.24h-6.66l-4.71-6.23-5.4 6.23H2.74l7.73-8.84L1.25 2.25H8.08l4.25 5.62zm-1.16 17.52h1.83L7.08 4.13H5.12z"/></svg></a>
+        <a class="rm-tap" style="width:34px;height:34px;display:flex;align-items:center;justify-content:center;border-radius:8px;background:#0d0d14;border:1px solid #1c1c28;color:#8a8a8a" onMouseOver="{{ hoverBtn }}" onMouseOut="{{ unhoverBtn }}" title="Telegram"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M11.94 0A12 12 0 000 12a12 12 0 0012 12 12 12 0 0012-12A12 12 0 0012 0zm4.96 7.22c.1 0 .32.02.46.14a.5.5 0 01.17.33c.02.09.04.3.02.47-.18 1.9-.96 6.5-1.36 8.63-.17.9-.5 1.2-.82 1.23-.7.06-1.23-.46-1.9-.9-1.06-.7-1.65-1.12-2.68-1.8-1.19-.78-.42-1.21.26-1.91.17-.18 3.25-2.98 3.3-3.23.01-.03.01-.15-.05-.21-.07-.06-.17-.04-.25-.02-.1.02-1.79 1.14-5.06 3.34-.48.33-.91.49-1.3.48-.43-.01-1.25-.24-1.86-.44-.75-.24-1.35-.37-1.3-.79.03-.21.33-.43.9-.66 3.5-1.52 5.83-2.53 7-3.01 3.33-1.39 4.02-1.63 4.47-1.64z"/></svg></a>
+        <a class="rm-tap" style="width:34px;height:34px;display:flex;align-items:center;justify-content:center;border-radius:8px;background:#0d0d14;border:1px solid #1c1c28;color:#8a8a8a" onMouseOver="{{ hoverBtn }}" onMouseOut="{{ unhoverBtn }}" title="Chart"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg></a>
+      </div>
+    </aside>
+    </sc-if>
+
+    <!-- ============ LEFT: ATLAS HUD ============ -->
+    <sc-if value="{{ isAtlas }}" hint-placeholder-val="{{ true }}">
+    <aside style="width:250px;flex-shrink:0;background:#09090e;border-right:1px solid #1c1c28;padding:16px;display:flex;flex-direction:column;gap:14px;z-index:20">
+      <div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="width:8px;height:8px;border-radius:50%;background:#00FF41;box-shadow:0 0 10px #00FF41;animation:rm-pulse 2s ease-in-out infinite"></span>
+          <span style="font-size:10px;font-weight:700;letter-spacing:0.16em;color:#00FF41;font-family:'JetBrains Mono',monospace">LIVE CABAL MAP</span>
+        </div>
+        <p style="font-size:11.5px;line-height:1.6;color:#8a8a8a;margin:8px 0 0">Every active crew on pump.fun — launches, graduations, coordinated buys, and rugs as they happen.</p>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <div style="background:#0d0d14;border:1px solid #1c1c28;border-radius:9px;padding:11px 12px">
+          <div style="font-size:9.5px;letter-spacing:0.08em;color:#8a8a8a;font-family:'JetBrains Mono',monospace">ACTIVE CREWS</div>
+          <div style="font-size:20px;font-weight:700;font-family:'JetBrains Mono',monospace;margin-top:3px">21</div>
+        </div>
+        <div style="background:#0d0d14;border:1px solid #1c1c28;border-radius:9px;padding:11px 12px">
+          <div style="font-size:9.5px;letter-spacing:0.08em;color:#8a8a8a;font-family:'JetBrains Mono',monospace">TOKENS</div>
+          <div style="font-size:20px;font-weight:700;font-family:'JetBrains Mono',monospace;margin-top:3px">148</div>
+        </div>
+        <div style="background:#0d0d14;border:1px solid #1c1c28;border-radius:9px;padding:11px 12px">
+          <div style="font-size:9.5px;letter-spacing:0.08em;color:#8a8a8a;font-family:'JetBrains Mono',monospace">RUGS TODAY</div>
+          <div style="font-size:20px;font-weight:700;font-family:'JetBrains Mono',monospace;margin-top:3px;color:#ef4444">7</div>
+        </div>
+        <div style="background:#0d0d14;border:1px solid #1c1c28;border-radius:9px;padding:11px 12px">
+          <div style="font-size:9.5px;letter-spacing:0.08em;color:#8a8a8a;font-family:'JetBrains Mono',monospace">EXTRACTED</div>
+          <div style="font-size:20px;font-weight:700;font-family:'JetBrains Mono',monospace;margin-top:3px;color:#f59e0b">$4.2M</div>
+        </div>
+      </div>
+      <div style="font-size:10px;color:#8a8a8a;font-family:'JetBrains Mono',monospace;line-height:1.7;padding:11px 12px;background:#0d0d14;border:1px solid #1c1c28;border-radius:9px">
+        Crews are fingerprinted across launches by shared funding wallets. Click a crew node to open its dossier.
+      </div>
+    </aside>
+    </sc-if>
+
+    <!-- ============ CENTER: GRAPH ============ -->
+    <main style="flex:1;position:relative;min-width:0;overflow:hidden;background:#050508;background-image:linear-gradient(rgba(255,255,255,0.018) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,0.018) 1px,transparent 1px);background-size:58px 58px">
+      <canvas ref="{{ canvasRef }}" style="position:absolute;inset:0;width:100%;height:100%;display:block"></canvas>
+
+      <!-- legend (token) -->
+      <sc-if value="{{ isToken }}" hint-placeholder-val="{{ true }}">
+      <div style="position:absolute;top:14px;left:14px;z-index:10;display:flex;flex-direction:column;gap:6px;padding:11px 13px;background:rgba(9,9,14,0.72);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border:1px solid rgba(255,255,255,0.06);border-radius:10px">
+        <div style="font-size:9px;font-weight:700;letter-spacing:0.14em;color:#8a8a8a;font-family:'JetBrains Mono',monospace;margin-bottom:1px">LEGEND</div>
+        <div style="display:flex;align-items:center;gap:7px;font-size:11px;color:#b8b8b8">
+          <span style="display:flex;gap:2px"><span style="width:9px;height:9px;border-radius:50%;background:#a78bfa"></span><span style="width:9px;height:9px;border-radius:50%;background:#60a5fa"></span><span style="width:9px;height:9px;border-radius:50%;background:#f472b6"></span></span>Bundle <span style="color:#8a8a8a">· each colour = 1 crew</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:7px;font-size:11px;color:#b8b8b8"><span style="width:9px;height:9px;border-radius:50%;background:#00FF41"></span>Lone holder</div>
+        <div style="display:flex;align-items:center;gap:7px;font-size:11px;color:#b8b8b8"><span style="width:9px;height:9px;border-radius:50%;background:#22d3ee"></span>Sniper</div>
+        <div style="display:flex;align-items:center;gap:7px;font-size:11px;color:#b8b8b8"><span style="width:9px;height:9px;border-radius:50%;background:#9aa3b2"></span>Liquidity pool</div>
+        <div style="display:flex;align-items:center;gap:7px;font-size:11px;color:#b8b8b8"><span style="width:9px;height:9px;border-radius:50%;background:#00FF41;box-shadow:0 0 6px #00FF41"></span>Token</div>
+        <div style="font-size:9.5px;color:#5a5a68;margin-top:2px;line-height:1.4">Bigger node in a clump = the funder wallet</div>
+      </div>
+      </sc-if>
+
+      <!-- ATLAS ticker (bottom-left) -->
+      <sc-if value="{{ isAtlas }}" hint-placeholder-val="{{ true }}">
+      <div class="rm-scroll" style="position:absolute;bottom:14px;left:14px;z-index:10;width:236px;max-height:216px;overflow:hidden;background:rgba(9,9,14,0.66);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:1px solid rgba(255,255,255,0.06);border-radius:11px">
+        <div style="display:flex;align-items:center;gap:7px;padding:9px 12px;border-bottom:1px solid #1c1c28">
+          <span style="width:6px;height:6px;border-radius:50%;background:#00FF41;animation:rm-pulse 2s ease-in-out infinite"></span>
+          <span style="font-size:9.5px;font-weight:700;letter-spacing:0.14em;color:#8a8a8a;font-family:'JetBrains Mono',monospace">LIVE FEED</span>
+        </div>
+        <div style="max-height:168px;overflow-y:auto">
+          <sc-for list="{{ ticker }}" as="ev" hint-placeholder-count="0">
+            <div style="display:flex;align-items:center;gap:9px;padding:8px 13px;border-bottom:1px solid rgba(28,28,40,0.6);animation:rm-tickin .35s ease-out">
+              <span style="width:7px;height:7px;border-radius:50%;flex-shrink:0;background:{{ ev.color }}"></span>
+              <div style="min-width:0;flex:1">
+                <div style="font-size:11.5px;font-weight:600;font-family:'JetBrains Mono',monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ ev.text }}</div>
+                <div style="font-size:10px;color:#8a8a8a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ ev.sub }}</div>
+              </div>
+              <span style="font-size:9px;letter-spacing:0.1em;text-transform:uppercase;font-family:'JetBrains Mono',monospace;color:{{ ev.color }};flex-shrink:0">{{ ev.kind }}</span>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+      </sc-if>
+
+      <!-- hint -->
+      <div style="position:absolute;top:16px;right:16px;z-index:10;font-size:9.5px;letter-spacing:0.1em;text-transform:uppercase;font-family:'JetBrains Mono',monospace;color:#5a5a68;pointer-events:none;white-space:nowrap">drag bubbles · scroll to zoom</div>
+
+      <!-- node detail panel (token) -->
+      <sc-if value="{{ selectedNode }}" hint-placeholder-val="{{ false }}">
+      <div style="position:absolute;bottom:78px;left:14px;z-index:15;width:264px;background:rgba(9,9,14,0.92);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border:1px solid rgba(255,255,255,0.08);border-radius:12px;box-shadow:0 12px 40px rgba(0,0,0,0.55);animation:rm-slide .2s ease-out;overflow:hidden">
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-bottom:1px solid #1c1c28">
+          <div style="display:flex;align-items:center;gap:8px">
+            <span style="width:10px;height:10px;border-radius:50%;background:{{ selColor }}"></span>
+            <span style="font-size:11px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;font-family:'JetBrains Mono',monospace;color:{{ selColor }}">{{ selType }}</span>
+          </div>
+          <button class="rm-tap" style="width:24px;height:24px;display:flex;align-items:center;justify-content:center;border-radius:6px;background:transparent;border:none;color:#8a8a8a" onClick="{{ closeDetail }}">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+          </button>
+        </div>
+        <div style="padding:13px 14px;display:flex;flex-direction:column;gap:11px">
+          <div style="display:flex;align-items:center;justify-content:space-between">
+            <span style="font-size:11px;color:#8a8a8a;font-family:'JetBrains Mono',monospace">{{ selAddr }}</span>
+            <span style="font-size:9px;color:#8a8a8a;font-family:'JetBrains Mono',monospace">copy</span>
+          </div>
+          <div style="display:flex;gap:8px">
+            <div style="flex:1;background:#0d0d14;border:1px solid #1c1c28;border-radius:8px;padding:9px 10px">
+              <div style="font-size:9px;letter-spacing:0.08em;color:#8a8a8a;font-family:'JetBrains Mono',monospace">SUPPLY</div>
+              <div style="font-size:15px;font-weight:700;font-family:'JetBrains Mono',monospace;margin-top:2px;color:{{ selColor }}">{{ selPct }}</div>
+            </div>
+            <div style="flex:1;background:#0d0d14;border:1px solid #1c1c28;border-radius:8px;padding:9px 10px">
+              <div style="font-size:9px;letter-spacing:0.08em;color:#8a8a8a;font-family:'JetBrains Mono',monospace">FUNDED BY</div>
+              <div style="font-size:15px;font-weight:700;font-family:'JetBrains Mono',monospace;margin-top:2px">{{ selFunders }}</div>
+            </div>
+          </div>
+          <div style="display:flex;gap:7px">
+            <button class="rm-tap" style="flex:1;display:flex;align-items:center;justify-content:center;gap:6px;padding:8px;background:rgba(0,255,65,0.1);border:1px solid rgba(0,255,65,0.22);border-radius:7px;color:#00FF41;font-size:11.5px;font-weight:600" onClick="{{ traceFunders }}">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 17L17 7M17 7H8M17 7v9"/></svg>Trace funders
+            </button>
+            <button class="rm-tap" style="display:flex;align-items:center;justify-content:center;padding:8px 12px;background:#0d0d14;border:1px solid #1c1c28;border-radius:7px;color:#8a8a8a;font-size:11.5px;font-weight:600">Solscan</button>
+          </div>
+        </div>
+      </div>
+      </sc-if>
+
+      <!-- AI read panel (token) -->
+      <sc-if value="{{ aiOpen }}" hint-placeholder-val="{{ false }}">
+      <div style="position:absolute;bottom:78px;left:50%;transform:translateX(-50%);z-index:16;width:440px;max-width:calc(100% - 32px);background:rgba(9,9,14,0.94);backdrop-filter:blur(22px);-webkit-backdrop-filter:blur(22px);border:1px solid rgba(0,255,65,0.18);border-radius:13px;box-shadow:0 16px 48px rgba(0,0,0,0.6);animation:rm-slide .2s ease-out;overflow:hidden">
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:13px 15px;border-bottom:1px solid #1c1c28">
+          <div style="display:flex;align-items:center;gap:8px">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#00FF41" stroke-width="1.8"><path d="M12 2l2.4 5.6L20 10l-5.6 2.4L12 18l-2.4-5.6L4 10l5.6-2.4z"/></svg>
+            <span style="font-size:11px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;font-family:'JetBrains Mono',monospace;color:#00FF41">AI read of this graph</span>
+          </div>
+          <button class="rm-tap" style="width:24px;height:24px;display:flex;align-items:center;justify-content:center;border-radius:6px;background:transparent;border:none;color:#8a8a8a" onClick="{{ closeAi }}">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+          </button>
+        </div>
+        <div style="padding:14px 15px;font-size:12.5px;line-height:1.72;color:#b8b8b8">
+          <p style="margin:0 0 10px">This map reads <strong style="color:#f0f0f0">low risk</strong>. The largest non-pool node is a single <span style="color:#a78bfa">bundled wallet at 3.5%</span>, and bundled supply totals just <strong style="color:#f0f0f0">5.6%</strong> — far below the threshold where a coordinated exit can move price alone.</p>
+          <p style="margin:0 0 10px"><strong style="color:#f0f0f0">94.7% of holders are fresh wallets</strong> with an even spread (0.07), so there's no obvious insider cluster hoarding supply. Snipers hold 5.0%, which is normal for a launch this size.</p>
+          <p style="margin:0;color:#8a8a8a">Caveat: only <span style="color:#f59e0b">11.8% of supply is covered</span> by the top 19 visible holders — treat the concentration figures as a floor, not a ceiling.</p>
+        </div>
+      </div>
+      </sc-if>
+
+      <!-- CONTROL DOCK (token) -->
+      <sc-if value="{{ isToken }}" hint-placeholder-val="{{ true }}">
+      <div style="position:absolute;bottom:16px;left:50%;transform:translateX(-50%);z-index:18;display:flex;align-items:center;gap:4px;padding:6px;background:rgba(9,9,14,0.86);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border:1px solid rgba(255,255,255,0.07);border-radius:13px;box-shadow:0 10px 36px rgba(0,0,0,0.5)">
+        <button class="rm-tap" style="{{ liveBtnStyle }}" onClick="{{ toggleLive }}">
+          <span style="width:8px;height:8px;border-radius:50%;background:{{ liveDotColor }};box-shadow:{{ liveDotGlow }};{{ liveDotAnim }}"></span>
+          {{ liveLabel }}
+        </button>
+        <button class="rm-tap" style="display:flex;align-items:center;gap:6px;padding:8px 12px;background:transparent;border:none;border-radius:8px;color:#b8b8b8;font-size:12px;font-weight:600;font-family:'JetBrains Mono',monospace;white-space:nowrap;flex-shrink:0" onClick="{{ toggleAi }}" onMouseOver="{{ hoverDock }}" onMouseOut="{{ unhoverDock }}">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#00FF41" stroke-width="1.8"><path d="M12 2l2.4 5.6L20 10l-5.6 2.4L12 18l-2.4-5.6L4 10l5.6-2.4z"/></svg>AI read
+        </button>
+        <span style="width:1px;height:22px;background:#1c1c28;margin:0 2px"></span>
+        <button class="rm-tap" style="{{ heatBtnStyle }}" onClick="{{ toggleHeat }}">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M8 2v3M12 2v3M16 2v3M4 9h16v9a2 2 0 01-2 2H6a2 2 0 01-2-2z"/></svg>Heatmap
+        </button>
+        <button class="rm-tap" style="{{ clusterBtnStyle }}" onClick="{{ toggleClusters }}">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="7" cy="7" r="3"/><circle cx="17" cy="8" r="2.5"/><circle cx="9" cy="17" r="2.5"/><path d="M9.5 9l5 -.5M9 14l-1-4M11 16l4-6"/></svg>Clusters
+        </button>
+        <span style="width:1px;height:22px;background:#1c1c28;margin:0 2px"></span>
+        <button class="rm-tap" style="width:34px;height:34px;display:flex;align-items:center;justify-content:center;border-radius:8px;background:transparent;border:none;color:#b8b8b8" onClick="{{ zoomOut }}" onMouseOver="{{ hoverDock }}" onMouseOut="{{ unhoverDock }}" title="Zoom out"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"/></svg></button>
+        <span style="font-size:11px;font-family:'JetBrains Mono',monospace;color:#8a8a8a;min-width:38px;text-align:center">{{ zoomPct }}%</span>
+        <button class="rm-tap" style="width:34px;height:34px;display:flex;align-items:center;justify-content:center;border-radius:8px;background:transparent;border:none;color:#b8b8b8" onClick="{{ zoomIn }}" onMouseOver="{{ hoverDock }}" onMouseOut="{{ unhoverDock }}" title="Zoom in"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg></button>
+        <button class="rm-tap" style="width:34px;height:34px;display:flex;align-items:center;justify-content:center;border-radius:8px;background:transparent;border:none;color:#b8b8b8" onClick="{{ fitView }}" onMouseOver="{{ hoverDock }}" onMouseOut="{{ unhoverDock }}" title="Fit"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg></button>
+        <span style="width:1px;height:22px;background:#1c1c28;margin:0 2px"></span>
+        <button class="rm-tap" style="padding:8px 11px;border-radius:8px;background:transparent;border:none;color:#8a8a8a;font-size:11px;font-weight:600;font-family:'JetBrains Mono',monospace" onClick="{{ exportPng }}" onMouseOver="{{ hoverDock }}" onMouseOut="{{ unhoverDock }}">PNG</button>
+        <button class="rm-tap" style="padding:8px 11px;border-radius:8px;background:transparent;border:none;color:#8a8a8a;font-size:11px;font-weight:600;font-family:'JetBrains Mono',monospace" onClick="{{ exportCsv }}" onMouseOver="{{ hoverDock }}" onMouseOut="{{ unhoverDock }}">CSV</button>
+      </div>
+      </sc-if>
+    </main>
+
+    <!-- ============ RIGHT: RISK RAIL (token) ============ -->
+    <sc-if value="{{ isToken }}" hint-placeholder-val="{{ true }}">
+    <aside class="rm-scroll" style="width:336px;flex-shrink:0;background:#09090e;border-left:1px solid #1c1c28;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:14px;z-index:20">
+
+      <!-- RISK HERO -->
+      <div style="background:#0d0d14;border:1px solid rgba(0,255,65,0.18);border-radius:14px;padding:16px;box-shadow:0 0 32px rgba(0,255,65,0.05);display:flex;align-items:center;gap:16px">
+        <div style="position:relative;width:104px;height:104px;flex-shrink:0">
+          <svg width="104" height="104" viewBox="0 0 128 128">
+            <circle cx="64" cy="64" r="54" fill="none" stroke="#1c1c28" stroke-width="11" stroke-linecap="round" stroke-dasharray="254.5 339.3" transform="rotate(135 64 64)"/>
+            <circle cx="64" cy="64" r="54" fill="none" stroke="#00FF41" stroke-width="11" stroke-linecap="round" stroke-dasharray="61.1 339.3" transform="rotate(135 64 64)" style="filter:drop-shadow(0 0 6px rgba(0,255,65,0.5))"/>
+          </svg>
+          <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center">
+            <span style="font-size:34px;font-weight:800;line-height:1;font-family:'JetBrains Mono',monospace;color:#00FF41">24</span>
+            <span style="font-size:9px;letter-spacing:0.1em;color:#8a8a8a;font-family:'JetBrains Mono',monospace;margin-top:2px">/100</span>
+          </div>
+        </div>
+        <div style="min-width:0">
+          <div style="font-size:19px;font-weight:800;letter-spacing:-0.01em;color:#00FF41;line-height:1.1">LOW RISK</div>
+          <div style="font-size:11.5px;color:#b8b8b8;margin-top:5px;line-height:1.5">Rug score · <span style="color:#8a8a8a">low confidence</span></div>
+          <div style="font-size:10.5px;color:#8a8a8a;margin-top:7px;line-height:1.55">Lower is safer. No critical signals found.</div>
+        </div>
+      </div>
+
+      <!-- signal chips -->
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
+        <div style="background:#0d0d14;border:1px solid #1c1c28;border-radius:9px;padding:10px 8px;text-align:center">
+          <div style="font-size:16px;font-weight:700;font-family:'JetBrains Mono',monospace;color:#00FF41">5.6%</div>
+          <div style="font-size:8.5px;letter-spacing:0.1em;color:#8a8a8a;font-family:'JetBrains Mono',monospace;margin-top:3px">BUNDLED</div>
+        </div>
+        <div style="background:#0d0d14;border:1px solid #1c1c28;border-radius:9px;padding:10px 8px;text-align:center">
+          <div style="font-size:16px;font-weight:700;font-family:'JetBrains Mono',monospace;color:#00FF41">5.0%</div>
+          <div style="font-size:8.5px;letter-spacing:0.1em;color:#8a8a8a;font-family:'JetBrains Mono',monospace;margin-top:3px">SNIPED</div>
+        </div>
+        <div style="background:#0d0d14;border:1px solid #1c1c28;border-radius:9px;padding:10px 8px;text-align:center">
+          <div style="font-size:16px;font-weight:700;font-family:'JetBrains Mono',monospace;color:#00FF41">6.7%</div>
+          <div style="font-size:8.5px;letter-spacing:0.1em;color:#8a8a8a;font-family:'JetBrains Mono',monospace;margin-top:3px">TOP 10</div>
+        </div>
+      </div>
+
+      <!-- findings -->
+      <div style="display:flex;flex-direction:column;gap:9px">
+        <div style="display:flex;align-items:flex-start;gap:9px;font-size:12px;line-height:1.5;color:#b8b8b8"><span style="width:7px;height:7px;border-radius:50%;background:#00FF41;flex-shrink:0;margin-top:5px"></span>95% of holders are fresh wallets</div>
+        <div style="display:flex;align-items:flex-start;gap:9px;font-size:12px;line-height:1.5;color:#b8b8b8"><span style="width:7px;height:7px;border-radius:50%;background:#f59e0b;flex-shrink:0;margin-top:5px"></span>Bundled wallets hold 5.6% of supply</div>
+        <div style="display:flex;align-items:flex-start;gap:9px;font-size:12px;line-height:1.5;color:#b8b8b8"><span style="width:7px;height:7px;border-radius:50%;background:#f59e0b;flex-shrink:0;margin-top:5px"></span>Snipers hold 5.0% of supply</div>
+      </div>
+
+      <!-- medium risk factor -->
+      <button class="rm-tap" style="display:flex;align-items:center;justify-content:space-between;width:100%;padding:11px 13px;background:rgba(245,158,11,0.05);border:1px solid rgba(245,158,11,0.22);border-radius:10px;color:#f59e0b" onMouseOver="{{ hoverAmber }}" onMouseOut="{{ unhoverAmber }}">
+        <div style="display:flex;align-items:center;gap:9px">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M10.3 3.9L1.8 18a2 2 0 001.7 3h17a2 2 0 001.7-3L13.7 3.9a2 2 0 00-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>
+          <div style="text-align:left">
+            <div style="font-size:11.5px;font-weight:700;letter-spacing:0.04em">MEDIUM RISK</div>
+            <div style="font-size:10px;color:#8a8a8a">1 factor · low supply visibility</div>
+          </div>
+        </div>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+      </button>
+
+      <!-- holder analysis -->
+      <div>
+        <div style="font-size:9.5px;font-weight:700;letter-spacing:0.14em;color:#8a8a8a;font-family:'JetBrains Mono',monospace;margin-bottom:4px">HOLDER ANALYSIS</div>
+        <div>
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid #15151f"><span style="font-size:10.5px;letter-spacing:0.06em;color:#8a8a8a;font-family:'JetBrains Mono',monospace">INSIDERS HOLD</span><span style="font-size:12px;font-weight:600;font-family:'JetBrains Mono',monospace;color:#00FF41">5.6%</span></div>
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid #15151f"><span style="font-size:10.5px;letter-spacing:0.06em;color:#8a8a8a;font-family:'JetBrains Mono',monospace">SPREAD</span><span style="font-size:12px;font-weight:600;font-family:'JetBrains Mono',monospace;color:#00FF41">Even (0.07)</span></div>
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid #15151f"><span style="font-size:10.5px;letter-spacing:0.06em;color:#8a8a8a;font-family:'JetBrains Mono',monospace">FRESH WALLETS</span><span style="font-size:12px;font-weight:600;font-family:'JetBrains Mono',monospace">94.7%</span></div>
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid #15151f"><span style="font-size:10.5px;letter-spacing:0.06em;color:#8a8a8a;font-family:'JetBrains Mono',monospace">REAL HOLDERS</span><span style="font-size:12px;font-weight:600;font-family:'JetBrains Mono',monospace">19</span></div>
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid #15151f"><span style="font-size:10.5px;letter-spacing:0.06em;color:#8a8a8a;font-family:'JetBrains Mono',monospace">SUPPLY COVERED</span><span style="font-size:12px;font-weight:600;font-family:'JetBrains Mono',monospace;color:#f59e0b">11.8%</span></div>
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid #15151f"><span style="font-size:10.5px;letter-spacing:0.06em;color:#8a8a8a;font-family:'JetBrains Mono',monospace">HOLDERS</span><span style="font-size:12px;font-weight:600;font-family:'JetBrains Mono',monospace">20 / 20</span></div>
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0"><span style="font-size:10.5px;letter-spacing:0.06em;color:#8a8a8a;font-family:'JetBrains Mono',monospace">CLUSTERS</span><span style="font-size:12px;font-weight:600;font-family:'JetBrains Mono',monospace">21 <span style="color:#8a8a8a">(max 2)</span></span></div>
+        </div>
+      </div>
+
+      <div style="font-size:10.5px;line-height:1.6;color:#8a8a8a;padding:11px 12px;background:#0d0d14;border:1px solid #1c1c28;border-radius:9px">Top 19 holders = 11.8% of supply (rest in pool / untracked). Percentages are of total supply held.</div>
+    </aside>
+    </sc-if>
+
+    <!-- ============ RIGHT: ATLAS LEADERBOARD ============ -->
+    <sc-if value="{{ isAtlas }}" hint-placeholder-val="{{ true }}">
+    <aside class="rm-scroll" style="width:286px;flex-shrink:0;background:#09090e;border-left:1px solid #1c1c28;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:10px;z-index:20">
+      <div style="font-size:9.5px;font-weight:700;letter-spacing:0.16em;color:#ef4444;font-family:'JetBrains Mono',monospace;display:flex;align-items:center;gap:7px">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="8" r="5"/><path d="M3 21a9 9 0 0118 0"/></svg>MOST WANTED
+      </div>
+      <sc-for list="{{ crews }}" as="c" hint-placeholder-count="6">
+        <div class="rm-tap" style="display:flex;align-items:center;gap:11px;padding:11px 12px;background:#0d0d14;border:1px solid #1c1c28;border-radius:10px" onMouseOver="{{ hoverRow }}" onMouseOut="{{ unhoverRow }}">
+          <span style="width:10px;height:10px;border-radius:50%;flex-shrink:0;background:{{ c.color }};box-shadow:0 0 8px {{ c.color }}"></span>
+          <div style="min-width:0;flex:1">
+            <div style="font-size:12.5px;font-weight:700;font-family:'JetBrains Mono',monospace">{{ c.id }}</div>
+            <div style="font-size:10px;color:#8a8a8a;margin-top:1px">{{ c.tokens }} tokens · {{ c.supply }} held</div>
+          </div>
+          <div style="text-align:right;flex-shrink:0">
+            <div style="font-size:12.5px;font-weight:700;font-family:'JetBrains Mono',monospace;color:#f59e0b">{{ c.extracted }}</div>
+            <div style="font-size:9px;letter-spacing:0.08em;color:#8a8a8a;font-family:'JetBrains Mono',monospace;margin-top:1px">EXTRACTED</div>
+          </div>
+        </div>
+      </sc-for>
+    </aside>
+    </sc-if>
+
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1440,&quot;height&quot;:860}}">
+class Component extends DCLogic {
+  state = {
+    view: 'token',
+    isLive: false,
+    liveCount: 0,
+    renderMode: 'default',
+    selectedNode: null,
+    aiOpen: false,
+    zoomPct: 100,
+    ticker: [],
+  };
+
+  C = {
+    green:'#00FF41', greenDim:'#00cc33', blue:'#60a5fa', purple:'#a78bfa',
+    cyan:'#22d3ee', red:'#ef4444', amber:'#f59e0b', pool:'#9aa3b2',
+    text:'#f0f0f0', text2:'#b8b8b8', text3:'#8a8a8a', border:'#1c1c28',
+  };
+
+  clusterColors = ['#00FF41','#60a5fa','#a78bfa','#22d3ee','#f59e0b','#ef4444','#34d399','#f472b6'];
+
+  constructor(props) {
+    super(props);
+    this.canvasRef = React.createRef();
+    this.cam = { x: 0, y: 0, scale: 0.92 };
+    this.nodes = [];
+    this.links = [];
+    this.beams = [];
+    this.pulses = [];
+    this.hover = null;
+    this.drag = null;
+    this.mouse = { x: -9999, y: -9999 };
+  }
+
+  // ---------- lifecycle ----------
+  componentDidMount() {
+    this.canvas = this.canvasRef.current;
+    this.ctx = this.canvas.getContext('2d');
+    this.buildGraph(this.state.view);
+    this.attach();
+    this.resize();
+    this.fit();
+    if (this.state.view === 'atlas') this.startTicker();
+    this._ro = new ResizeObserver(() => this.resize());
+    this._ro.observe(this.canvas.parentElement);
+    this.loop();
+    // let the force layout settle, then frame it nicely
+    this._fitT = setTimeout(() => this.fit(), 900);
+  }
+  componentDidUpdate(prevProps, prevState) {
+    if (prevState && prevState.isLive !== this.state.isLive) {
+      if (this.state.isLive) this.startLive(); else this.stopLive();
+    }
+  }
+
+  switchTo(view) {
+    if (view === this.state.view) return;
+    this.buildGraph(view);
+    this.fit();
+    clearTimeout(this._fitT); this._fitT = setTimeout(() => this.fit(), 700);
+    if (view === 'atlas') this.startTicker(); else this.stopTicker();
+    this.setState({ view, selectedNode: null, aiOpen: false });
+  }
+  componentWillUnmount() {
+    cancelAnimationFrame(this._raf);
+    this._ro && this._ro.disconnect();
+    this.stopTicker(); this.stopLive();
+    this.detach();
+  }
+
+  // ---------- sizing ----------
+  resize() {
+    const dpr = window.devicePixelRatio || 1;
+    const r = this.canvas.getBoundingClientRect();
+    this.W = r.width; this.H = r.height;
+    this.canvas.width = r.width * dpr;
+    this.canvas.height = r.height * dpr;
+    this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+
+  // ---------- data ----------
+  rnd(n){ this._s = (this._s*1103515245 + 12345 + n) % 2147483648; return this._s/2147483648; }
+  genAddr() {
+    const cs = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz123456789';
+    let a=''; for(let i=0;i<4;i++) a+=cs[Math.floor(Math.random()*cs.length)];
+    let b=''; for(let i=0;i<4;i++) b+=cs[Math.floor(Math.random()*cs.length)];
+    return a+'…'+b;
+  }
+
+  buildGraph(view) {
+    this.nodes = []; this.links = []; this.beams = []; this.pulses = [];
+    if (view === 'token') return this.buildToken();
+    return this.buildAtlas();
+  }
+
+  buildToken() {
+    const C = this.C;
+    const N = [];
+    const add = (o) => { N.push(Object.assign({ vx:0, vy:0, fundedBy:0 }, o)); return N.length-1; };
+    const near = (hx,hy,s=46) => ({ x: hx + (Math.random()-0.5)*s, y: hy + (Math.random()-0.5)*s });
+
+    // central token + liquidity pool (each its own island)
+    const token = add({ id:'tok', type:'token', label:'SPCX', pct:0, r:30, x:0, y:0, color:C.green, addr:'SPCX…N69', home:[0,0] });
+    add({ id:'pool', type:'pool', label:'29.9%', pct:29.9, r:46, color:C.pool, addr:this.genAddr(), home:[-360,-150], ...near(-360,-150) });
+
+    // A "bundle" = one funder wallet that financed several holders, clumped + one colour.
+    // Larger node in a clump = the funder; smaller = wallets it funded.
+    const bundles = [
+      { color:'#a78bfa', home:[210,-230], funderR:15, holders:[5.1,3.5,3.4] },        // purple crew
+      { color:'#60a5fa', home:[-290,140], funderR:13, holders:[3.8,3.4,3.3] },         // blue crew
+      { color:'#22d3ee', home:[330,40],   funderR:12, holders:[3.4,3.3] },             // cyan pair
+      { color:'#2dd4bf', home:[-120,300], funderR:12, holders:[4.7,3.7] },             // teal pair
+    ];
+    bundles.forEach((b,bi) => {
+      const f = add({ id:'bf'+bi, type:'funder', label:'', pct:0, r:b.funderR, color:b.color, bundle:true, addr:this.genAddr(), home:b.home, ...near(b.home[0],b.home[1]) });
+      b.holders.forEach((p,hi) => {
+        const h = add({ id:'b'+bi+'h'+hi, type:'holder', label:p.toFixed(1)+'%', pct:p, r:13+p*1.5, color:b.color, bundle:true, addr:this.genAddr(), home:b.home, ...near(b.home[0],b.home[1],70) });
+        this.links.push({ a:f, b:h, kind:'fund' });
+        N[f].fundedBy++;
+      });
+    });
+
+    // dense cabal hub: one funder financing many small wallets — the radial burst
+    const hubHome=[300,300];
+    const hub = add({ id:'cabal', type:'funder', label:'', pct:0, r:16, color:'#f472b6', bundle:true, cabal:true, addr:this.genAddr(), home:hubHome, ...near(hubHome[0],hubHome[1]) });
+    for (let i=0;i<9;i++){
+      const p = 0.9 + Math.random()*1.4;
+      const a2 = i/9*Math.PI*2;
+      const h = add({ id:'cb'+i, type:'holder', label:'', pct:p, r:8, color:'#f472b6', bundle:true, addr:this.genAddr(), home:hubHome, x:hubHome[0]+Math.cos(a2)*70, y:hubHome[1]+Math.sin(a2)*70 });
+      this.links.push({ a:hub, b:h, kind:'fund' });
+      N[hub].fundedBy++;
+    }
+
+    // lone holders — unconnected, normal green wallets scattered around the field
+    const loneHomes=[[-380,40],[-60,-300],[150,250],[420,130],[-210,-180],[60,-130],[440,-90],[-30,150]];
+    const lonePcts=[3.3,3.4,3.8,3.4,3.3,5.0,3.5,3.4];
+    lonePcts.forEach((p,i)=>{
+      const hm=loneHomes[i%loneHomes.length];
+      add({ id:'l'+i, type:'holder', label:p.toFixed(1)+'%', pct:p, r:13+p*1.5, color:C.green, addr:this.genAddr(), home:hm, ...near(hm[0],hm[1],40) });
+    });
+
+    // a couple of snipers — lone cyan wallets
+    [[ -240,250],[380,250]].forEach((hm,i)=>{
+      add({ id:'sn'+i, type:'sniper', label:'', pct:[5.0,4.2][i], r:9, color:C.cyan, addr:this.genAddr(), home:hm, ...near(hm[0],hm[1],30) });
+    });
+
+    this.nodes = N;
+    this.assignClusters();
+  }
+
+  buildAtlas() {
+    const N = [];
+    const add = (o) => { N.push(Object.assign({ vx:0, vy:0 }, o)); return N.length-1; };
+    // faint field of untracked tokens / wallets behind the crews (decorative context, not in physics)
+    this.noise = [];
+    for (let i=0;i<52;i++){
+      const a=Math.random()*Math.PI*2, rad=150+Math.random()*560;
+      this.noise.push({ x:Math.cos(a)*rad, y:Math.sin(a)*rad*0.82, r:7+Math.random()*38, alpha:0.07+Math.random()*0.11 });
+    }
+    // each crew = a hub wallet + the tokens it coordinates, clumped at its own home anchor, one colour
+    const crewDefs = [
+      { id:'C-7C2A', color:'#ef4444', home:[90,-30],     sats:11, hubR:21, cabal:true }, // the dense cabal hub
+      { id:'C-3F19', color:'#f59e0b', home:[-330,-130],  sats:5,  hubR:16 },
+      { id:'C-B4D0', color:'#a78bfa', home:[-300,150],   sats:4,  hubR:15 },
+      { id:'C-1E88', color:'#22d3ee', home:[400,-160],   sats:4,  hubR:14 },
+      { id:'C-9A2F', color:'#60a5fa', home:[120,200],    sats:3,  hubR:13 },
+      { id:'C-5C71', color:'#34d399', home:[420,90],     sats:3,  hubR:13 },
+    ];
+    crewDefs.forEach((c) => {
+      const hub = add({ id:c.id, type:'crew', label:c.id, r:c.hubR, color:c.color, home:c.home, x:c.home[0], y:c.home[1], addr:this.genAddr() });
+      for (let s=0;s<c.sats;s++) {
+        const a = s/c.sats*Math.PI*2;
+        const rugged = !c.cabal && Math.random() < 0.22;
+        const sat = add({ id:c.id+'-t'+s, type:'sat', label:'', r: c.cabal?7:(6+Math.random()*4),
+          color: c.cabal ? c.color : (rugged ? '#ef4444' : (Math.random()<0.5 ? '#f59e0b' : '#34d399')),
+          home:c.home, x:c.home[0]+Math.cos(a)*62, y:c.home[1]+Math.sin(a)*62, addr:this.genAddr() });
+        this.links.push({ a: hub, b: sat, kind:'crew', color:c.color });
+      }
+    });
+    this.nodes = N;
+  }
+
+  assignClusters() {
+    const parent = this.nodes.map((_,i)=>i);
+    const find = (x)=>{ while(parent[x]!==x){ parent[x]=parent[parent[x]]; x=parent[x]; } return x; };
+    const uni = (a,b)=>{ parent[find(a)]=find(b); };
+    this.links.forEach(l => { if (l.kind==='fund') uni(l.a,l.b); });
+    const map = {}; let ci=0;
+    this.nodes.forEach((n,i)=>{ const r=find(i); if(map[r]===undefined) map[r]=ci++; n.cluster=map[r]; });
+  }
+
+  // ---------- camera ----------
+  w2s(x,y){ return { x:(x-this.cam.x)*this.cam.scale + this.W/2, y:(y-this.cam.y)*this.cam.scale + this.H/2 }; }
+  s2w(x,y){ return { x:(x-this.W/2)/this.cam.scale + this.cam.x, y:(y-this.H/2)/this.cam.scale + this.cam.y }; }
+  fit() {
+    let minx=1e9,miny=1e9,maxx=-1e9,maxy=-1e9;
+    this.nodes.forEach(n=>{ minx=Math.min(minx,n.x-n.r); miny=Math.min(miny,n.y-n.r); maxx=Math.max(maxx,n.x+n.r); maxy=Math.max(maxy,n.y+n.r); });
+    const cx=(minx+maxx)/2, cy=(miny+maxy)/2, w=maxx-minx, h=maxy-miny;
+    this.cam.x=cx; this.cam.y=cy;
+    const W=this.W||900, H=this.H||700;
+    this.cam.scale = Math.min(W/(w+160), H/(h+160), 1.3);
+    this.setState({ zoomPct: Math.round(this.cam.scale*100) });
+  }
+
+  // ---------- physics (token only) ----------
+  step() {
+    const N = this.nodes;
+    if (!N.length) return;
+    // pull each node toward its bundle's home anchor → bundles clump into separate islands
+    for (const n of N) {
+      if (n.fixed) continue;
+      const hx = n.home?n.home[0]:0, hy = n.home?n.home[1]:0;
+      const g = n.type==='token' ? 0.04 : 0.022;
+      n.vx += (hx-n.x)*g; n.vy += (hy-n.y)*g;
+    }
+    for (let i=0;i<N.length;i++) {
+      for (let j=i+1;j<N.length;j++) {
+        const a=N[i], b=N[j];
+        let dx=b.x-a.x, dy=b.y-a.y;
+        let d=Math.max(4, Math.sqrt(dx*dx+dy*dy));
+        // members of the same bundle repel only gently (stay clumped); different bundles repel harder
+        const same = a.home && b.home && a.home===b.home;
+        const minD=(a.r+b.r)+(same?8:26);
+        const rep=Math.min(7, (a.r+b.r)*(same?22:54)/(d*d) + (d<minD?(minD-d)*0.05:0));
+        const ux=dx/d, uy=dy/d;
+        a.vx-=ux*rep; a.vy-=uy*rep; b.vx+=ux*rep; b.vy+=uy*rep;
+      }
+    }
+    for (const l of this.links) {
+      const a=N[l.a], b=N[l.b];
+      let dx=b.x-a.x, dy=b.y-a.y, d=Math.sqrt(dx*dx+dy*dy)||0.01;
+      const rest = a.r + b.r + (l.kind==='crew'?34:16);
+      const k=0.02, f=(d-rest)*k, ux=dx/d, uy=dy/d;
+      a.vx+=ux*f; a.vy+=uy*f; b.vx-=ux*f; b.vy-=uy*f;
+    }
+    for (const n of N) {
+      if (n.fixed){ n.x=n.fx; n.y=n.fy; n.vx=0; n.vy=0; continue; }
+      n.vx=Math.max(-9,Math.min(9,n.vx)); n.vy=Math.max(-9,Math.min(9,n.vy));
+      n.x+=n.vx; n.y+=n.vy; n.vx*=0.84; n.vy*=0.84;
+    }
+  }
+
+  // ---------- render ----------
+  loop = () => {
+    this.now = performance.now();
+    this.step();
+    this.draw();
+    this._raf = requestAnimationFrame(this.loop);
+  }
+
+  draw() {
+    const ctx=this.ctx; if(!ctx) return;
+    ctx.clearRect(0,0,this.W,this.H);
+    const mode=this.state.renderMode, view=this.state.view;
+    // atlas: faint untracked-token field behind the crews
+    if (view==='atlas' && this.noise) {
+      this.noise.forEach(o=>{
+        const s=this.w2s(o.x,o.y), r=o.r*this.cam.scale;
+        const grd=ctx.createRadialGradient(s.x,s.y,1,s.x,s.y,r);
+        grd.addColorStop(0,'rgba(150,160,180,'+(o.alpha*1.3)+')'); grd.addColorStop(1,'rgba(150,160,180,0)');
+        ctx.fillStyle=grd; ctx.beginPath(); ctx.arc(s.x,s.y,r,0,Math.PI*2); ctx.fill();
+        ctx.beginPath(); ctx.arc(s.x,s.y,r,0,Math.PI*2);
+        ctx.strokeStyle='rgba(160,170,190,'+(o.alpha*0.9)+')'; ctx.lineWidth=1; ctx.stroke();
+      });
+    }
+    const hov=this.hover;
+    const connected = new Set();
+    if (hov) { this.links.forEach(l=>{ if(l.a===hov||l.b===hov){ connected.add(l.a); connected.add(l.b);} }); }
+
+    // clusters blobs
+    if (view==='token' && mode==='cluster') {
+      const groups={};
+      this.nodes.forEach((n,i)=>{ if(n.type!=='token'&&n.type!=='pool'){ (groups[n.cluster]=groups[n.cluster]||[]).push(n); } });
+      Object.keys(groups).forEach(k=>{
+        const g=groups[k]; if(g.length<2) return;
+        const col=this.clusterColors[k % this.clusterColors.length];
+        let cx=0,cy=0; g.forEach(n=>{cx+=n.x;cy+=n.y;}); cx/=g.length; cy/=g.length;
+        let rad=0; g.forEach(n=>{ const d=Math.hypot(n.x-cx,n.y-cy)+n.r; rad=Math.max(rad,d); });
+        const s=this.w2s(cx,cy);
+        ctx.beginPath(); ctx.arc(s.x,s.y,(rad+20)*this.cam.scale,0,Math.PI*2);
+        ctx.fillStyle=col+'1e'; ctx.fill();
+        ctx.strokeStyle=col+'55'; ctx.lineWidth=1.4; ctx.setLineDash([5,5]); ctx.stroke(); ctx.setLineDash([]);
+      });
+    }
+
+    // links — animated beams. hub links stay hidden unless hovered; funder/crew ties carry the travelling light
+    this.links.forEach((l,li)=>{
+      const a=this.nodes[l.a], b=this.nodes[l.b];
+      const isHub = (l.kind==='hold' || l.kind==='pool' || l.kind==='bundle');
+      const touched = hov!=null && (l.a===hov||l.b===hov);
+      if (view==='token' && isHub && !touched && mode!=='cluster') return;
+      const pa=this.w2s(a.x,a.y), pb=this.w2s(b.x,b.y);
+      let baseStyle='rgba(125,170,235,0.34)', beamRGB='155,200,255', lw=1.3, animate=(view==='token'&&!isHub), curve=0.16*((li%2)?1:-1);
+      if (view==='atlas'){ const cc=l.color||'#8a8a8a'; baseStyle=this.hexA(cc,0.32); beamRGB=this.rgbStr(cc); lw=1.4; animate=true; }
+      if (mode==='cluster' && view==='token'){ const cc=this.clusterColors[a.cluster % this.clusterColors.length]; baseStyle=this.hexA(cc, isHub?0.16:0.42); beamRGB=this.rgbStr(cc); animate=!isHub; }
+      if (touched){ baseStyle='rgba(0,255,65,0.5)'; beamRGB='0,255,65'; lw=1.9; animate=true; }
+      this.beam(pa,pb,{ baseStyle, beamRGB, lw, animate, arrow:(animate||touched), phase:(li*0.137)%1, speed:touched?1.6:1, curve });
+    });
+
+    // pulses (live token)
+    this.pulses=this.pulses.filter(p=>{ p.life-=0.018; return p.life>0; });
+    this.pulses.forEach(p=>{
+      const n=this.nodes[p.n]; if(!n) return; const s=this.w2s(n.x,n.y);
+      ctx.beginPath(); ctx.arc(s.x,s.y,(n.r+(1-p.life)*40)*this.cam.scale,0,Math.PI*2);
+      ctx.strokeStyle=this.C.green+Math.floor(p.life*120).toString(16).padStart(2,'0'); ctx.lineWidth=1.5; ctx.stroke();
+    });
+
+    // nodes
+    this.nodes.forEach((n,i)=>{
+      const s=this.w2s(n.x,n.y), r=n.r*this.cam.scale;
+      const dim = hov!=null && i!==hov && !connected.has(i);
+      ctx.globalAlpha = dim ? 0.55 : 1;
+      let fill=n.color, stroke=n.color, glow=0;
+      if (view==='token') {
+        if (mode==='heatmap') {
+          const heat = n.type==='bundled'?'#ef4444' : n.type==='sniper'?'#f59e0b' : n.type==='pool'?'#9aa3b2' : n.type==='funder'?'#60a5fa' : (n.pct>4.5?'#f59e0b':n.pct>3.6?'#facc15':'#00FF41');
+          fill=heat; stroke=heat;
+        } else if (mode==='cluster' && n.type!=='token' && n.type!=='pool') {
+          const cc=this.clusterColors[n.cluster % this.clusterColors.length]; fill=cc; stroke=cc;
+        }
+      }
+      // body
+      ctx.beginPath(); ctx.arc(s.x,s.y,r,0,Math.PI*2);
+      if (n.type==='pool') {
+        const grd=ctx.createRadialGradient(s.x,s.y,1,s.x,s.y,r);
+        grd.addColorStop(0,'rgba(154,163,178,0.30)'); grd.addColorStop(1,'rgba(154,163,178,0.04)');
+        ctx.fillStyle=grd;
+      } else if (n.type==='token') {
+        const grd=ctx.createRadialGradient(s.x,s.y,1,s.x,s.y,r);
+        grd.addColorStop(0,'rgba(0,255,65,0.55)'); grd.addColorStop(1,'rgba(0,255,65,0.10)');
+        ctx.fillStyle=grd; glow=14;
+      } else if (n.type==='funder' || n.type==='crew' || n.type==='sat') {
+        const grd=ctx.createRadialGradient(s.x-r*0.35,s.y-r*0.35,0.5,s.x,s.y,r);
+        grd.addColorStop(0, this.hexA(stroke,1)); grd.addColorStop(0.6, this.hexA(stroke,0.95)); grd.addColorStop(1, this.hexA(stroke,0.78));
+        ctx.fillStyle=grd; glow=Math.max(glow,6);
+      } else {
+        const boldMode = (mode==='heatmap'||mode==='cluster') && n.type!=='token' && n.type!=='pool';
+        ctx.fillStyle = this.hexA(fill, n.type==='funder'? (boldMode?0.7:0.55) : (boldMode?0.42:0.14));
+        if (boldMode){ glow=Math.max(glow, n.type==='funder'?4:8); }
+      }
+      if (i===hov) glow=Math.max(glow,12);
+      if (glow){ ctx.shadowColor=stroke; ctx.shadowBlur=glow; }
+      ctx.fill(); ctx.shadowBlur=0;
+      ctx.beginPath(); ctx.arc(s.x,s.y,r,0,Math.PI*2);
+      ctx.strokeStyle=this.hexA(stroke, n.type==='funder'?0.9:0.62); ctx.lineWidth=i===hov?2:1.3; ctx.stroke();
+      // connected-component emphasis: ring every node tied to the hovered one
+      if (hov!=null && (i===hov || connected.has(i))) {
+        ctx.beginPath(); ctx.arc(s.x,s.y,r+4.5,0,Math.PI*2);
+        ctx.strokeStyle = i===hov ? 'rgba(0,255,65,0.95)' : 'rgba(0,255,65,0.6)';
+        ctx.lineWidth = i===hov ? 2 : 1.4;
+        ctx.shadowColor='rgba(0,255,65,0.5)'; ctx.shadowBlur=i===hov?10:5; ctx.stroke(); ctx.shadowBlur=0;
+      }
+      // label
+      if (n.label && r>11) {
+        ctx.fillStyle = n.type==='token'?'#03100a':'#f0f0f0';
+        ctx.font = `${n.type==='token'?700:600} ${Math.max(9,Math.min(13,r*0.42))}px 'JetBrains Mono',monospace`;
+        ctx.textAlign='center'; ctx.textBaseline='middle';
+        ctx.fillText(n.label, s.x, s.y);
+      }
+      ctx.globalAlpha=1;
+    });
+
+    // tooltip
+    if (hov!=null) this.tooltip(this.nodes[hov]);
+  }
+
+  hexA(hex,a){ const h=hex.replace('#',''); const r=parseInt(h.slice(0,2),16),g=parseInt(h.slice(2,4),16),b=parseInt(h.slice(4,6),16); return `rgba(${r},${g},${b},${a})`; }
+
+  tooltip(n) {
+    const ctx=this.ctx; const s=this.w2s(n.x,n.y);
+    const typeName = { token:'Token', pool:'Liquidity Pool', holder:'Holder', bundled:'Bundled wallet', sniper:'Sniper', funder:'Funder', crew:'Cabal crew', sat:'Token' }[n.type]||n.type;
+    const l1=typeName, l2=n.addr||'', l3=n.pct? n.pct.toFixed(1)+'% of supply':'';
+    ctx.font="600 11px 'JetBrains Mono',monospace";
+    const w=Math.max(ctx.measureText(l1).width, ctx.measureText(l2).width, ctx.measureText(l3).width)+22;
+    const h=l3?54:40; const x=s.x+n.r*this.cam.scale+10, y=s.y-h/2;
+    ctx.fillStyle='rgba(9,9,14,0.95)'; ctx.strokeStyle='rgba(255,255,255,0.1)'; ctx.lineWidth=1;
+    this.rr(x,y,w,h,7); ctx.fill(); ctx.stroke();
+    ctx.textAlign='left'; ctx.textBaseline='top';
+    ctx.fillStyle=n.color; ctx.font="700 11px 'JetBrains Mono',monospace"; ctx.fillText(l1,x+11,y+9);
+    ctx.fillStyle='#8a8a8a'; ctx.font="500 10px 'JetBrains Mono',monospace"; ctx.fillText(l2,x+11,y+24);
+    if(l3){ ctx.fillStyle='#f0f0f0'; ctx.fillText(l3,x+11,y+38); }
+  }
+  rr(x,y,w,h,r){ const c=this.ctx; c.beginPath(); c.moveTo(x+r,y); c.arcTo(x+w,y,x+w,y+h,r); c.arcTo(x+w,y+h,x,y+h,r); c.arcTo(x,y+h,x,y,r); c.arcTo(x,y,x+w,y,r); c.closePath(); }
+
+  rgbStr(hex){ const h=hex.replace('#',''); return parseInt(h.slice(0,2),16)+','+parseInt(h.slice(2,4),16)+','+parseInt(h.slice(4,6),16); }
+  qpt(p0,c,p1,t){ const u=1-t; return { x:u*u*p0.x+2*u*t*c.x+t*t*p1.x, y:u*u*p0.y+2*u*t*c.y+t*t*p1.y }; }
+  // Magic-UI-style animated beam, emulated on canvas: soft curved base + a gradient pulse of light travelling along it
+  beam(pa,pb,o){
+    const ctx=this.ctx;
+    const mx=(pa.x+pb.x)/2, my=(pa.y+pb.y)/2, dx=pb.x-pa.x, dy=pb.y-pa.y, len=Math.hypot(dx,dy)||1;
+    const nx=-dy/len, ny=dx/len, cv=o.curve||0.14;
+    const c={ x:mx+nx*len*cv, y:my+ny*len*cv };
+    ctx.beginPath(); ctx.moveTo(pa.x,pa.y); ctx.quadraticCurveTo(c.x,c.y,pb.x,pb.y);
+    ctx.strokeStyle=o.baseStyle; ctx.lineWidth=o.lw||1.1; ctx.stroke();
+    // directional arrowhead near the target end
+    if(o.arrow){
+      const ah=this.qpt(pa,c,pb,0.80), tip=this.qpt(pa,c,pb,0.90);
+      const ang=Math.atan2(tip.y-ah.y, tip.x-ah.x), s=4.6;
+      ctx.fillStyle='rgba('+o.beamRGB+',0.9)';
+      ctx.beginPath(); ctx.moveTo(tip.x,tip.y);
+      ctx.lineTo(tip.x-Math.cos(ang-0.5)*s, tip.y-Math.sin(ang-0.5)*s);
+      ctx.lineTo(tip.x-Math.cos(ang+0.5)*s, tip.y-Math.sin(ang+0.5)*s);
+      ctx.closePath(); ctx.fill();
+    }
+    if(!o.animate) return;
+    const period=2600/(o.speed||1);
+    const t=(((this.now||0)/period)+(o.phase||0))%1;
+    const steps=9, tail=0.26;
+    ctx.lineCap='round';
+    for(let i=0;i<steps;i++){
+      const ta=t-(tail*i/steps), tb=t-(tail*(i+1)/steps);
+      if(tb<0||ta>1) continue;
+      const p1=this.qpt(pa,c,pb,Math.max(0,Math.min(1,ta))), p2=this.qpt(pa,c,pb,Math.max(0,Math.min(1,tb)));
+      const al=(1-i/steps)*0.9;
+      ctx.beginPath(); ctx.moveTo(p1.x,p1.y); ctx.lineTo(p2.x,p2.y);
+      ctx.strokeStyle='rgba('+o.beamRGB+','+al.toFixed(2)+')'; ctx.lineWidth=(o.lw||1.1)+0.7; ctx.stroke();
+    }
+    if(t>=0&&t<=1){ const hp=this.qpt(pa,c,pb,t);
+      ctx.beginPath(); ctx.arc(hp.x,hp.y,1.9,0,Math.PI*2);
+      ctx.fillStyle='rgba('+o.beamRGB+',0.95)'; ctx.shadowColor='rgba('+o.beamRGB+',0.9)'; ctx.shadowBlur=7; ctx.fill(); ctx.shadowBlur=0; }
+    ctx.lineCap='butt';
+  }
+
+  // ---------- interaction ----------
+  attach() {
+    const cv=this.canvas;
+    this._md=e=>this.onDown(e); this._mm=e=>this.onMove(e); this._mu=()=>this.onUp(); this._wh=e=>this.onWheel(e); this._cl=e=>this.onClick(e); this._lv=()=>{ this.hover=null; this.mouse={x:-9999,y:-9999}; };
+    cv.addEventListener('mousedown',this._md); window.addEventListener('mousemove',this._mm); window.addEventListener('mouseup',this._mu);
+    cv.addEventListener('wheel',this._wh,{passive:false}); cv.addEventListener('click',this._cl); cv.addEventListener('mouseleave',this._lv);
+  }
+  detach() {
+    const cv=this.canvas; if(!cv) return;
+    cv.removeEventListener('mousedown',this._md); window.removeEventListener('mousemove',this._mm); window.removeEventListener('mouseup',this._mu);
+    cv.removeEventListener('wheel',this._wh); cv.removeEventListener('click',this._cl); cv.removeEventListener('mouseleave',this._lv);
+  }
+  rel(e){ const r=this.canvas.getBoundingClientRect(); return { x:e.clientX-r.left, y:e.clientY-r.top }; }
+  pick(p){ for(let i=this.nodes.length-1;i>=0;i--){ const n=this.nodes[i]; const s=this.w2s(n.x,n.y); if(Math.hypot(p.x-s.x,p.y-s.y) <= n.r*this.cam.scale+3) return i; } return null; }
+  onDown(e){
+    const p=this.rel(e); const i=this.pick(p);
+    if (i!=null){ this.drag={ node:i, sx:p.x, sy:p.y, moved:false }; this.canvas.style.cursor='grabbing'; }
+    else { this.drag={ node:null, sx:p.x, sy:p.y, cx:this.cam.x, cy:this.cam.y, moved:false }; this.canvas.style.cursor='grabbing'; }
+  }
+  onMove(e){
+    const p=this.rel(e); this.mouse=p;
+    if (this.drag){
+      const dx=p.x-this.drag.sx, dy=p.y-this.drag.sy;
+      if(Math.abs(dx)+Math.abs(dy)>3) this.drag.moved=true;
+      if (this.drag.node!=null){ const w=this.s2w(p.x,p.y); const n=this.nodes[this.drag.node]; n.fixed=true; n.fx=w.x; n.fy=w.y; n.x=w.x; n.y=w.y; n.vx=0; n.vy=0; this.hover=this.drag.node; }
+      else { this.cam.x=this.drag.cx-dx/this.cam.scale; this.cam.y=this.drag.cy-dy/this.cam.scale; }
+      return;
+    }
+    if (p.x<0||p.y<0||p.x>this.W||p.y>this.H){ this.hover=null; return; }
+    const h=this.pick(p); this.hover=h; this.canvas.style.cursor = h!=null?'grab':'default';
+  }
+  onUp(){ if(this.drag){ this._dragMoved=this.drag.moved; } this.drag=null; this.canvas.style.cursor = this.hover!=null?'grab':'default'; }
+  onClick(e){ if(this._dragMoved){ this._dragMoved=false; return; } const p=this.rel(e); const i=this.pick(p);
+    if(i==null){ if(this.state.view==='token') this.setState({selectedNode:null}); return; }
+    const n=this.nodes[i];
+    if(this.state.view==='token' && n.type!=='token'){ this.setState({ selectedNode:n, aiOpen:false }); }
+  }
+  onWheel(e){ e.preventDefault(); const p=this.rel(e); const before=this.s2w(p.x,p.y); const f=e.deltaY<0?1.12:0.89; this.cam.scale=Math.max(0.25,Math.min(3,this.cam.scale*f)); const after=this.s2w(p.x,p.y); this.cam.x+=before.x-after.x; this.cam.y+=before.y-after.y; this.setState({zoomPct:Math.round(this.cam.scale*100)}); }
+
+  // ---------- live + ticker ----------
+  startLive(){ this._liveIv=setInterval(()=>{ const cand=this.nodes.filter(n=>n.type==='holder'); if(!cand.length) return; const n=cand[Math.floor(Math.random()*cand.length)]; const idx=this.nodes.indexOf(n); this.pulses.push({n:idx,life:1}); this.setState(s=>({liveCount:s.liveCount+1})); },1900); }
+  stopLive(){ clearInterval(this._liveIv); }
+
+  startTicker(){
+    this.beams=[]; for(let i=0;i<10;i++) this.beams.push({ li:Math.floor(Math.random()*this.links.length), t:Math.random(), sp:0.004+Math.random()*0.006 });
+    const kinds=[
+      {kind:'spawn',color:'#60a5fa',mk:()=>({text:'$'+this.sym(),sub:'new launch detected'})},
+      {kind:'buy',color:'#00FF41',mk:()=>({text:'$'+this.sym(),sub:'C-'+this.hex4()+' buying'})},
+      {kind:'cabal',color:'#a78bfa',mk:()=>({text:'$'+this.sym(),sub:'matched '+(1+Math.floor(Math.random()*3))+' known crews'})},
+      {kind:'grad',color:'#f59e0b',mk:()=>({text:'$'+this.sym(),sub:'bonding curve complete'})},
+      {kind:'rug',color:'#ef4444',mk:()=>({text:'$'+this.sym(),sub:'$'+(20+Math.floor(Math.random()*180))+'K extracted'})},
+    ];
+    const push=()=>{ const k=kinds[Math.floor(Math.random()*kinds.length)]; const d=k.mk(); this.setState(s=>({ticker:[{id:Date.now()+''+Math.random(),kind:k.kind,color:k.color,text:d.text,sub:d.sub},...s.ticker].slice(0,18)})); };
+    for(let i=0;i<6;i++) push();
+    this._tickIv=setInterval(push, 2200);
+  }
+  stopTicker(){ clearInterval(this._tickIv); }
+  sym(){ const w=['MOON','PEPE','WIF','BONK','DOGE','CHAD','GIGA','FLOKI','SOLX','MEME','RICO','APE','TANK','NEKO','SIGMA']; return w[Math.floor(Math.random()*w.length)]+(Math.random()<0.5?Math.floor(Math.random()*99):''); }
+  hex4(){ return Math.floor(Math.random()*65535).toString(16).toUpperCase().padStart(4,'0'); }
+
+  // ---------- render values ----------
+  renderVals() {
+    const s=this.state, C=this.C;
+    const segBase='padding:6px 13px;border:none;border-radius:7px;font-size:12px;font-weight:600;font-family:Inter,sans-serif;transition:all .14s;';
+    const segOn=segBase+'background:rgba(0,255,65,0.12);color:#00FF41;';
+    const segOff=segBase+'background:transparent;color:#8a8a8a;';
+    const dockBase='display:flex;align-items:center;gap:6px;padding:8px 12px;border-radius:8px;font-size:12px;font-weight:600;font-family:"JetBrains Mono",monospace;transition:all .14s;border:1px solid transparent;white-space:nowrap;flex-shrink:0;';
+    const dockOn=dockBase+'background:rgba(0,255,65,0.1);border-color:rgba(0,255,65,0.25);color:#00FF41;';
+    const dockOff=dockBase+'background:transparent;color:#b8b8b8;';
+
+    const sel=s.selectedNode;
+    const typeName = sel ? ({ pool:'Liquidity Pool', holder:'Holder', bundled:'Bundled wallet', sniper:'Sniper', funder:'Funder' }[sel.type]||sel.type) : '';
+
+    return {
+      canvasRef: this.canvasRef,
+      isToken: s.view==='token',
+      isAtlas: s.view==='atlas',
+      goToken: ()=>this.switchTo('token'),
+      goAtlas: ()=>this.switchTo('atlas'),
+      tokenTabStyle: s.view==='token'?segOn:segOff,
+      atlasTabStyle: s.view==='atlas'?segOn:segOff,
+
+      // live
+      toggleLive: ()=>this.setState(st=>({isLive:!st.isLive})),
+      liveLabel: s.isLive ? ('Live · '+s.liveCount) : 'Go Live',
+      liveBtnStyle: s.isLive?dockOn:dockOff,
+      liveDotColor: s.isLive?'#00FF41':'#5a5a68',
+      liveDotGlow: s.isLive?'0 0 10px #00FF41':'none',
+      liveDotAnim: s.isLive?'animation:rm-pulse 2s ease-in-out infinite':'',
+
+      toggleAi: ()=>this.setState(st=>({aiOpen:!st.aiOpen})),
+      closeAi: ()=>this.setState({aiOpen:false}),
+      aiOpen: s.aiOpen,
+
+      toggleHeat: ()=>this.setState(st=>({renderMode:st.renderMode==='heatmap'?'default':'heatmap'})),
+      toggleClusters: ()=>this.setState(st=>({renderMode:st.renderMode==='cluster'?'default':'cluster'})),
+      heatBtnStyle: s.renderMode==='heatmap'?dockOn:dockOff,
+      clusterBtnStyle: s.renderMode==='cluster'?dockOn:dockOff,
+
+      zoomIn: ()=>{ this.cam.scale=Math.min(3,this.cam.scale*1.18); this.setState({zoomPct:Math.round(this.cam.scale*100)}); },
+      zoomOut: ()=>{ this.cam.scale=Math.max(0.25,this.cam.scale*0.85); this.setState({zoomPct:Math.round(this.cam.scale*100)}); },
+      fitView: ()=>this.fit(),
+      zoomPct: s.zoomPct,
+      exportPng: ()=>{ try{ const a=document.createElement('a'); a.download='ricomaps-spcx69.png'; a.href=this.canvas.toDataURL('image/png'); a.click(); }catch(e){} },
+      exportCsv: ()=>{ const rows=[['type','address','pct'],...this.nodes.filter(n=>n.type!=='token').map(n=>[n.type,n.addr||'',n.pct||''])]; const csv=rows.map(r=>r.join(',')).join('\n'); const a=document.createElement('a'); a.download='ricomaps-holders.csv'; a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'})); a.click(); },
+
+      // detail
+      selectedNode: sel,
+      selType: typeName,
+      selColor: sel?sel.color:C.green,
+      selAddr: sel?(sel.addr||''):'',
+      selPct: sel? (sel.pct? sel.pct.toFixed(1)+'%':'—') : '',
+      selFunders: sel? (sel.fundedBy||0) : 0,
+      closeDetail: ()=>this.setState({selectedNode:null}),
+      traceFunders: ()=>this.setState({selectedNode:null}),
+
+      // hovers
+      hoverBtn:(e)=>{ e.currentTarget.style.background='#14141c'; e.currentTarget.style.color='#f0f0f0'; e.currentTarget.style.borderColor='#262635'; },
+      unhoverBtn:(e)=>{ e.currentTarget.style.background='#0d0d14'; e.currentTarget.style.color='#8a8a8a'; e.currentTarget.style.borderColor='#1c1c28'; },
+      hoverScan:(e)=>{ e.currentTarget.style.filter='brightness(1.08)'; e.currentTarget.style.boxShadow='0 0 18px rgba(0,255,65,0.3)'; },
+      unhoverScan:(e)=>{ e.currentTarget.style.filter='none'; e.currentTarget.style.boxShadow='none'; },
+      hoverRow:(e)=>{ e.currentTarget.style.borderColor='#262635'; e.currentTarget.style.background='#14141c'; },
+      unhoverRow:(e)=>{ e.currentTarget.style.borderColor='#1c1c28'; e.currentTarget.style.background='#0d0d14'; },
+      hoverDock:(e)=>{ e.currentTarget.style.background='rgba(255,255,255,0.05)'; e.currentTarget.style.color='#f0f0f0'; },
+      unhoverDock:(e)=>{ e.currentTarget.style.background='transparent'; e.currentTarget.style.color='#b8b8b8'; },
+      hoverAmber:(e)=>{ e.currentTarget.style.background='rgba(245,158,11,0.1)'; },
+      unhoverAmber:(e)=>{ e.currentTarget.style.background='rgba(245,158,11,0.05)'; },
+
+      // atlas
+      ticker: s.ticker,
+      crews: [
+        { id:'C-7C2A', color:'#ef4444', tokens:9, supply:'14.2%', extracted:'$1.2M' },
+        { id:'C-3F19', color:'#f59e0b', tokens:6, supply:'9.8%', extracted:'$840K' },
+        { id:'C-B4D0', color:'#a78bfa', tokens:5, supply:'7.1%', extracted:'$610K' },
+        { id:'C-1E88', color:'#22d3ee', tokens:4, supply:'5.5%', extracted:'$430K' },
+        { id:'C-9A2F', color:'#60a5fa', tokens:3, supply:'4.0%', extracted:'$280K' },
+        { id:'C-5C71', color:'#34d399', tokens:3, supply:'2.6%', extracted:'$150K' },
+      ],
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -74,7 +74,11 @@ export function formatXReply(mint: string, result: ScanResultLike): string {
   if (ctx.length) optional.push(ctx.join(' · '));
 
   if (sc) {
-    optional.push(`cabal ${pct(sc.cabalSupplyPct)} · bundled ${pct(sc.bundledSupplyPct)} · snipers ${pct(sc.sniperSupplyPct)}`);
+    // "Not detected" (no bundle/sniper found in coverage) shows as "—", not a
+    // bare 0% that reads like a confident clean bill. Cabal is funder-derived.
+    const bundled = (stats.bundleClustersDetected ?? 0) > 0 ? pct(sc.bundledSupplyPct) : '—';
+    const snipers = (stats.snipersDetected ?? 0) > 0 ? pct(sc.sniperSupplyPct) : '—';
+    optional.push(`cabal ${pct(sc.cabalSupplyPct)} · bundled ${bundled} · snipers ${snipers}`);
   }
 
   const devBits: string[] = [];
