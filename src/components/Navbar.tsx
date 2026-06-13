@@ -25,6 +25,7 @@ export function Navbar({ fadeIn = false }: NavbarProps) {
   const [scrolled, setScrolled] = useState(!fadeIn);
   const [copied, setCopied] = useState(false);
   const [popoverOpen, setPopoverOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const popoverRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
 
@@ -41,6 +42,9 @@ export function Navbar({ fadeIn = false }: NavbarProps) {
     onScroll();
     return () => window.removeEventListener('scroll', onScroll);
   }, [fadeIn]);
+
+  // Close the mobile menu whenever the route changes.
+  useEffect(() => { setMenuOpen(false); }, [pathname]);
 
   useEffect(() => {
     if (!popoverOpen) return;
@@ -66,7 +70,7 @@ export function Navbar({ fadeIn = false }: NavbarProps) {
 
   return (
     <header
-      className="sticky top-0 z-50 transition-all duration-200"
+      className="sticky top-0 z-50 relative transition-all duration-200"
       style={{
         background: scrolled ? 'rgba(9,9,14,0.95)' : 'transparent',
         backdropFilter: scrolled ? 'blur(24px)' : 'none',
@@ -92,6 +96,9 @@ export function Navbar({ fadeIn = false }: NavbarProps) {
         </Link>
 
         <nav className="flex items-center gap-1">
+          {/* Desktop cluster: token dropdown + links + socials. Collapsed into the
+              mobile menu below the md breakpoint so it never pushes GateButton off-screen. */}
+          <div className="hidden md:flex items-center gap-1">
           <div className="relative mr-1">
             <button
               ref={triggerRef}
@@ -186,10 +193,69 @@ export function Navbar({ fadeIn = false }: NavbarProps) {
               <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
             </svg>
           </a>
+          </div>
+
+          {/* GateButton stays visible at every breakpoint — it's the primary action. */}
           <div className="ml-2">
             <GateButton />
           </div>
+
+          {/* Mobile menu toggle: collapses the link cluster so it can't overflow. */}
+          <button
+            onClick={() => setMenuOpen(o => !o)}
+            className="md:hidden items-center justify-center w-8 h-8 rounded-md ml-1 flex"
+            style={{ color: 'var(--text-secondary)' }}
+            aria-haspopup="menu"
+            aria-expanded={menuOpen}
+            aria-label="Menu"
+          >
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              {menuOpen ? <path d="M18 6 6 18M6 6l12 12" /> : <><path d="M3 12h18" /><path d="M3 6h18" /><path d="M3 18h18" /></>}
+            </svg>
+          </button>
         </nav>
+
+        {/* Mobile dropdown panel: nav links + socials + CA, shown only when toggled. */}
+        {menuOpen && (
+          <div
+            className="md:hidden absolute left-0 right-0 top-full px-5 pt-2 pb-4"
+            style={{ background: 'rgba(9,9,14,0.98)', backdropFilter: 'blur(24px)', WebkitBackdropFilter: 'blur(24px)', borderBottom: '1px solid var(--border-base)' }}
+          >
+            <div className="flex flex-col gap-0.5">
+              {NAV_LINKS.map((link) => (
+                <Link
+                  key={link.href}
+                  href={link.href}
+                  className={`nav-link justify-start py-2.5 ${pathname === link.href ? 'active' : ''}`}
+                >
+                  {link.label}
+                </Link>
+              ))}
+            </div>
+            <div className="flex items-center gap-2 mt-3 pt-3" style={{ borderTop: '1px solid var(--border-base)' }}>
+              <a href="https://github.com/nullxnothing/ricomaps" target="_blank" rel="noopener noreferrer" className="nav-icon-btn" aria-label="GitHub repository">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M12 2C6.477 2 2 6.477 2 12c0 4.418 2.865 8.166 6.839 9.489.5.092.682-.217.682-.482 0-.237-.009-.868-.013-1.703-2.782.604-3.369-1.342-3.369-1.342-.454-1.155-1.11-1.462-1.11-1.462-.908-.62.069-.608.069-.608 1.003.07 1.531 1.03 1.531 1.03.892 1.529 2.341 1.087 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.11-4.555-4.943 0-1.091.39-1.984 1.029-2.683-.103-.253-.446-1.27.098-2.647 0 0 .84-.269 2.75 1.025A9.578 9.578 0 0112 6.836a9.59 9.59 0 012.504.337c1.909-1.294 2.747-1.025 2.747-1.025.546 1.377.202 2.394.1 2.647.64.699 1.028 1.592 1.028 2.683 0 3.842-2.339 4.687-4.566 4.935.359.309.678.919.678 1.852 0 1.336-.012 2.415-.012 2.743 0 .267.18.578.688.48C19.138 20.163 22 16.418 22 12c0-5.523-4.477-10-10-10z" />
+                </svg>
+              </a>
+              <a href="https://x.com/RicoxMaps" target="_blank" rel="noopener noreferrer" className="nav-icon-btn" aria-label="Follow on X">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
+                </svg>
+              </a>
+              <button
+                onClick={copyCA}
+                className="flex-1 flex items-center justify-between gap-2 px-2.5 py-2 rounded-md bg-bg-elevated border border-border-base"
+                title="Copy $RICO contract"
+              >
+                <span className="text-[10px] font-mono text-text-secondary truncate">{RICO_CA}</span>
+                {copied
+                  ? <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="flex-shrink-0 text-green-primary"><polyline points="20 6 9 17 4 12" /></svg>
+                  : <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="flex-shrink-0 text-text-tertiary"><rect x="9" y="9" width="13" height="13" rx="2" ry="2" /><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" /></svg>}
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </header>
   );
