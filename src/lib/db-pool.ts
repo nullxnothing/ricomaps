@@ -10,9 +10,16 @@ export function getPool(): Pool | null {
   if (!process.env.DATABASE_URL) return null;
 
   if (!pool) {
+    // Strip sslmode from the URL and configure TLS via the ssl option instead.
+    // `sslmode=require` in the connection string makes pg emit a per-connection
+    // "SECURITY WARNING: SSL modes ... treated as aliases for verify-full" that
+    // Vercel logged at error level on every request, drowning real errors. Neon's
+    // cert chains to a public root Node trusts, so ssl:true keeps full verification.
+    const connectionString = (process.env.DATABASE_URL ?? '').replace(/[?&]sslmode=[^&]*/i, '');
+
     pool = new Pool({
-      connectionString: process.env.DATABASE_URL,
-      ssl: { rejectUnauthorized: false },
+      connectionString,
+      ssl: true,
       max: 5,
       idleTimeoutMillis: 30000,
       connectionTimeoutMillis: 10000,
