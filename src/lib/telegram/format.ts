@@ -104,29 +104,36 @@ function age(launchTs: number | undefined): string | null {
   return `${Math.round(mins / 43200)}mo`;
 }
 
+/** One inline <a> link for the in-message link rows. */
+function lnk(label: string, url: string): string {
+  return `<a href="${url}">${label}</a>`;
+}
+
+/** Normalize a raw social value (handle or URL) to a full https URL, or null. */
+function socialUrl(kind: 'x' | 'tg' | 'web', raw: string | undefined): string | null {
+  if (!raw) return null;
+  const v = raw.trim();
+  if (!v) return null;
+  if (/^https?:\/\//i.test(v)) return v.replace(/^http:/i, 'https:');
+  if (kind === 'x') return `https://x.com/${v.replace(/^@/, '')}`;
+  if (kind === 'tg') return `https://t.me/${v.replace(/^@/, '')}`;
+  return `https://${v}`;
+}
+
 /**
- * Chart/explorer + trade-bot quick links, matching the reference scanner layout.
- * Core trade-bot set (the ones people actually use), one tap to buy on each.
+ * The token's own socials (X / Web / TG from metadata) as a single tappable text
+ * line. Kept short so it fits inside a photo caption (1024-char cap). The longer
+ * charts/trade-bot link grid lives on the buttons + the bubble map.
  */
-function linkRows(mint: string, dexUrl: string): InlineKeyboard {
-  return [
-    [
-      { text: 'DexScreener', url: dexUrl },
-      { text: 'GeckoTerminal', url: `https://www.geckoterminal.com/solana/pools/${mint}` },
-      { text: 'Birdeye', url: `https://birdeye.so/token/${mint}?chain=solana` },
-    ],
-    [
-      { text: 'GMGN', url: `https://gmgn.ai/sol/token/${mint}` },
-      { text: 'Axiom', url: `https://axiom.trade/t/${mint}` },
-      { text: 'Trojan', url: `https://t.me/solana_trojanbot?start=${mint}` },
-      { text: 'Bloom', url: `https://t.me/BloomSolana_bot?start=${mint}` },
-    ],
-    [
-      { text: 'Photon', url: `https://photon-sol.tinyastro.io/en/lp/${mint}` },
-      { text: 'BullX', url: `https://bullx.io/terminal?chainId=1399811149&address=${mint}` },
-      { text: 'Maestro', url: `https://t.me/maestro?start=${mint}` },
-    ],
-  ];
+function socialLine(meta: TokenMetadata | null): string[] {
+  const socials: string[] = [];
+  const x = socialUrl('x', meta?.twitter);
+  const web = socialUrl('web', meta?.website);
+  const tg = socialUrl('tg', meta?.telegram);
+  if (x) socials.push(lnk('𝕏', x));
+  if (web) socials.push(lnk('Web', web));
+  if (tg) socials.push(lnk('TG', tg));
+  return socials.length ? ['', `🔗 ${socials.join(' · ')}`] : [];
 }
 
 export function formatTokenCard(mint: string, result: ScanResultLike): TokenCard {
@@ -234,24 +241,22 @@ export function formatTokenCard(mint: string, result: ScanResultLike): TokenCard
     lines.push(`🚩 <b>${fpMatches} known bundler${fpMatches === 1 ? '' : 's'}</b> <i>seen on prior launches</i>`);
   }
 
+  // Token's own socials as a compact tappable line (fits the caption cap).
+  lines.push(...socialLine(meta));
+
   const text = lines.join('\n');
-  const dexUrl = meta?.dexUrl ?? `https://dexscreener.com/solana/${mint}`;
-  const xUrl = `https://x.com/search?q=${encodeURIComponent(mint)}`;
+
+  // Keyboard kept to actions only: map, refresh, rap sheet, watch, support.
   const replyMarkup: InlineKeyboard = [
     [
       { text: '🫧 Bubble Map ↗', url: `${APP_URL}/?mint=${mint}` },
       { text: '🔄 Refresh', callback_data: `refresh:${mint}` },
     ],
-    // The blacklist is the moat: when a known crew is present, let the user pull
-    // its rap sheet (prior launches + rug rate) right from the card.
     ...(fpMatches > 0 ? [[{ text: `🚩 Bundler rap sheet (${fpMatches})`, callback_data: `rap:${mint}` }]] : []),
     [
       { text: '🔔 Watch', callback_data: `watch:${mint}` },
-      { text: 'Solscan ↗', url: `https://solscan.io/token/${mint}` },
-      { text: 'X search ↗', url: xUrl },
+      { text: '🐦 Support', url: 'https://x.com/RicoxMaps' },
     ],
-    ...linkRows(mint, dexUrl),
-    ...FOOTER_ROW,
   ];
 
   return { text, replyMarkup, photoUrl: resolvePhotoUrl(meta?.image) };
