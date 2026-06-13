@@ -57,7 +57,34 @@ export class XBot {
   constructor(private readonly cfg: XBotConfig) {
     this.accessToken = cfg.accessToken;
     this.refreshToken = cfg.refreshToken;
-    this.scheduleNextPoll(POLL_INTERVAL_MS);
+    // Load the durable sinceId BEFORE the first poll so a restart resumes from
+    // the last processed mention instead of re-scanning X's recent window —
+    // re-scanning is what made the bot reply 2-3x to the same tweet after each
+    // redeploy (each restart began with an empty in-memory high-water mark).
+    void this.boot();
+  }
+
+  private async boot(): Promise<void> {
+    await this.loadPersistedState();
+    this.scheduleNextPoll(0); // first poll immediately once state is loaded
+  }
+
+  /** Load the persisted refresh token + sinceId high-water mark on startup. */
+  private async loadPersistedState(): Promise<void> {
+    if (this.refreshTokenLoaded) return;
+    this.refreshTokenLoaded = true; // mark first so a transient failure doesn't loop
+    try {
+      const res = await fetch(`${this.cfg.appUrl}/api/internal/x-token`, {
+        headers: { 'x-internal-secret': this.cfg.internalSecret },
+        signal: AbortSignal.timeout(15_000),
+      });
+      if (!res.ok) return;
+      const body = await res.json() as { refreshToken?: string | null; sinceId?: string | null };
+      if (body.refreshToken) this.refreshToken = body.refreshToken;
+      if (body.sinceId) this.sinceId = body.sinceId;
+    } catch (err) {
+      console.error('[x-bot] failed to load persisted state:', err);
+    }
   }
 
   /**
@@ -72,38 +99,26 @@ export class XBot {
     }, Math.max(MIN_POLL_INTERVAL_MS, delayMs));
   }
 
-  /**
-   * Load the latest rotated refresh token persisted by a previous run. X rotates
-   * the refresh token on every refresh; without this the worker would reuse the
-   * stale env-seeded token after a restart and fail with invalid_request.
-   */
-  private async loadPersistedRefreshToken(): Promise<void> {
-    if (this.refreshTokenLoaded) return;
-    this.refreshTokenLoaded = true; // mark first so a transient failure doesn't loop forever
-    try {
-      const res = await fetch(`${this.cfg.appUrl}/api/internal/x-token`, {
-        headers: { 'x-internal-secret': this.cfg.internalSecret },
-        signal: AbortSignal.timeout(15_000),
-      });
-      if (!res.ok) return;
-      const body = await res.json() as { refreshToken?: string | null };
-      if (body.refreshToken) this.refreshToken = body.refreshToken;
-    } catch (err) {
-      console.error('[x-bot] failed to load persisted refresh token:', err);
-    }
-  }
-
   /** Persist the rotated refresh token so the next restart picks it up. */
   private async persistRefreshToken(token: string): Promise<void> {
+    await this.persistState({ refreshToken: token });
+  }
+
+  /** Persist the mentions high-water mark so a restart doesn't re-scan. */
+  private async persistSinceId(sinceId: string): Promise<void> {
+    await this.persistState({ sinceId });
+  }
+
+  private async persistState(payload: { refreshToken?: string; sinceId?: string }): Promise<void> {
     try {
       await fetch(`${this.cfg.appUrl}/api/internal/x-token`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-internal-secret': this.cfg.internalSecret },
-        body: JSON.stringify({ refreshToken: token }),
+        body: JSON.stringify(payload),
         signal: AbortSignal.timeout(15_000),
       });
     } catch (err) {
-      console.error('[x-bot] failed to persist refresh token:', err);
+      console.error('[x-bot] failed to persist state:', err);
     }
   }
 
@@ -149,7 +164,10 @@ export class XBot {
         console.log(`[x-bot] poll: ${body.meta?.result_count ?? 0} mentions, newest=${body.meta?.newest_id ?? 'none'}`);
       }
       // newest_id advances the high-water mark even when no tweet had a CA.
-      if (body.meta?.newest_id) this.sinceId = body.meta.newest_id;
+      if (body.meta?.newest_id && body.meta.newest_id !== this.sinceId) {
+        this.sinceId = body.meta.newest_id;
+        void this.persistSinceId(this.sinceId); // durable so a restart resumes here
+      }
 
       // Oldest first so replies land in chronological order.
       for (const tweet of [...tweets].reverse()) {
@@ -269,7 +287,7 @@ export class XBot {
     try {
       // On the first refresh after a restart, prefer the rotated token the app
       // persisted over the (possibly already-invalidated) env-seeded one.
-      await this.loadPersistedRefreshToken();
+      await this.loadPersistedState();
       const params = new URLSearchParams({
         grant_type: 'refresh_token',
         refresh_token: this.refreshToken,
