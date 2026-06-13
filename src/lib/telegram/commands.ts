@@ -2,9 +2,11 @@ import 'server-only';
 import { mapTokenHolders } from '@/lib/holder-mapper';
 import { isValidSolanaAddress } from '@/lib/address-utils';
 import { getCachedTokenScan } from '@/lib/db-cache';
-import { sendMessage, sendPhoto, answerCallbackQuery } from './client';
+import { sendMessage, sendPhoto, answerCallbackQuery, type InlineKeyboard } from './client';
 import { formatTokenCard, type ScanResultLike } from './format';
 import { addSubscription, removeSubscription, listSubscriptions } from './subscriptions';
+
+const APP_URL = (process.env.NEXT_PUBLIC_APP_URL ?? 'https://ricomaps.fun').replace(/\/$/, '');
 
 // Base58 token-length run — used to spot a CA anywhere inside a group message.
 const CA_RE = /[1-9A-HJ-NP-Za-km-z]{32,44}/g;
@@ -19,15 +21,30 @@ export interface TgUpdate {
   inline_query?: { id: string; query: string };
 }
 
+// Bot username drives the "Add to Group" deep link. Override per-bot via env.
+const BOT_USERNAME = process.env.TELEGRAM_BOT_USERNAME ?? 'RicoMaps_bot';
+
 const HELP = [
-  '🫧 <b>RicoMaps Bot</b> — Solana forensic intel.',
+  '🎯 <b>RicoMaps</b> — Solana forensic intel.',
   '',
-  'Send a token contract address, or use:',
-  '<code>/scan &lt;CA&gt;</code> — full forensic card (rug score, insiders, cabal, bundles, deployer)',
-  '<code>/watchlist</code> — show the mints you\'re watching for live alerts',
+  '<b>Send a contract address</b> and get an instant forensic card:',
+  '├ rug score · insider/cabal/bundle/sniper supply',
+  '├ deployer history · known-bundler blacklist hits',
+  '└ market · security · live bubble map',
   '',
-  'Tap <b>🫧 Live Bubble Map</b> on any card to open the interactive graph, or <b>🔔 Watch</b> to get alerts on bundle clusters, dev sells, blacklisted-bundler buys, and rugs.',
+  '<b>Commands</b>',
+  '├ <code>/scan &lt;CA&gt;</code> — scan a token',
+  '└ <code>/watchlist</code> — your watched mints',
+  '',
+  '🔔 Tap <b>Watch</b> on any card for live alerts: bundle clusters, dev sells, blacklisted-bundler buys, and rugs.',
+  '👥 In groups, just paste a CA — no command needed.',
 ].join('\n');
+
+/** Help-message keyboard: add-to-group + open the app. */
+const HELP_MARKUP: InlineKeyboard = [
+  [{ text: '➕ Add to Group', url: `https://t.me/${BOT_USERNAME}?startgroup=true` }],
+  [{ text: '🌐 Open RicoMaps ↗', url: APP_URL }],
+];
 
 /** Cache-first scan with the lightweight quick-scan parameters. */
 async function runScan(mint: string): Promise<ScanResultLike> {
@@ -138,7 +155,7 @@ export async function handleUpdate(update: TgUpdate): Promise<void> {
   const chatId = msg.chat.id;
 
   if (/^\/(start|help)\b/i.test(text)) {
-    await sendMessage({ chatId, text: HELP });
+    await sendMessage({ chatId, text: HELP, replyMarkup: HELP_MARKUP });
     return;
   }
 
