@@ -35,7 +35,7 @@ export function computeThreatScore(node: GraphNode): number {
   if (node.type === 'sniper') score += 20;
   if (node.type === 'bundled') score += 15;
 
-  // Shared funder count — +10 per holder funded beyond 1
+  // Shared funder count: +10 per holder funded beyond 1
   const fundedCount = node.metadata?.fundedCount || 0;
   if (fundedCount > 1) {
     score += (fundedCount - 1) * 10;

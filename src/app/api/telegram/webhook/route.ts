@@ -28,7 +28,7 @@ export async function POST(request: NextRequest) {
   try {
     update = (await request.json()) as TgUpdate;
   } catch {
-    return NextResponse.json({ ok: true }); // malformed — ack so Telegram won't retry
+    return NextResponse.json({ ok: true }); // malformed: ack so Telegram won't retry
   }
 
   try {

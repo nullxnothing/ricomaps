@@ -3,12 +3,12 @@ import { mapTokenHolders } from '@/lib/holder-mapper';
 import { isValidSolanaAddress } from '@/lib/address-utils';
 import { getCachedTokenScan } from '@/lib/db-cache';
 import { sendMessage, sendPhoto, answerCallbackQuery, type InlineKeyboard } from './client';
-import { formatTokenCard, type ScanResultLike } from './format';
+import { formatTokenCard, FOOTER_ROW, type ScanResultLike } from './format';
 import { addSubscription, removeSubscription, listSubscriptions } from './subscriptions';
 
 const APP_URL = (process.env.NEXT_PUBLIC_APP_URL ?? 'https://ricomaps.fun').replace(/\/$/, '');
 
-// Base58 token-length run — used to spot a CA anywhere inside a group message.
+// Base58 token-length run, used to spot a CA anywhere inside a group message.
 const CA_RE = /[1-9A-HJ-NP-Za-km-z]{32,44}/g;
 
 // --- Minimal subset of the Telegram update shape we consume ---
@@ -24,8 +24,11 @@ export interface TgUpdate {
 // Bot username drives the "Add to Group" deep link. Override per-bot via env.
 const BOT_USERNAME = process.env.TELEGRAM_BOT_USERNAME ?? 'RicoMaps_bot';
 
+// Logo shown atop /start. Telegram fetches it server-side from this URL.
+const LOGO_URL = `${APP_URL}/ricomapspfp.png`;
+
 const HELP = [
-  '🎯 <b>RicoMaps</b> — Solana forensic intel.',
+  '🎯 <b>RicoMaps</b> · Solana forensic intel.',
   '',
   '<b>Send a contract address</b> and get an instant forensic card:',
   '├ rug score · insider/cabal/bundle/sniper supply',
@@ -33,17 +36,18 @@ const HELP = [
   '└ market · security · live bubble map',
   '',
   '<b>Commands</b>',
-  '├ <code>/scan &lt;CA&gt;</code> — scan a token',
-  '└ <code>/watchlist</code> — your watched mints',
+  '├ <code>/scan &lt;CA&gt;</code> · scan a token',
+  '└ <code>/watchlist</code> · your watched mints',
   '',
   '🔔 Tap <b>Watch</b> on any card for live alerts: bundle clusters, dev sells, blacklisted-bundler buys, and rugs.',
-  '👥 In groups, just paste a CA — no command needed.',
+  '👥 In groups, just paste a CA. No command needed.',
 ].join('\n');
 
 /** Help-message keyboard: add-to-group + open the app. */
 const HELP_MARKUP: InlineKeyboard = [
   [{ text: '➕ Add to Group', url: `https://t.me/${BOT_USERNAME}?startgroup=true` }],
   [{ text: '🌐 Open RicoMaps ↗', url: APP_URL }],
+  ...FOOTER_ROW,
 ];
 
 /** Cache-first scan with the lightweight quick-scan parameters. */
@@ -112,7 +116,7 @@ async function handleCallback(cb: TgCallbackQuery): Promise<void> {
     const ok = await addSubscription(chatId, 'mint', mint);
     await answerCallbackQuery(
       cb.id,
-      ok ? '🔔 Watching — I\'ll alert you on bundles, dev sells, blacklisted buys, and rugs.'
+      ok ? '🔔 Watching. I\'ll alert you on bundles, dev sells, blacklisted buys, and rugs.'
          : '⚠️ Watchlist full. Unwatch something first.',
     );
     return;
@@ -142,7 +146,7 @@ async function handleWatchlist(chatId: number): Promise<void> {
   await sendMessage({ chatId, text: lines.join('\n') });
 }
 
-/** Top-level dispatcher. Always resolves — the webhook returns 200 regardless. */
+/** Top-level dispatcher. Always resolves; the webhook returns 200 regardless. */
 export async function handleUpdate(update: TgUpdate): Promise<void> {
   if (update.callback_query) {
     await handleCallback(update.callback_query);
@@ -155,7 +159,8 @@ export async function handleUpdate(update: TgUpdate): Promise<void> {
   const chatId = msg.chat.id;
 
   if (/^\/(start|help)\b/i.test(text)) {
-    await sendMessage({ chatId, text: HELP, replyMarkup: HELP_MARKUP });
+    const sent = await sendPhoto({ chatId, photoUrl: LOGO_URL, caption: HELP, replyMarkup: HELP_MARKUP });
+    if (!sent) await sendMessage({ chatId, text: HELP, replyMarkup: HELP_MARKUP });
     return;
   }
 
@@ -169,7 +174,7 @@ export async function handleUpdate(update: TgUpdate): Promise<void> {
   if (text.startsWith('/') && !isScanCmd) return;
 
   // Scan when: explicit /scan, a DM (any message), or a group message that
-  // contains a CA anywhere in the text (auto-detect — no /scan needed).
+  // contains a CA anywhere in the text (auto-detect, no /scan needed).
   const mint = extractMint(text);
   if (mint) {
     await handleScan(chatId, mint, msg.message_id);

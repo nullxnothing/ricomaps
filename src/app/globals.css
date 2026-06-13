@@ -1,11 +1,11 @@
 @import "tailwindcss";
 
 /* ========================================
-   Design Tokens — Orbmarkets Dark + Green Accent
+   Design Tokens: Orbmarkets Dark + Green Accent
    ======================================== */
 
 :root {
-  /* Backgrounds — deep void with subtle blue-black tint */
+  /* Backgrounds: deep void with subtle blue-black tint */
   --bg-void: #050508;
   --bg-base: #09090e;
   --bg-surface: #0d0d14;
@@ -13,7 +13,7 @@
   --bg-hover: #14141c;
   --bg-input: #101018;
 
-  /* Primary accent — matrix green, used sparingly */
+  /* Primary accent: matrix green, used sparingly */
   --green-primary: #00FF41;
   --green-dim: #00cc33;
   --green-muted: #1a7a3a;
@@ -41,12 +41,12 @@
   --purple-dim: #8b5cf6;
   --purple-ghost: rgba(167, 139, 250, 0.08);
 
-  /* Text — neutral grays, NOT green */
+  /* Text: neutral grays, NOT green */
   --text-primary: #f0f0f0;
   --text-secondary: #b8b8b8;
   --text-tertiary: #8a8a8a;
 
-  /* Borders — barely visible, cool-tinted */
+  /* Borders: barely visible, cool-tinted */
   --border-base: #1c1c28;
   --border-hover: #262635;
 
@@ -102,7 +102,7 @@
 }
 
 /* ========================================
-   Base Resets — MUST be in @layer base (Tailwind v4)
+   Base Resets: MUST be in @layer base (Tailwind v4)
    ======================================== */
 
 @layer base {
@@ -183,7 +183,7 @@
   animation: fadeIn 0.2s ease-out;
 }
 
-/* Floating glass panel — used for header bar, token identity card, wallet card, historical indicator */
+/* Floating glass panel: used for header bar, token identity card, wallet card, historical indicator */
 .glass-panel-floating {
   background: rgba(9, 9, 14, 0.72);
   -webkit-backdrop-filter: blur(20px);
@@ -200,7 +200,7 @@
   box-shadow: 0 6px 24px rgba(0, 0, 0, 0.4), 0 0 24px rgba(245, 158, 11, 0.08);
 }
 
-/* Stats item button variant — for clickable filter rows */
+/* Stats item button variant: for clickable filter rows */
 .stats-item-btn {
   display: flex;
   justify-content: space-between;
@@ -343,7 +343,7 @@
   background: var(--bg-hover);
 }
 
-/* CTA button — primary action on marketing pages */
+/* CTA button: primary action on marketing pages */
 .btn-cta {
   display: inline-flex;
   align-items: center;
@@ -536,7 +536,7 @@
   to { opacity: 1; }
 }
 
-/* Magic UI — AnimatedShinyText */
+/* Magic UI: AnimatedShinyText */
 @keyframes shiny-text {
   0%, 90%, 100% {
     background-position: calc(-100% - var(--shiny-width)) 0;
@@ -549,7 +549,7 @@
   animation: shiny-text 8s infinite;
 }
 
-/* Magic UI — ShimmerButton */
+/* Magic UI: ShimmerButton */
 @keyframes shimmer-slide {
   to { transform: translate(calc(100cqw - 100%), 0); }
 }

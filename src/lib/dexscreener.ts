@@ -195,7 +195,7 @@ export async function fetchMarketDataBatch(
 
 /**
  * Fetch market data + social links for a Solana token from DexScreener.
- * Returns a partial TokenMetadata — merged into the main metadata after DAS fetch.
+ * Returns a partial TokenMetadata, merged into the main metadata after DAS fetch.
  */
 export async function fetchTokenMarketData(mint: string): Promise<Partial<TokenMetadata> | null> {
   try {

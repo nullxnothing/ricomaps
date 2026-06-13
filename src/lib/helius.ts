@@ -24,7 +24,7 @@ const API_KEYS = [
 // Throttled URL resolvers
 // RPC: dedicated node (no throttle needed) or keyed fallback
 async function getThrottledRpcUrl(): Promise<string> {
-  if (DEDICATED_RPC_URL) return DEDICATED_RPC_URL; // No throttle — dedicated node has no rate limit
+  if (DEDICATED_RPC_URL) return DEDICATED_RPC_URL; // No throttle: dedicated node has no rate limit
   const key = await throttledGetKey();
   return `${HELIUS_RPC_BASE}?api-key=${key}`;
 }
@@ -237,7 +237,7 @@ async function fetchWithRetry(url: string | (() => Promise<string>), options: Fe
         return response;
       }
 
-      // Handle rate limiting — mark this key as cooling off and retry with a different key
+      // Handle rate limiting: mark this key as cooling off and retry with a different key
       if (response.status === 429) {
         const retryAfter = response.headers.get('Retry-After');
         const cooldown = retryAfter ? parseInt(retryAfter) * 1000 : baseDelay * Math.pow(2, attempt);
@@ -387,7 +387,7 @@ export async function getAllTransactionsForAddress(
     if (transactions.length < 100) break; // Last page
 
     if (page < maxPages) {
-      // no delay — business+ handles burst
+      // no delay: business+ handles burst
     }
   }
 
@@ -438,7 +438,7 @@ export async function getAllTokenHolders(mint: string, maxPages = 10): Promise<T
 
     // Delay between pages
     if (result.token_accounts.length === 1000) {
-      // no delay — business+ handles burst
+      // no delay: business+ handles burst
     }
   }
 
@@ -451,7 +451,7 @@ export async function getAllTokenHolders(mint: string, maxPages = 10): Promise<T
 // ============================================================================
 
 // ============================================================================
-// WALLET API — funded-by, identity, balances (Business+ tier)
+// WALLET API: funded-by, identity, balances (Business+ tier)
 // ============================================================================
 
 interface WalletFundedByResponse {
@@ -470,11 +470,11 @@ interface WalletFundedByResponse {
 }
 
 /**
- * Get who funded a wallet — Wallet API (1 API call, no tx parsing needed)
+ * Get who funded a wallet, Wallet API (1 API call, no tx parsing needed)
  * Returns the first SOL transfer to the wallet
  */
 /**
- * Get first funder for a wallet — uses Helius Wallet API /funded-by endpoint
+ * Get first funder for a wallet, uses Helius Wallet API /funded-by endpoint
  * Single REST call, server-side resolution of the TRUE first SOL transfer.
  * 100 credits per call. Falls back to RPC-based parsing if Wallet API fails.
  */
@@ -484,7 +484,7 @@ export async function getWalletFundedBy(address: string): Promise<EnrichedFunder
   if (cached.hit) return cached.value;
 
   try {
-    // Primary: Wallet API /funded-by — 1 call, finds true first funder server-side
+    // Primary: Wallet API /funded-by: 1 call, finds true first funder server-side
     const response = await fetchWithRetry(
       async () => {
         const key = await throttledGetKey();
@@ -518,12 +518,12 @@ export async function getWalletFundedBy(address: string): Promise<EnrichedFunder
     setCache(cacheKey, result);
     return result;
   } catch {
-    // Fallback: RPC-based — get earliest sig + parse it
+    // Fallback: RPC-based, get earliest sig + parse it
     return getWalletFundedByRpc(address);
   }
 }
 
-/** RPC fallback for funded-by — paginate backwards to find true first tx */
+/** RPC fallback for funded-by: paginate backwards to find true first tx */
 async function getWalletFundedByRpc(address: string): Promise<EnrichedFunderInfo | null> {
   const cacheKey = `funded-by:${address}`;
   try {
@@ -610,7 +610,7 @@ interface WalletIdentity {
 }
 
 /**
- * Batch identify wallets — Wallet API (up to 100 at once)
+ * Batch identify wallets, Wallet API (up to 100 at once)
  */
 export async function batchIdentifyWallets(addresses: string[]): Promise<Map<string, WalletIdentity>> {
   const results = new Map<string, WalletIdentity>();
@@ -690,7 +690,7 @@ export async function getAsset(address: string): Promise<HeliusAsset | null> {
 /**
  * Count fungible tokens created by an address via DAS searchAssets.
  * Used for serial-deployer detection. ~10 credits. Returns null on error.
- * NOTE: only meaningful for a human signer — querying a program/PDA creator
+ * NOTE: only meaningful for a human signer: querying a program/PDA creator
  * returns thousands of unrelated tokens (callers must filter those out first).
  */
 export async function searchAssetsByCreator(
@@ -737,7 +737,7 @@ export async function searchAssetsByCreator(
 }
 
 /**
- * Extract the fee payer (signer) of a gTFA transaction — accountKeys[0].
+ * Extract the fee payer (signer) of a gTFA transaction: accountKeys[0].
  * For a token's first mint tx this is the true deployer/dev, even when the
  * on-chain creator/authority is the pump.fun program.
  */
@@ -831,7 +831,7 @@ export async function isTokenMint(address: string): Promise<boolean> {
 
 /**
  * UI-unit balance of a single mint for one owner (1 RPC credit).
- * Used by the token gate — far cheaper than the full /balances portfolio call.
+ * Used by the token gate, far cheaper than the full /balances portfolio call.
  * Sums across all token accounts the owner holds for the mint.
  */
 export async function getTokenBalanceForMint(owner: string, mint: string): Promise<number> {
@@ -1091,13 +1091,13 @@ function convertGtfaToHeliusTransaction(tx: GtfaTransaction): HeliusTransaction 
 }
 
 // ============================================================================
-// BATCH EARLY TX FETCHING — For sniper + bundle detection
+// BATCH EARLY TX FETCHING: For sniper + bundle detection
 // ============================================================================
 
 /**
  * Fetch first few transactions for multiple wallets in parallel via Enhanced API.
  * Uses sort-order=asc to get oldest txs first (finds buys near launch).
- * All calls fire in parallel — Business+ handles burst.
+ * All calls fire in parallel: Business+ handles burst.
  */
 export async function batchGetEarlyTransactions(
   addresses: string[],
@@ -1119,7 +1119,7 @@ export async function batchGetEarlyTransactions(
 
   if (uncached.length === 0) return results;
 
-  // Fire all gTFA calls in parallel — dedicated RPC has no rate limit
+  // Fire all gTFA calls in parallel: dedicated RPC has no rate limit
   const fetches = uncached.map(async (address) => {
     try {
       const gtfa = await getTransactionsForAddressGtfa(address, {
@@ -1155,7 +1155,7 @@ export async function batchGetEarlyTransactions(
 }
 
 // ============================================================================
-// WALLET API — Balances & Transfers
+// WALLET API: Balances & Transfers
 // ============================================================================
 
 export interface WalletBalance {
@@ -1175,7 +1175,7 @@ export interface WalletBalancesResponse {
 }
 
 /**
- * Get wallet portfolio — token holdings with USD values
+ * Get wallet portfolio: token holdings with USD values
  */
 export async function getWalletBalances(address: string): Promise<WalletBalancesResponse | null> {
   const cacheKey = `balances:${address}`;
@@ -1302,7 +1302,7 @@ function normalizeTransferRow(address: string, row: GetTransfersByAddressRow): W
 }
 
 /**
- * Get all transfers for a wallet — incoming and outgoing with counterparty info
+ * Get all transfers for a wallet: incoming and outgoing with counterparty info
  * Perfect for building funding chain graphs
  */
 export async function getWalletTransfers(
@@ -1534,7 +1534,7 @@ export async function getWalletHistory(
 }
 
 // ============================================================================
-// RAW RPC — getSignaturesForAddress + getTransaction (jsonParsed)
+// RAW RPC: getSignaturesForAddress + getTransaction (jsonParsed)
 // Used by snapshot-engine for full token balance reconstruction
 // ============================================================================
 
@@ -1659,7 +1659,7 @@ export async function getRpcTransactionsBatch(
 }
 
 // ============================================================================
-// gTFA — getTransactionsForAddress (Helius-exclusive, 100 full txs per call)
+// gTFA: getTransactionsForAddress (Helius-exclusive, 100 full txs per call)
 // ============================================================================
 
 export interface GtfaTransaction {
@@ -1731,7 +1731,7 @@ export async function getTransactionsForAddressGtfa(
 }
 
 /**
- * Fetch signatures only (lightweight) — up to 1000 per page.
+ * Fetch signatures only (lightweight): up to 1000 per page.
  * Returns slot, blockTime, signature, err. No full tx data.
  */
 export interface GtfaSignature {
@@ -1785,7 +1785,7 @@ export async function getSignaturesForAddressGtfa(
 }
 
 // ============================================================================
-// TOKEN LARGEST ACCOUNTS — Top 20 holders with balances (1 RPC credit)
+// TOKEN LARGEST ACCOUNTS: Top 20 holders with balances (1 RPC credit)
 // ============================================================================
 
 interface LargestAccountEntry {
@@ -1795,7 +1795,7 @@ interface LargestAccountEntry {
 
 /**
  * Get the top 20 token accounts by balance using standard RPC.
- * Returns token account addresses (not owner wallets — resolve via getMultipleAccountsParsed).
+ * Returns token account addresses (not owner wallets, resolve via getMultipleAccountsParsed).
  * 1 credit, cached 2 minutes.
  */
 export async function getTokenLargestAccounts(mint: string): Promise<LargestAccountEntry[]> {
@@ -1834,7 +1834,7 @@ export async function getTokenLargestAccounts(mint: string): Promise<LargestAcco
 }
 
 // ============================================================================
-// MULTIPLE ACCOUNTS PARSED — Resolve token accounts to owner wallets (1 credit)
+// MULTIPLE ACCOUNTS PARSED: Resolve token accounts to owner wallets (1 credit)
 // ============================================================================
 
 interface ParsedTokenAccountInfo {
@@ -1887,7 +1887,7 @@ export async function getMultipleAccountsParsed(
 }
 
 // ============================================================================
-// MINT EARLY TRANSACTIONS — First N txs for a mint address (sniper/bundle detection)
+// MINT EARLY TRANSACTIONS: First N txs for a mint address (sniper/bundle detection)
 // ============================================================================
 
 /**
@@ -1923,12 +1923,12 @@ export async function getMintEarlyTransactions(
 }
 
 // ============================================================================
-// DERIVE TOKEN SECURITY — Pure function from DAS asset (zero API calls)
+// DERIVE TOKEN SECURITY: Pure function from DAS asset (zero API calls)
 // ============================================================================
 
 /**
  * Derive token security info from a DAS asset object.
- * Same logic as getTokenSecurity but without the API call — use when you already have the asset.
+ * Same logic as getTokenSecurity but without the API call, use when you already have the asset.
  */
 export function deriveTokenSecurity(asset: HeliusAsset): TokenSecurityInfo {
   const riskFactors: string[] = [];

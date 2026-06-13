@@ -106,7 +106,7 @@ export interface SupplyConcentration {
   supplyDenominatorSource: 'mint' | 'sum'; // 'mint' = on-chain supply, 'sum' = holder fallback
 }
 
-// Token-level rug verdict — the fast entry signal
+// Token-level rug verdict: the fast entry signal
 export interface RugFactor {
   label: string;
   severity: 'critical' | 'high' | 'medium' | 'low';
@@ -114,14 +114,14 @@ export interface RugFactor {
 }
 
 export interface RugScore {
-  score: number;                       // 0–100, higher = riskier
+  score: number;                       // 0-100, higher = riskier
   level: 'green' | 'yellow' | 'red';   // traffic light
   confidence: 'high' | 'medium' | 'low'; // driven by holder-coverage, NOT the score
   factors: RugFactor[];                // sorted desc by points; UI shows top 3
   coverageNote?: string;               // shown when confidence !== 'high'
 }
 
-// Deployer / dev intel — the single biggest rug predictor
+//  Deployer / dev intel: the single biggest rug predictor
 export interface DeployerInfo {
   address: string;
   source: 'mint-tx-signer' | 'creator' | 'update-authority';
@@ -280,21 +280,21 @@ export interface FunderInfo {
 // Mode for the app
 export type AppMode = 'wallet' | 'token';
 
-// Color palette — Matrix green forensic theme
+// Color palette: Matrix green forensic theme
 export const NODE_COLORS = {
-  target: '#00FF41',       // Matrix green — target wallet
-  funder: '#64b5f6',       // Blue — funders
-  funded: '#8b8bff',       // Soft purple — funded wallets
-  holder: '#1a7a3a',       // Dim green — token holders
-  token: '#f59e0b',        // Amber — token center node
-  'cabal-funder': '#ff3366',  // Hot pink — suspicious shared funder
-  connected: '#ff9f43',    // Orange — connected to cabal
-  sniper: '#00ffcc',       // Cyan — sniped early (bought in first blocks)
-  bundled: '#a78bfa',      // Purple — detected in Jito bundle cluster
-  pool: '#9ca3af',         // Gray — liquidity pool / AMM (infrastructure, not a real holder)
+  target: '#00FF41',       // Matrix green: target wallet
+  funder: '#64b5f6',       // Blue: funders
+  funded: '#8b8bff',       // Soft purple: funded wallets
+  holder: '#1a7a3a',       // Dim green: token holders
+  token: '#f59e0b',        // Amber: token center node
+  'cabal-funder': '#ff3366',  // Hot pink: suspicious shared funder
+  connected: '#ff9f43',    // Orange: connected to cabal
+  sniper: '#00ffcc',       // Cyan: sniped early (bought in first blocks)
+  bundled: '#a78bfa',      // Purple: detected in Jito bundle cluster
+  pool: '#9ca3af',         // Gray: liquidity pool / AMM (infrastructure, not a real holder)
   default: '#2a3a2a',      // Dark green-gray fallback
-  unlinked: '#1a2a1a',     // Faded dark — isolated nodes
-  hub: '#ffcc00',          // Yellow — high-centrality nodes
+  unlinked: '#1a2a1a',     // Faded dark: isolated nodes
+  hub: '#ffcc00',          // Yellow: high-centrality nodes
 } as const;
 
 export const LINK_COLORS = {
@@ -600,7 +600,7 @@ export interface BundleCluster {
   };
 }
 
-// Persistent Cabal Identity — fingerprint keyed on funding source + topology so a
+// Persistent Cabal Identity: fingerprint keyed on funding source + topology so a
 // crew is recognized across tokens even after they rotate their buy wallets.
 export interface CabalFingerprintComponents {
   funderAddresses: string[];        // sorted, deduped shared-funder deposit addresses
@@ -621,7 +621,7 @@ export interface CabalTokenHistory {
 }
 
 export interface CabalFingerprint {
-  id: string;                       // sha256(components) sliced 16 — STABLE across wallet rotation
+  id: string;                       // sha256(components) sliced 16: STABLE across wallet rotation
   components: CabalFingerprintComponents;
   tokens: CabalTokenHistory[];
   totalAppearances: number;
@@ -659,7 +659,7 @@ export interface BlacklistResponse {
 }
 
 // ============================================================================
-// ATLAS — the global cabal map (ecosystem-wide, not per-token)
+// ATLAS: the global cabal map (ecosystem-wide, not per-token)
 // ============================================================================
 
 export type AtlasTokenStatus = 'watching' | 'scanned' | 'alive' | 'rugged' | 'dead';
@@ -668,9 +668,9 @@ export interface AtlasToken {
   mint: string;
   name?: string;
   symbol?: string;
-  image?: string;          // token logo from metadata — rendered on the map node
+  image?: string;          // token logo from metadata: rendered on the map node
   status: AtlasTokenStatus;
-  createdAt: number;          // unix seconds — pump.fun create (or first seen)
+  createdAt: number;          // unix seconds: pump.fun create (or first seen)
   graduatedAt?: number;
   scannedAt?: number;
   lastCheckedAt?: number;

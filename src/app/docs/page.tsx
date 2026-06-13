@@ -533,7 +533,7 @@ export default function DocsPage() {
             />
             <FeatureCard
               title="Axiom Extension"
-              description="A Chrome extension that shows the bubble map inline on axiom.trade chart pages — auto-detects the token, draggable and resizable. Download it below."
+              description="A Chrome extension that shows the bubble map inline on axiom.trade chart pages; auto-detects the token, draggable and resizable. Download it below."
               color="#5b7fff"
               icon={icons.crosshair}
             />
@@ -723,7 +723,7 @@ export default function DocsPage() {
             <p className="mb-5" style={{ color: 'var(--text-tertiary)' }}>
               Run Rico Maps right on your trading pages. The Chrome extension detects the token on{' '}
               <span className="text-white">axiom.trade</span> chart pages and shows the holder/cabal
-              bubble map in a draggable, resizable panel — no copy-pasting addresses.
+              bubble map in a draggable, resizable panel: no copy-pasting addresses.
             </p>
 
             <a
@@ -745,7 +745,7 @@ export default function DocsPage() {
                 <li>Download the .zip above and unzip it.</li>
                 <li>Open <code className="font-mono text-[#c3e88d]">chrome://extensions</code> and enable <span className="text-white">Developer mode</span> (top-right).</li>
                 <li>Click <span className="text-white">Load unpacked</span> and select the unzipped <code className="font-mono text-[#c3e88d]">ricomaps-extension</code> folder.</li>
-                <li>Open any <code className="font-mono text-[#c3e88d]">axiom.trade/meme/&lt;token&gt;</code> page — the panel appears top-right. Drag it by the header, resize from the corner, or toggle it from the extension popup.</li>
+                <li>Open any <code className="font-mono text-[#c3e88d]">axiom.trade/meme/&lt;token&gt;</code> page: the panel appears top-right. Drag it by the header, resize from the corner, or toggle it from the extension popup.</li>
               </ol>
               <p className="mt-4 text-xs" style={{ color: 'var(--text-tertiary)' }}>
                 Coming soon to the Chrome Web Store for one-click install.

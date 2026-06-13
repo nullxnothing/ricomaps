@@ -21,8 +21,8 @@ interface AutoScanBody {
   mint?: string;
   name?: string;
   symbol?: string;
-  createdAt?: number;     // unix seconds — pump.fun create time
-  graduatedAt?: number;   // unix seconds — bonding-curve completion
+  createdAt?: number;     // unix seconds: pump.fun create time
+  graduatedAt?: number;   // unix seconds: bonding-curve completion
 }
 
 export async function POST(request: NextRequest) {

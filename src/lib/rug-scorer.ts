@@ -1,6 +1,6 @@
 import { RugScore, RugFactor, SupplyConcentration, TokenSecurityInfo } from './types';
 
-// Authority risks — a dev that can mint/freeze can zero your bag at will.
+// Authority risks: a dev that can mint/freeze can zero your bag at will.
 const PTS_MINT_AUTHORITY = 25;
 const PTS_FREEZE_AUTHORITY = 20;
 const PTS_MUTABLE_METADATA = 5;
@@ -30,22 +30,22 @@ interface RugInput {
 }
 
 /**
- * Token rug verdict — the 5-second entry signal. Pure function over data the
+ * Token rug verdict: the 5-second entry signal. Pure function over data the
  * scan already has (supply concentration + token security). Zero API calls.
  *
  * Honesty rule: low holder coverage lowers CONFIDENCE, never the score. On a
  * graduated pump.fun token most supply sits in the AMM pool, so a low observed
- * top10% is invisibility, not safety — discounting the score there would
+ * top10% is invisibility, not safety, discounting the score there would
  * manufacture false green lights.
  */
 export function computeRugScore({ security, supply, snipersDetected, bundleClustersDetected }: RugInput): RugScore {
   const factors: RugFactor[] = [];
 
   if (security?.hasMintAuthority) {
-    factors.push({ label: 'Mint authority active — supply can be inflated', severity: 'critical', points: PTS_MINT_AUTHORITY });
+    factors.push({ label: 'Mint authority active: supply can be inflated', severity: 'critical', points: PTS_MINT_AUTHORITY });
   }
   if (security?.hasFreezeAuthority) {
-    factors.push({ label: 'Freeze authority active — wallets can be frozen', severity: 'critical', points: PTS_FREEZE_AUTHORITY });
+    factors.push({ label: 'Freeze authority active: wallets can be frozen', severity: 'critical', points: PTS_FREEZE_AUTHORITY });
   }
 
   pushTier(factors, supply.bundledSupplyPct, BUNDLED_TIERS, 'high', pct => `Bundled wallets hold ${pct.toFixed(1)}% of supply`);
@@ -55,7 +55,7 @@ export function computeRugScore({ security, supply, snipersDetected, bundleClust
   pushTier(factors, supply.freshWalletPct, FRESH_TIERS, 'medium', pct => `${pct.toFixed(0)}% of holders are fresh wallets`);
 
   if (security?.isMutable) {
-    factors.push({ label: 'Metadata mutable — token identity can change', severity: 'low', points: PTS_MUTABLE_METADATA });
+    factors.push({ label: 'Metadata mutable: token identity can change', severity: 'low', points: PTS_MUTABLE_METADATA });
   }
   if (supply.giniCoefficient >= GINI_EXTREME_AT) {
     factors.push({ label: 'Extreme holder concentration (Gini)', severity: 'low', points: PTS_GINI_EXTREME });
@@ -84,12 +84,12 @@ function deriveConfidence(supply: SupplyConcentration): { confidence: RugScore['
   if (cov < COVERAGE_LOW) {
     return {
       confidence: 'low',
-      coverageNote: `Low visibility (${cov.toFixed(0)}% of supply seen) — concentration may understate risk. Treat as a floor.`,
+      coverageNote: `Low visibility (${cov.toFixed(0)}% of supply seen): concentration may understate risk. Treat as a floor.`,
     };
   }
   return {
     confidence: 'medium',
-    coverageNote: `Score from top holders only — ${cov.toFixed(0)}% of supply visible.`,
+    coverageNote: `Score from top holders only: ${cov.toFixed(0)}% of supply visible.`,
   };
 }
 

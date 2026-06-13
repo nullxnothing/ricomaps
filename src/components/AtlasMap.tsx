@@ -39,7 +39,7 @@ interface SimNode extends SimulationNodeDatum {
   token?: AtlasToken;
   symbol?: string;
   linked?: boolean;
-  bornAt?: number; // ms — spawn fade-in / expiry
+  bornAt?: number; // ms; spawn fade-in / expiry
 }
 
 interface Effect {
@@ -114,7 +114,7 @@ function clusterForce(cabalOf: Map<string, SimNode>, strength: number) {
 }
 
 function cabalRadius(c: AtlasCabalNode): number {
-  // Cabals are the suns — sized by reach (tokens controlled) + money extracted.
+  // Cabals are the suns, sized by reach (tokens controlled) + money extracted.
   const extractedBoost = Math.min(10, Math.sqrt(c.estExtractedUsd / 6_000));
   return Math.min(28, 10 + 2.6 * Math.sqrt(c.tokenCount) + extractedBoost);
 }
@@ -142,7 +142,7 @@ export const AtlasMap = forwardRef<AtlasMapHandle, AtlasMapProps>(function Atlas
   const sizeRef = useRef({ w: 0, h: 0 });
   // Focus mode: ids of the selected cabal + its tokens. Empty = no focus (all bright).
   const focusRef = useRef<Set<string>>(new Set());
-  const fittedRef = useRef(false); // first fit done — afterward we ease toward the target
+  const fittedRef = useRef(false); // first fit done, afterward we ease toward the target
   const userMovedRef = useRef(false); // once the user pans/zooms, stop auto-framing
   const hadNodesRef = useRef(false); // distinguishes the first populated graph from polls
   const monoRef = useRef('monospace');
@@ -225,7 +225,7 @@ export const AtlasMap = forwardRef<AtlasMapHandle, AtlasMapProps>(function Atlas
     },
     buy(e) {
       const cabal = nodesRef.current.find((n) => n.id === e.cabalId && n.kind === 'cabal');
-      if (!cabal) return; // crew not on the current board — nothing to beam from
+      if (!cabal) return; // crew not on the current board, nothing to beam from
 
       // Token may not be a node yet (first buy of a fresh token): spawn + link it
       // so the constellation grows live as the crew piles in.
@@ -309,14 +309,14 @@ export const AtlasMap = forwardRef<AtlasMapHandle, AtlasMapProps>(function Atlas
     linksRef.current = links;
     if (nodes.length > 0) hadNodesRef.current = true;
     // Only (re)frame on the very first populated graph. Later 60s polls must NOT
-    // snap the camera — that was the jarring re-zoom mid-session.
+    // snap the camera; that was the jarring re-zoom mid-session.
     if (isFirstPopulation && nodes.length > 0) {
       fittedRef.current = false;
       userMovedRef.current = false;
     }
 
     // Map each linked token to its cabal node so tokens cluster tightly around
-    // their crew — this is what turns confetti into legible "systems".
+    // their crew; this is what turns confetti into legible "systems".
     const cabalOf = new Map<string, SimNode>();
     for (const e of graph.edges) {
       const c = byId.get(e.cabalId);
@@ -326,7 +326,7 @@ export const AtlasMap = forwardRef<AtlasMapHandle, AtlasMapProps>(function Atlas
 
     simRef.current?.stop();
     simRef.current = forceSimulation<SimNode>(nodes)
-      // Moderate cabal repulsion — enough to avoid overlap, not so much that the
+      // Moderate cabal repulsion: enough to avoid overlap, not so much that the
       // field blows apart and forces the camera to zoom way out. Tokens barely repel.
       .force('charge', forceManyBody<SimNode>().strength((n) => (n.kind === 'cabal' ? -240 : -8)).distanceMax(360))
       // Short, firm links pull a crew's tokens into a tight orbit around it.
@@ -368,7 +368,7 @@ export const AtlasMap = forwardRef<AtlasMapHandle, AtlasMapProps>(function Atlas
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    // ctx.font can't resolve CSS vars — read the loaded mono family once.
+    // ctx.font can't resolve CSS vars; read the loaded mono family once.
     const monoVar = getComputedStyle(document.documentElement).getPropertyValue('--font-jetbrains-mono').trim();
     monoRef.current = monoVar || "'JetBrains Mono', monospace";
 
@@ -480,10 +480,10 @@ export const AtlasMap = forwardRef<AtlasMapHandle, AtlasMapProps>(function Atlas
 
       // Keep a target zoom that frames the whole field; ease the view toward it
       // each frame instead of snapping. Because nodes are pre-seeded near their
-      // final spots, the very first frame is already roughly fitted — no empty
+      // final spots, the very first frame is already roughly fitted: no empty
       // canvas, no jarring re-zoom. The user's manual pan/zoom cancels the easing.
       if (!userMovedRef.current && nodesRef.current.length > 1 && w > 0) {
-        // Frame to the CABAL SYSTEMS (the subject), not the sparse outer ring —
+        // Frame to the CABAL SYSTEMS (the subject), not the sparse outer ring;
         // otherwise a few far-flung trending tokens force the zoom way out and
         // leave the center tiny. Fall back to all nodes if no cabals yet.
         let maxR = 0;
@@ -502,7 +502,7 @@ export const AtlasMap = forwardRef<AtlasMapHandle, AtlasMapProps>(function Atlas
           }
         }
         if (maxR > 0) {
-          // k so the field radius fills ~72% of the smaller half-dimension — the
+          // k so the field radius fills ~72% of the smaller half-dimension: the
           // systems fill most of the viewport with margin for edge cores + labels.
           const target = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, (Math.min(w, h) * 0.72) / maxR));
           const v = viewRef.current;
@@ -512,7 +512,7 @@ export const AtlasMap = forwardRef<AtlasMapHandle, AtlasMapProps>(function Atlas
             fittedRef.current = true;
           } else if ((simRef.current?.alpha() ?? 0) > 0.05) {
             // While the sim is still settling, gently track the growing field so it
-            // never spills off-screen — then STOP (below alpha 0.05) and hand the
+            // never spills off-screen, then STOP (below alpha 0.05) and hand the
             // camera to the user. No perpetual zoom-drift.
             v.k += (target - v.k) * 0.05;
             v.tx += (0 - v.tx) * 0.05;
@@ -595,7 +595,7 @@ function drawGraticule(ctx: CanvasRenderingContext2D, now: number): void {
   ctx.moveTo(0, -460); ctx.lineTo(0, 460);
   ctx.stroke();
 
-  // The sweep: a thin rotating radar line + faint leading wedge — reads as "live
+  // The sweep: a thin rotating radar line + faint leading wedge, reads as "live
   // radar," not a graphical artifact. One slow rotation every 18s.
   const angle = ((now / 18_000) % 1) * Math.PI * 2;
   const R = 440;
@@ -621,7 +621,7 @@ function drawGraticule(ctx: CanvasRenderingContext2D, now: number): void {
 /**
  * Cabal→token "controls" links. Each is a gradient (crew color → faint green
  * token) so the direction of control reads, and opacity is high enough that the
- * crew systems are obviously connected — this is the core comprehension cue.
+ * crew systems are obviously connected; this is the core comprehension cue.
  */
 function drawLinks(ctx: CanvasRenderingContext2D, links: { source: SimNode; target: SimNode }[], focus: Set<string>): void {
   const focusing = focus.size > 0;
@@ -752,7 +752,7 @@ function drawNodes(ctx: CanvasRenderingContext2D, nodes: SimNode[], hover: SimNo
 
       if (!dimmed) {
         ctx.textAlign = 'center';
-        // Crew id + how many tokens it controls — the headline fact, always on.
+        // Crew id + how many tokens it controls: the headline fact, always on.
         const label = `C-${n.id.slice(0, 4).toUpperCase()} · ${n.cabal.tokenCount}`;
         ctx.font = `700 9.5px ${mono}`;
         // Dark pill behind the text so it stays legible over the busy field.
@@ -781,7 +781,7 @@ function drawNodes(ctx: CanvasRenderingContext2D, nodes: SimNode[], hover: SimNo
     }
     if (status === 'dead') alpha = 0.55;
     // Outer-ring (unaffiliated trending) tokens recede so the cabal systems own
-    // attention — they're ambient ecosystem context, not the subject.
+    // attention; they're ambient ecosystem context, not the subject.
     const outer = isOuterRing(n);
     if (outer && status !== 'spawn') alpha *= 0.5;
 
@@ -817,7 +817,7 @@ function drawNodes(ctx: CanvasRenderingContext2D, nodes: SimNode[], hover: SimNo
       ctx.arc(x, y, n.r * 3, 0, Math.PI * 2);
       ctx.fill();
     }
-    // Token logo, clipped to a circle, when loaded — else the status-colored dot.
+    // Token logo, clipped to a circle, when loaded; else the status-colored dot.
     const logo = n.kind === 'token' ? images.get(n.id) : null;
     const drawR = focused ? n.r + 1 : n.r;
     if (logo) {

@@ -6,8 +6,8 @@ import { useEffect, useRef, useState, useCallback } from 'react';
  * Subscribes to the LaserStream worker's /stream/cabal SSE for a set of watched
  * funder wallets. Clones useHolderStream's transport (EventSource, ready/heartbeat/
  * error, unsupported fallback). Buffers `cabal-alert` frames per funder in a sliding
- * window and fires `onFanout` when one funder sends to N+ recipients inside the window
- * — the pre-launch tell. Single raw frames also drive `onAlert` for a live ticker.
+ * window and fires `onFanout` when one funder sends to N+ recipients inside the window,
+ * the pre-launch tell. Single raw frames also drive `onAlert` for a live ticker.
  */
 
 const WORKER_URL = process.env.NEXT_PUBLIC_HOLDER_STREAM_URL;

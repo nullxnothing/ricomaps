@@ -222,7 +222,7 @@ export function NodeDetailPanel({
           </div>
           {node.metadata.sharedFunderGroup && (
             <p className="text-[10px] mt-1" style={{ color: 'var(--red-primary)' }}>
-              ⚠ Flagged by both funding chain and behavior — high confidence.
+              ⚠ Flagged by both funding chain and behavior: high confidence.
             </p>
           )}
         </div>

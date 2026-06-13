@@ -40,7 +40,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ started: false, alreadyRunning: true, progress: getBackfillProgress(mint) });
   }
 
-  // Process first chunk synchronously — don't fire-and-forget on Vercel
+  // Process first chunk synchronously: don't fire-and-forget on Vercel
   try {
     await backfillTokenHistory(mint);
   } catch (err) {

@@ -28,7 +28,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'Invalid address' }, { status: 400 });
     }
 
-    // Check DB cache first (before isTokenMint check — cache might have it)
+    // Check DB cache first (before isTokenMint check: cache might have it)
     const cached = await getCachedTokenScan(address);
     if (cached) {
       return NextResponse.json({

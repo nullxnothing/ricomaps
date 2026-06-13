@@ -73,7 +73,7 @@ const store = new Map<string, BackfillState>();
 const backfillLimit = pLimit(3);
 
 // ============================================================================
-// CHUNKED ENGINE — works within Vercel's 30s timeout
+// CHUNKED ENGINE: works within Vercel's 30s timeout
 // ============================================================================
 
 /**
@@ -166,7 +166,7 @@ async function processChunk(
 
     // Progress: sigs phase = 0-30%
     if (!state.sigsComplete) {
-      // Don't know total yet — estimate based on pages collected
+      // Don't know total yet: estimate based on pages collected
       const totalSigPages = state.allSigs.length / SIGS_PER_PAGE;
       state.progress = Math.min(25, totalSigPages * 3);
     } else {
@@ -197,7 +197,7 @@ async function processChunk(
 
     const txs = result.data;
     if (!txs || txs.length === 0) {
-      // Done — take final snapshot
+      // Done: take final snapshot
       if (state.txSinceSnapshot > 0 && state.allSigs.length > 0) {
         const lastSig = state.allSigs[state.allSigs.length - 1];
         takeSnapshot(state, lastSig.slot, lastSig.blockTime ?? 0);

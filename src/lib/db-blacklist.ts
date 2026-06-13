@@ -158,7 +158,7 @@ async function pgUpsert(cluster: BundleCluster): Promise<void> {
 }
 
 // ============================================================================
-// PUBLIC API — routes to PG or in-memory automatically
+// PUBLIC API: routes to PG or in-memory automatically
 // ============================================================================
 
 export async function upsertBundleCluster(cluster: BundleCluster): Promise<void> {

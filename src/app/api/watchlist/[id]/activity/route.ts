@@ -8,7 +8,7 @@ import { batchGetFirstIncomingSolTransfers } from '@/lib/helius';
 import { computeThreatScore } from '@/lib/threat-scorer';
 import { GraphNode } from '@/lib/types';
 
-// GET — stored alerts for this watchlist (poll fallback when SSE is unavailable).
+// GET: stored alerts for this watchlist (poll fallback when SSE is unavailable).
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const gate = await requireGate(request);
   if (gate instanceof NextResponse) return gate;
@@ -22,7 +22,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   return NextResponse.json({ success: true, activity });
 }
 
-// POST — receive a fan-out roll-up from the browser, confirm recipients are fresh,
+// POST: receive a fan-out roll-up from the browser, confirm recipients are fresh,
 // score it, and persist as an alert. Body: { funderWallet, recipients[], totalSol, signature, slot }.
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const ip = request.headers.get('x-forwarded-for')?.split(',')[0].trim() ?? 'unknown';
@@ -48,7 +48,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   }
 
   // Freshness confirmation: a recipient is "fresh" if this fan-out tx was its first
-  // incoming SOL — i.e. a brand-new wallet, the pre-launch tell.
+  // incoming SOL: i.e. a brand-new wallet, the pre-launch tell.
   let freshCount = validRecipients.length;
   try {
     const firstIn = await batchGetFirstIncomingSolTransfers(validRecipients, { fallbackToFundedBy: false, concurrency: 6 });

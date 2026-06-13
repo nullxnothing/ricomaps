@@ -29,7 +29,7 @@ export function CabalRapSheet({ fingerprint, onTokenScan }: CabalRapSheetProps) 
 
   if (!fingerprint.matches.length) return null;
 
-  // The crew's funder wallets — what the radar watches for pre-launch fan-out.
+  // The crew's funder wallets: what the radar watches for pre-launch fan-out.
   const funderAddresses = [...new Set(fingerprint.matches.flatMap(m => m.components.funderAddresses))];
 
   const watchCrew = async () => {

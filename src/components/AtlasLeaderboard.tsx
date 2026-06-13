@@ -7,7 +7,7 @@ import { formatUsd } from '@/lib/format';
 /**
  * Most-Wanted rail: top crews ranked by damage (extracted, then reach). Doubles
  * as the page's "useful info at a glance" surface and a clickable index into the
- * map — selecting a row drives the same focus-mode path as clicking a core.
+ * map: selecting a row drives the same focus-mode path as clicking a core.
  */
 
 interface AtlasLeaderboardProps {

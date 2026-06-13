@@ -1,6 +1,6 @@
 import { GraphData, TokenMetadata, DeployerInfo, SupplyConcentration, RugScore, CabalFingerprintResult } from './types';
 
-// A token-efficient distillation of a token scan — aggregates only, never the raw
+// A token-efficient distillation of a token scan, aggregates only, never the raw
 // graph, so the prompt stays a few hundred tokens regardless of holder count.
 export interface NarrativeBrief {
   token: { name?: string; symbol?: string; rugScore?: number; rugLevel?: string };
@@ -115,9 +115,10 @@ Rules:
 - 3-5 sentences, no preamble, no headers, no bullet lists. One flowing paragraph.
 - Lead with the single most important finding (the rug verdict or the cabal).
 - Name concrete numbers from the brief (percentages, counts). Do not invent data not in the brief.
-- If a known crew / prior rugs are present, call it out explicitly — that is the headline.
+- If a known crew / prior rugs are present, call it out explicitly. That is the headline.
 - End with a blunt one-line read on whether this looks coordinated/risky or clean.
-- Tone: sharp, direct, trader-native. No hedging, no disclaimers, no "always DYOR".`;
+- Tone: sharp, direct, trader-native. No hedging, no disclaimers, no "always DYOR".
+- Never use em dashes or en dashes. Use commas, colons, or periods instead.`;
 
 /** Confidence derived from coverage, not the model. */
 export function narrativeConfidence(coveragePct: number | undefined): 'high' | 'medium' | 'low' {

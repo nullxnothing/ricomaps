@@ -5,7 +5,7 @@ import { formatUsd } from '@/lib/format';
 
 /**
  * Top-left intel readout: live status, headline counts, and the node legend.
- * Pure presentation — numbers come from the graph snapshot, "LIVE" from SSE.
+ * Pure presentation: numbers come from the graph snapshot, "LIVE" from SSE.
  */
 
 interface AtlasHudProps {
@@ -14,7 +14,7 @@ interface AtlasHudProps {
   streamSupported: boolean;
 }
 
-// Token status colors — the legend that needs explaining at a glance.
+// Token status colors: the legend that needs explaining at a glance.
 const STATUS_LEGEND = [
   { color: '#00d938', label: 'Alive' },
   { color: '#ef4444', label: 'Rugged' },
@@ -58,10 +58,10 @@ export function AtlasHud({ stats, live, streamSupported }: AtlasHudProps) {
       </p>
 
       <div className="flex flex-col gap-[7px]">
-        <StatRow label="Crews tracked" value={stats ? String(stats.cabalsTracked) : '—'} accent="red" />
-        <StatRow label="Active · 24h" value={stats ? String(stats.cabalsActive24h) : '—'} />
-        <StatRow label="Tokens tracked" value={stats ? String(stats.tokensTracked) : '—'} />
-        <StatRow label="Rugs · 24h" value={stats ? String(stats.rugs24h) : '—'} accent={stats && stats.rugs24h > 0 ? 'red' : undefined} />
+        <StatRow label="Crews tracked" value={stats ? String(stats.cabalsTracked) : 'n/a'} accent="red" />
+        <StatRow label="Active · 24h" value={stats ? String(stats.cabalsActive24h) : 'n/a'} />
+        <StatRow label="Tokens tracked" value={stats ? String(stats.tokensTracked) : 'n/a'} />
+        <StatRow label="Rugs · 24h" value={stats ? String(stats.rugs24h) : 'n/a'} accent={stats && stats.rugs24h > 0 ? 'red' : undefined} />
         {stats && stats.totalExtractedUsd > 0 && (
           <StatRow label="Extracted" value={formatUsd(stats.totalExtractedUsd)} accent="red" />
         )}
@@ -71,7 +71,7 @@ export function AtlasHud({ stats, live, streamSupported }: AtlasHudProps) {
       <div className="mt-3.5 pt-3 flex flex-col gap-1.5" style={{ borderTop: '1px solid var(--border-base)' }}>
         <span className="flex items-center gap-2 font-mono text-[9px] uppercase tracking-[0.05em] text-text-tertiary">
           <span className="w-[11px] h-[11px] rounded-full flex-shrink-0" style={{ background: 'var(--red-primary)' }} />
-          Crew — bigger = more tokens
+          Crew · bigger = more tokens
         </span>
         <span className="flex items-center gap-2 font-mono text-[9px] uppercase tracking-[0.05em] text-text-tertiary">
           <span className="w-[11px] flex-shrink-0" style={{ height: 1.5, background: 'linear-gradient(90deg, var(--red-primary), var(--green-primary))' }} />

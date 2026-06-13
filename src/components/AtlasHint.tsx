@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 
 /**
  * One-time "what am I looking at" hint, shown over the map on first visit and
- * dismissed for the session. Pure orientation — no data.
+ * dismissed for the session. Pure orientation, no data.
  */
 
 const SEEN_KEY = 'atlas-hint-seen';
@@ -35,7 +35,7 @@ export function AtlasHint({ show }: { show: boolean }) {
         <span className="mt-0.5 w-2.5 h-2.5 rounded-full flex-shrink-0 bg-red-primary" style={{ animation: 'tx-pulse 2s ease-in-out infinite' }} />
         <p className="text-[12.5px] leading-relaxed text-text-secondary flex-1">
           Each <span className="text-red-primary font-semibold">●</span> is a coordinated crew. Lines run to the
-          tokens they control. Click a crew to see its bags, PnL, and history — or watch the beams when they buy.
+          tokens they control. Click a crew to see its bags, PnL, and history, or watch the beams when they buy.
         </p>
         <button
           onClick={dismiss}

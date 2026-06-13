@@ -3,7 +3,7 @@ import { Pool } from 'pg';
 let pool: Pool | null = null;
 
 if (!process.env.DATABASE_URL) {
-  console.warn('[DB] DATABASE_URL not set — database disabled');
+  console.warn('[DB] DATABASE_URL not set: database disabled');
 }
 
 export function getPool(): Pool | null {

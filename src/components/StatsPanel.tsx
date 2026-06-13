@@ -63,7 +63,7 @@ export function StatsPanel({ data, mode, stats, tokenSecurity, deployerInfo, onF
 
   return (
     <div className="glass-panel w-full md:w-56 xl:w-64 2xl:w-72 max-h-[40vh] sm:max-h-[60vh] overflow-y-auto themed-scrollbar p-2.5 sm:p-3.5">
-      {/* Rug verdict — the 5-second entry signal */}
+      {/* Rug verdict: the 5-second entry signal */}
       {mode === 'token' && stats.rugScore && (
         <RugScoreHeadline rug={stats.rugScore} />
       )}
@@ -75,7 +75,7 @@ export function StatsPanel({ data, mode, stats, tokenSecurity, deployerInfo, onF
         </div>
       )}
 
-      {/* Supply concentration — the headline metric traders screenshot */}
+      {/* Supply concentration: the headline metric traders screenshot */}
       {mode === 'token' && stats.supplyConcentration && (
         <SupplyConcentrationPanel sc={stats.supplyConcentration} />
       )}
@@ -129,7 +129,7 @@ export function StatsPanel({ data, mode, stats, tokenSecurity, deployerInfo, onF
           </button>
         )}
 
-        {/* Rap sheet — this crew's prior tokens (matched by funding fingerprint) */}
+        {/* Rap sheet: this crew's prior tokens (matched by funding fingerprint) */}
         {mode === 'token' && stats.cabalFingerprint && stats.cabalFingerprint.matches.length > 0 && (
           <CabalRapSheet fingerprint={stats.cabalFingerprint} onTokenScan={onTokenScan} />
         )}
@@ -182,7 +182,7 @@ export function StatsPanel({ data, mode, stats, tokenSecurity, deployerInfo, onF
           </div>
         )}
 
-        {/* Behavioral clusters — funding-independent crews */}
+        {/* Behavioral clusters: funding-independent crews */}
         {mode === 'token' && stats.behavioralClustersDetected !== undefined && stats.behavioralClustersDetected > 0 && (
           <button
             type="button"
@@ -243,7 +243,7 @@ function SupplyConcentrationPanel({ sc }: { sc: SupplyConcentration }) {
 
   // Low coverage = the analyzed top holders represent only a small slice of supply
   // (rest is in the AMM pool / untracked). Concentration metrics are then "among
-  // top holders", not token-wide — say so instead of implying false safety.
+  // top holders", not token-wide; say so instead of implying false safety.
   // Older cached scans may lack analyzedSupplyPct; treat unknown coverage as full
   // so we don't show a misleading low-coverage warning on legacy payloads.
   const lowCoverage = sc.analyzedSupplyPct !== undefined && sc.analyzedSupplyPct < 50;
@@ -300,7 +300,7 @@ function SupplyConcentrationPanel({ sc }: { sc: SupplyConcentration }) {
       <p className="mt-1.5 text-[10px] leading-tight text-text-tertiary">
         {lowCoverage
           ? `Top ${sc.realHolderCount} holders = ${fmtPct(sc.analyzedSupplyPct)} of supply (rest in pool/untracked). %s are of total supply held.`
-          : `% of circulating supply held${sc.supplyDenominatorSource === 'sum' ? ' (est. — mint supply unavailable)' : ''}.`}
+          : `% of circulating supply held${sc.supplyDenominatorSource === 'sum' ? ' (est.: mint supply unavailable)' : ''}.`}
       </p>
     </div>
   );

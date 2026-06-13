@@ -7,7 +7,7 @@ const pool = getPool();
 
 export type { AtlasToken, AtlasTokenStatus, AtlasStats, AtlasCabalNode, AtlasGraph };
 
-// Rugged/dead are terminal — outcome passes never resurrect a corpse.
+// Rugged/dead are terminal: outcome passes never resurrect a corpse.
 const TERMINAL_STATUSES: AtlasTokenStatus[] = ['rugged', 'dead'];
 
 // ============================================================================
@@ -177,7 +177,7 @@ export async function getAtlasTokens(mints: string[]): Promise<Map<string, Atlas
   return out;
 }
 
-/** Most recently created tokens still on the board (any status) — the "fresh launches" ring. */
+/** Most recently created tokens still on the board (any status): the "fresh launches" ring. */
 export async function listRecentAtlasTokens(limit = 100, sinceSec?: number): Promise<AtlasToken[]> {
   const cutoff = sinceSec ?? Math.floor(Date.now() / 1000) - 24 * 3600;
   if (!pool) {
@@ -295,7 +295,7 @@ export async function getAtlasGraph(options: { maxCabals?: number; maxRecentToke
   }
 
   // Seed the board with live trending tokens (DexScreener/GeckoTerminal) so the
-  // map is always populated with real, logo'd tokens — not just what's been
+  // map is always populated with real, logo'd tokens, not just what's been
   // scanned. Existing entries keep their richer atlas/cabal data.
   const trending = await getTrendingTokensForAtlas();
   for (const t of trending) if (!tokenMap.has(t.mint)) tokenMap.set(t.mint, t);
@@ -303,7 +303,7 @@ export async function getAtlasGraph(options: { maxCabals?: number; maxRecentToke
   return { cabals, tokens: [...tokenMap.values()], edges, stats };
 }
 
-// Trending tokens cached briefly — the atlas refreshes every ~15s, GeckoTerminal
+// Trending tokens cached briefly: the atlas refreshes every ~15s, GeckoTerminal
 // is rate-limited, and trending barely moves minute to minute.
 let trendingCache: { tokens: AtlasToken[]; at: number } | null = null;
 const TRENDING_TTL_MS = 60_000;

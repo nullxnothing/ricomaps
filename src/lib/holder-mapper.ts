@@ -57,7 +57,7 @@ function mergeBundleClusters(clusters: BundleCluster[]): BundleCluster[] {
   return Array.from(byId.values());
 }
 
-/** Optimized token scan pipeline — ~25 API calls in <1s */
+/** Optimized token scan pipeline: ~25 API calls in <1s */
 export async function mapTokenHolders(mintAddress: string, options: MapOptions = {}): Promise<{
   data: GraphData;
   stats: {
@@ -159,7 +159,7 @@ export async function mapTokenHolders(mintAddress: string, options: MapOptions =
   // ═══════════════════════════════════════════════════════════
   // PHASE 2: Fetch early txs for launch clustering and first incoming SOL funders
   // ═══════════════════════════════════════════════════════════
-  // Deployer history (only for an attributable human signer — never a program/PDA)
+  // Deployer history (only for an attributable human signer, never a program/PDA)
   // and the deployer's own funding source. Overlapped with holder fetches → no
   // added wall-clock.
   const runDeployerHistory = resolvedDeployer && !resolvedDeployer.unattributable;
@@ -228,7 +228,7 @@ export async function mapTokenHolders(mintAddress: string, options: MapOptions =
     }
   }
 
-  // Bundle detection: group early buyers by slot — 2+ wallets in same slot = bundle
+  // Bundle detection: group early buyers by slot: 2+ wallets in same slot = bundle
   const holderTxBundleClusters = detectBundleClusters(holderEarlyTxs, {
     mintAddress,
     tokenName: tokenMetadata?.name,
@@ -336,7 +336,7 @@ export async function mapTokenHolders(mintAddress: string, options: MapOptions =
   console.error(`[PERF] Phase 3 identity: ${Date.now() - p3Start}ms (${allIdentityAddresses.length} addresses)`);
 
   // ═══════════════════════════════════════════════════════════
-  // PHASE 4: Build graph — ALL connections (zero API calls)
+  // PHASE 4: Build graph: ALL connections (zero API calls)
   // ═══════════════════════════════════════════════════════════
 
   const sniperSet = new Set(sniperWallets);
@@ -375,7 +375,7 @@ export async function mapTokenHolders(mintAddress: string, options: MapOptions =
   }
 
   // A single holder controlling a large share of circulating supply is almost
-  // always a pool/AMM/treasury, not a real holder — tag those distinctly too.
+  // always a pool/AMM/treasury, not a real holder, tag those distinctly too.
   const POOL_SUPPLY_SHARE = 0.15;
   const holderSupplyTotal = topHolders.reduce((sum, h) => sum + h.amount, 0);
 
@@ -389,7 +389,7 @@ export async function mapTokenHolders(mintAddress: string, options: MapOptions =
     const identity = identities.get(holder.owner);
     const funderResult = fundedByResults.find(r => r.owner === holder.owner);
 
-    // Pool takes priority — it's infrastructure, not a suspicious actor.
+    // Pool takes priority: it's infrastructure, not a suspicious actor.
     const nodeType = isPool ? 'pool' : isSniper ? 'sniper' : isBundled ? 'bundled' : 'holder';
     const holderNode = createNode(holder.owner, 1, nodeType, holder.amount,
       isPool ? { isPool: true }
@@ -544,7 +544,7 @@ export async function mapTokenHolders(mintAddress: string, options: MapOptions =
     }
   }
 
-  // 4f: Behavioral clustering — funding-independent crew detection.
+  // 4f: Behavioral clustering: funding-independent crew detection.
   // Catches crews that launder their funding (no shared funder link) but still act
   // as one hand: same buy-slot, same co-buy cohort, similar age/size.
   const sameSlotMap = new Map<string, number>();
@@ -662,7 +662,7 @@ export async function mapTokenHolders(mintAddress: string, options: MapOptions =
     }
   }
 
-  // PHASE 5c: Laundered-cabal feedback — a behavioral cluster with NO shared funder
+  // PHASE 5c: Laundered-cabal feedback: a behavioral cluster with NO shared funder
   // is a crew that rotated/laundered funding. Fingerprint it on topology + behavior so
   // the radar can still recognize them despite the funding break.
   try {

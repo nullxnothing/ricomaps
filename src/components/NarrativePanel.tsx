@@ -44,7 +44,7 @@ export function NarrativePanel({ mint, data, stats, tokenMetadata, deployerInfo 
 
   const hasOutput = text.length > 0 || isStreaming;
 
-  // Idle state — a compact pill, not a loud full-width box.
+  // Idle state: a compact pill, not a loud full-width box.
   if (!hasOutput && !error) {
     return (
       <button
@@ -72,7 +72,7 @@ export function NarrativePanel({ mint, data, stats, tokenMetadata, deployerInfo 
     );
   }
 
-  // Output state — a contained, readable card.
+  // Output state: a contained, readable card.
   return (
     <div
       className="w-[clamp(280px,32vw,400px)] rounded-lg p-3 backdrop-blur-md"

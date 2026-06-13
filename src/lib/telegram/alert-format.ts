@@ -1,6 +1,7 @@
 import { truncateAddress } from '@/lib/address-utils';
 import { formatUsd } from '@/lib/format';
 import type { InlineKeyboard } from './client';
+import { FOOTER_ROW } from './format';
 
 const APP_URL = (process.env.NEXT_PUBLIC_APP_URL ?? 'https://ricomaps.fun').replace(/\/$/, '');
 
@@ -69,6 +70,7 @@ export function formatAlert(ev: AlertEvent): { text: string; replyMarkup: Inline
       { text: '🔕 Unwatch', callback_data: `unwatch:${ev.mint}` },
       { text: 'Solscan', url: `https://solscan.io/token/${ev.mint}` },
     ],
+    ...FOOTER_ROW,
   ];
   return { text, replyMarkup };
 }

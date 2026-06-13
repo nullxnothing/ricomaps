@@ -8,7 +8,7 @@ const pool = getPool();
 const memoryStore = new Map<string, CabalFingerprint>();
 
 // ============================================================================
-// PURE HELPERS — fingerprint derivation (wallet-agnostic on purpose)
+// PURE HELPERS: fingerprint derivation (wallet-agnostic on purpose)
 // ============================================================================
 
 /**
@@ -239,7 +239,7 @@ function rowToFingerprint(row: Record<string, unknown>): CabalFingerprint {
 }
 
 // ============================================================================
-// PUBLIC API — routes to PG or in-memory automatically
+// PUBLIC API: routes to PG or in-memory automatically
 // ============================================================================
 
 export async function upsertCabalFingerprint(fp: CabalFingerprint): Promise<void> {

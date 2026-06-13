@@ -19,7 +19,7 @@ interface ConcentrationInput {
   sniperWallets: Set<string>;
   /** Wallets funded by a detected cabal-funder (shared-funder cluster members). */
   cabalWallets: Set<string>;
-  /** Wallets tagged as pool/AMM/treasury — excluded from circulating denominator. */
+  /** Wallets tagged as pool/AMM/treasury, excluded from circulating denominator. */
   poolWallets: Set<string>;
   /** Total mint supply in UI units (token_info.supply / 10^decimals). 0/undefined → fall back to holder sum. */
   mintSupply?: number;
@@ -27,7 +27,7 @@ interface ConcentrationInput {
 
 /**
  * Aggregate supply-held percentages and holder-distribution health from data the
- * token pipeline already has in memory — zero additional API calls.
+ * token pipeline already has in memory: zero additional API calls.
  *
  * All percentages are SUPPLY-HELD (current balance / circulating supply), NOT
  * trade volume. This is the methodology traders expect from Trench.bot/Axiom and
@@ -54,7 +54,7 @@ export function computeSupplyConcentration(input: ConcentrationInput): SupplyCon
 
   // Insider set = bundled ∪ sniper. "Still holding" is their current on-chain
   // balance share; wallets that exited (≈0 balance / dropped from holders) simply
-  // contribute less here — honest, current-balance-based, matching Trench.bot.
+  // contribute less here: honest, current-balance-based, matching Trench.bot.
   const insiderWallets = new Set<string>([...bundledWallets, ...sniperWallets]);
   const insiderStillHolding = sumWhere(holders, h => insiderWallets.has(h.owner));
 
@@ -66,7 +66,7 @@ export function computeSupplyConcentration(input: ConcentrationInput): SupplyCon
   const freshCount = realHolders.filter(isFreshWallet).length;
 
   // Coverage: what fraction of circulating supply the analyzed holders actually
-  // represent. Critical context — on graduated tokens most supply sits in the
+  // represent. Critical context: on graduated tokens most supply sits in the
   // AMM pool and is NOT in the top-N holder set, so a low top-10% can be
   // misleading without this. We surface it so no % is shown without scope.
   const analyzedSupply = realHolders.reduce((sum, h) => sum + h.amount, 0);
@@ -128,7 +128,7 @@ function sumWhere(holders: HolderAmount[], predicate: (h: HolderAmount) => boole
 }
 
 function clampPct(value: number): number {
-  return Math.round(clamp01(value / 100) * 1000) / 10; // one decimal, 0–100
+  return Math.round(clamp01(value / 100) * 1000) / 10; // one decimal, 0-100
 }
 
 function clamp01(value: number): number {

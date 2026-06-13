@@ -39,7 +39,7 @@ export function ClusterCard({ cluster, onWalletClick, onTokenScan }: ClusterCard
 
   return (
     <div className="cluster-card">
-      {/* Collapsed header — always visible */}
+      {/* Collapsed header, always visible */}
       <button
         className="w-full flex items-center justify-between gap-3 text-left"
         onClick={() => setIsExpanded(!isExpanded)}

@@ -57,7 +57,7 @@ export const ShimmerButton = React.forwardRef<HTMLButtonElement, ShimmerButtonPr
           }}
         />
 
-        {/* Rotating conic-gradient spark — clipped by parent's overflow-hidden */}
+        {/* Rotating conic-gradient spark, clipped by parent's overflow-hidden */}
         <span
           aria-hidden="true"
           className="absolute inset-0 -z-20 overflow-hidden"

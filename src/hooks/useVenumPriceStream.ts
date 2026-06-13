@@ -63,7 +63,7 @@ export function useVenumPriceStream(
       }
     });
 
-    // `heartbeat` events just keep the connection alive — no handler needed.
+    // `heartbeat` events just keep the connection alive, no handler needed.
 
     es.onerror = () => {
       // EventSource auto-reconnects; surface a soft error until it recovers.

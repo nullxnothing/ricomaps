@@ -24,7 +24,7 @@ function getSecret(): Uint8Array {
 /** The exact message a wallet signs to prove ownership. Includes a nonce + expiry. */
 export function buildSignMessage(nonce: string, issuedAt: number): string {
   return [
-    'Rico Maps — unlock holder features',
+    'Rico Maps · unlock holder features',
     '',
     'Sign this message to prove you hold $RICO.',
     'This is free and does not authorize any transaction.',

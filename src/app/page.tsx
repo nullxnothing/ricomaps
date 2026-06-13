@@ -174,7 +174,7 @@ function HomeContent() {
       <main className="relative w-screen h-screen overflow-hidden bg-bg-void">
         <LoadingOverlay isLoading={isLoading} mode={detectedMode || 'wallet'} />
 
-        {/* Nav Bar — full width to match marketing pages */}
+        {/* Nav Bar: full width to match marketing pages */}
         <header className="absolute top-0 left-0 right-0 z-10 h-[52px] glass-panel-floating border-t-0 border-x-0 border-b border-border-base">
           <div className="w-full px-5 sm:px-8 h-full flex items-center gap-4">
             <div className="flex items-center gap-2.5 flex-shrink-0">
@@ -195,7 +195,7 @@ function HomeContent() {
           </div>
         </header>
 
-        {/* Token identity card — floating below nav */}
+        {/* Token identity card: floating below nav */}
         {detectedMode === 'token' && tokenMetadata && (
           <div className="absolute top-[56px] left-3 sm:left-4 z-10 w-[220px] sm:w-[260px] xl:w-[280px] overflow-hidden rounded-lg glass-panel">
             {/* Header: image + name + symbol */}
@@ -305,7 +305,7 @@ function HomeContent() {
               </div>
             )}
 
-            {/* CA — click to copy */}
+            {/* CA: click to copy */}
             {scannedAddress && (
               <button
                 className="flex items-center justify-between w-full px-3 py-2 transition-colors duration-150 group bg-transparent border-t border-border-base"
@@ -321,7 +321,7 @@ function HomeContent() {
               </button>
             )}
 
-            {/* Share link — copies a deep link that auto-scans this token */}
+            {/* Share link: copies a deep link that auto-scans this token */}
             {scannedAddress && (
               <button
                 className="flex items-center justify-between w-full px-3 py-2 transition-colors duration-150 bg-transparent border-t border-border-base hover:bg-white/[0.03]"
@@ -420,7 +420,7 @@ function HomeContent() {
           </div>
         )}
 
-        {/* Live control — pill + activity feed in one top-center column so the feed
+        {/* Live control: pill + activity feed in one top-center column so the feed
             always hangs directly under the pill and never collides with other panels. */}
         {detectedMode === 'token' && !historicalSnapshot && (
           <div className="absolute left-1/2 -translate-x-1/2 z-10 flex flex-col items-center gap-2" style={{ top: 'var(--panel-top)' }}>
@@ -476,7 +476,7 @@ function HomeContent() {
           </div>
         )}
 
-        {/* Bubble Map — use absolute instead of fixed to avoid Safari issues */}
+        {/* Bubble Map: use absolute instead of fixed to avoid Safari issues */}
         <div
           className="absolute inset-0 z-0"
           style={historicalSnapshot ? { boxShadow: 'inset 0 0 0 2px rgba(245,158,11,0.3)' } : undefined}
@@ -497,7 +497,7 @@ function HomeContent() {
           </ErrorBoundary>
         </div>
 
-        {/* Sparse results overlay — shown when only 1 node with no links */}
+        {/* Sparse results overlay: shown when only 1 node with no links */}
         {data.nodes.length <= 1 && data.links.length === 0 && !isLoading && (
           <div className="absolute inset-0 z-[5] flex items-center justify-center pointer-events-none">
             <div className="text-center px-7 py-6 rounded-xl max-w-sm bg-black/90 border border-white/[0.06] backdrop-blur-md shadow-[0_8px_32px_rgba(0,0,0,0.4)]">
@@ -517,7 +517,7 @@ function HomeContent() {
           </div>
         )}
 
-        {/* Stats toggle button — mobile only */}
+        {/* Stats toggle button: mobile only */}
         <button
           className={`absolute right-3 z-10 md:hidden glass-panel p-2 rounded-lg transition-all duration-150 ${statsPanelOpen ? 'bg-green-primary/10' : ''}`}
           style={{ top: 'var(--panel-top)' }}
@@ -529,7 +529,7 @@ function HomeContent() {
           </svg>
         </button>
 
-        {/* Stats — desktop: fixed right side, mobile: bottom sheet overlay */}
+        {/* Stats: desktop fixed right side, mobile bottom sheet overlay */}
         <div className={`
           absolute z-10
           md:right-3 md:block
@@ -568,7 +568,7 @@ function HomeContent() {
           />
         </div>
 
-        {/* Detail Panel — full-width bottom on mobile */}
+        {/* Detail Panel: full-width bottom on mobile */}
         {currentSelectedNode && (
           <div
             className="absolute bottom-0 left-0 right-0 sm:bottom-4 sm:left-4 sm:right-auto z-10"
@@ -584,7 +584,7 @@ function HomeContent() {
           </div>
         )}
 
-        {/* AI narrative — token mode, when nothing is selected. Bottom-center,
+        {/* AI narrative: token mode, when nothing is selected. Bottom-center,
             clear of the bottom-left legend and the bottom-right Deep Scan/zoom. */}
         {detectedMode === 'token' && data && stats && !currentSelectedNode && (
           <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10 hidden lg:block" style={{ animation: 'slideUp 0.2s ease-out' }}>
@@ -598,7 +598,7 @@ function HomeContent() {
           </div>
         )}
 
-        {/* Deep Scan button — only visible when cabal funders exist */}
+        {/* Deep Scan button: only visible when cabal funders exist */}
         {(() => {
           const cabalWallets = data.nodes.filter(n => n.type === 'cabal-funder').map(n => n.id);
           if (cabalWallets.length === 0) return null;
@@ -650,7 +650,7 @@ function HomeContent() {
   return (
     <main className="relative min-h-screen overflow-hidden bg-bg-void">
       <Navbar fadeIn />
-      {/* Radial glow — centered on hero */}
+      {/* Radial glow: centered on hero */}
       <div
         className="pointer-events-none absolute inset-0 z-0"
         style={{
@@ -695,7 +695,7 @@ function HomeContent() {
 
         {!clipboardAddress && !isLoading && !isDetecting && (
           <p className="mt-1 text-[11px] font-mono text-text-tertiary">
-            Paste a token or wallet to map it — or{' '}
+            Paste a token or wallet to map it, or{' '}
             <button
               onClick={() => handleTokenClick('8AuS5e8cnsfDT77AhirQWY6q8SW2ogZGLg7QCVWPfBCJ')}
               className="text-green-primary/80 hover:text-green-primary underline underline-offset-2 transition-colors"

@@ -4,7 +4,7 @@ import { getCabalFingerprints } from '@/lib/cabal-fingerprint';
 
 export const maxDuration = 15;
 
-// Bounds on what the worker watches — keeps the LaserStream wallet filter cheap.
+// Bounds on what the worker watches: keeps the LaserStream wallet filter cheap.
 const MAX_CABALS = 40;
 const WALLETS_PER_CABAL = 8;
 const MAX_TOTAL_WALLETS = Number(process.env.ATLAS_MAX_WALLETS ?? 200);
@@ -12,7 +12,7 @@ const MAX_TOTAL_WALLETS = Number(process.env.ATLAS_MAX_WALLETS ?? 200);
 /**
  * Cabal wallet rosters for the atlas worker to watch for live buys. Top crews by
  * confidence (most-active surface first), each trimmed to its first N wallets,
- * with a hard global cap. Read-only over the fingerprint store — no scan cost.
+ * with a hard global cap. Read-only over the fingerprint store: no scan cost.
  */
 export async function GET(request: NextRequest) {
   if (!isAuthorizedInternal(request)) {

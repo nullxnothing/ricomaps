@@ -31,13 +31,23 @@ export interface ScanResultLike {
 
 const APP_URL = (process.env.NEXT_PUBLIC_APP_URL ?? 'https://ricomaps.fun').replace(/\/$/, '');
 
+// Attribution / buy footer shown on every card and alert.
+const RICO_MINT = process.env.NEXT_PUBLIC_RICO_MINT ?? '6tf2X4GbYdM59hAMNa5kgyja2C9CjwUVqr9YLvJ1pump';
+const DAEMON_MINT = '4vpf4qNtNVkvz2dm5qL2mT6jBXH9gDY8qH2QsHN5pump';
+export const FOOTER_ROW: InlineKeyboard = [
+  [
+    { text: '💸 Trade $RICO', url: `https://pump.fun/coin/${RICO_MINT}` },
+    { text: '⚡ Built with Daemon', url: `https://pump.fun/coin/${DAEMON_MINT}` },
+  ],
+];
+
 /** Escape the three characters that matter for Telegram HTML parse mode. */
 function esc(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
 function pct(n: number | undefined): string {
-  if (n == null || Number.isNaN(n)) return '—';
+  if (n == null || Number.isNaN(n)) return 'n/a';
   return `${n.toFixed(1)}%`;
 }
 
@@ -60,7 +70,7 @@ export interface TokenCard {
   photoUrl?: string;
 }
 
-// Tree connectors — mid branch and last branch, matching the reference layout.
+// Tree connectors: mid branch and last branch, matching the reference layout.
 const T = '├';
 const L = '└';
 
@@ -111,18 +121,36 @@ export function formatTokenCard(mint: string, result: ScanResultLike): TokenCard
     if (m.length) lines.push(...section('📊', 'Stats', m));
   }
 
-  // ── RicoMaps Intel — the differentiator ─────────────────
+  // RicoMaps Intel: the differentiator.
+  // Bundled/sniper are measured from launch-time buyers that are STILL in the
+  // analyzed holder set. On older/distributed tokens those wallets have exited,
+  // so detection legitimately finds none. Showing a bare "0.0%" reads as broken,
+  // so when nothing is detected we surface "none in top holders" instead.
   if (sc) {
     const bundleN = stats.bundledWallets?.length ?? 0;
     const clusterN = stats.bundleClustersDetected ?? 0;
     const sniperN = stats.sniperWallets?.length ?? stats.snipersDetected ?? 0;
+
+    const bundledVal = clusterN > 0
+      ? `<b>${pct(sc.bundledSupplyPct)}</b> <i>${bundleN}w · ${clusterN} bundles</i>`
+      : '<i>none in top holders</i>';
+    const sniperVal = sniperN > 0
+      ? `<b>${pct(sc.sniperSupplyPct)}</b> <i>${sniperN} wallets</i>`
+      : '<i>none in top holders</i>';
+
     const intel = [
       leaf(T, 'Insider ', `<b>${pct(sc.insiderStillHoldingPct)}</b> <i>still holding</i>`),
       leaf(T, 'Cabal   ', `<b>${pct(sc.cabalSupplyPct)}</b> <i>shared funder</i>`),
-      leaf(T, 'Bundled ', `<b>${pct(sc.bundledSupplyPct)}</b> <i>${bundleN}w · ${clusterN} bundles</i>`),
-      leaf(L, 'Snipers ', `<b>${pct(sc.sniperSupplyPct)}</b> <i>${sniperN} wallets</i>`),
+      leaf(T, 'Bundled ', bundledVal),
+      leaf(L, 'Snipers ', sniperVal),
     ];
     lines.push(...section('🔬', 'RicoMaps Intel', intel));
+
+    // Coverage footer: how much supply the analyzed holders actually represent.
+    // Critical scope so a low/zero metric isn't read as a clean bill of health.
+    if (sc.analyzedSupplyPct != null && sc.analyzedSupplyPct < 60) {
+      lines.push(`<i>📐 Analyzed ${pct(sc.analyzedSupplyPct)} of supply (top ${sc.realHolderCount} holders). Launch-time metrics may understate older tokens.</i>`);
+    }
   }
 
   // ── Security ────────────────────────────────────────────
@@ -166,6 +194,7 @@ export function formatTokenCard(mint: string, result: ScanResultLike): TokenCard
       { text: 'DexScreener ↗', url: dexUrl },
       { text: 'Solscan ↗', url: `https://solscan.io/token/${mint}` },
     ],
+    ...FOOTER_ROW,
   ];
 
   return { text, replyMarkup, photoUrl: resolvePhotoUrl(meta?.image) };
@@ -187,7 +216,7 @@ export function inlineSummary(mint: string, result: ScanResultLike): string {
   const rug = result.stats.rugScore;
   const sc = result.stats.supplyConcentration;
   const sym = result.tokenMetadata?.symbol ? `$${result.tokenMetadata.symbol}` : truncateAddress(mint);
-  const score = rug ? `${rug.score}/100` : '—';
+  const score = rug ? `${rug.score}/100` : 'n/a';
   const insider = sc ? ` · insider ${pct(sc.insiderStillHoldingPct)}` : '';
-  return `${rugEmoji(rug?.level)} ${sym} — rug ${score}${insider}`;
+  return `${rugEmoji(rug?.level)} ${sym} · rug ${score}${insider}`;
 }

@@ -12,7 +12,7 @@ export function GateButton() {
       <button
         type="button"
         onClick={lock}
-        title="Holder unlocked — click to disconnect"
+        title="Holder unlocked, click to disconnect"
         className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors"
         style={{ background: 'var(--green-ghost)', color: 'var(--green-primary)', border: '1px solid rgba(0,255,65,0.25)' }}
       >

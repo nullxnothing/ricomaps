@@ -69,7 +69,7 @@ export function useGate() {
 
       if (!verify.success) {
         const msg = verify.error === 'no_balance'
-          ? 'This wallet holds no $RICO — heavier features are holder-only.'
+          ? 'This wallet holds no $RICO: heavier features are holder-only.'
           : (verify.message || verify.error || 'Verification failed');
         setState(s => ({ ...s, loading: false, error: msg }));
         return false;

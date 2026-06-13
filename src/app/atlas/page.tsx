@@ -55,7 +55,7 @@ export default function AtlasPage() {
       pushTicker({
         id: `${e.signature}-grad`, kind: 'graduation', ts: e.ts,
         text: e.name ?? (e.symbol ? `$${e.symbol}` : truncateAddress(e.mint)),
-        sub: 'bonding curve complete — scanning',
+        sub: 'bonding curve complete, scanning',
       });
     },
     onCabalActivity: (e) => {
@@ -139,7 +139,7 @@ export default function AtlasPage() {
           onSelectToken={setSelectedToken}
         />
 
-        {/* Overlay chrome — panels re-enable pointer events individually */}
+        {/* Overlay chrome: panels re-enable pointer events individually */}
         <div className="absolute inset-0 pointer-events-none p-4 flex flex-col">
           <div className="flex items-start justify-between gap-4">
             <AtlasHud stats={graph?.stats ?? null} live={connected} streamSupported={!unsupported} />
@@ -173,7 +173,7 @@ export default function AtlasPage() {
                 No intel yet
               </div>
               <p className="text-[13px] text-text-secondary leading-relaxed mb-4">
-                The atlas builds itself from scans. Run a few token scans — every crew it finds gets fingerprinted and tracked here.
+                The atlas builds itself from scans. Run a few token scans, and every crew it finds gets fingerprinted and tracked here.
               </p>
               <Link href="/" className="btn-cta">Scan a token</Link>
             </div>

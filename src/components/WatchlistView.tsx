@@ -112,9 +112,9 @@ export function WatchlistView() {
               <rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" />
             </svg>
           </div>
-          <h1 className="text-xl font-bold">Cabal Radar — holders only</h1>
+          <h1 className="text-xl font-bold">Cabal Radar · holders only</h1>
           <p className="text-sm max-w-md" style={{ color: 'var(--text-secondary)' }}>
-            Watch a cabal&apos;s funding wallets in real time. When a watched funder fans fresh SOL into new wallets — the pre-launch tell — you get an alert before they buy.
+            Watch a cabal&apos;s funding wallets in real time. When a watched funder fans fresh SOL into new wallets, the pre-launch tell, you get an alert before they buy.
           </p>
           <button
             onClick={unlock}

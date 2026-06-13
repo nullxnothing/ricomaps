@@ -2,7 +2,7 @@ import 'server-only';
 
 // Minimal Telegram Bot API client. We only use the handful of methods the bot
 // needs (sendMessage, answerInlineQuery, answerCallbackQuery) plus setup helpers.
-// The token never leaves the server — all calls go out from API routes / scripts.
+// The token never leaves the server; all calls go out from API routes / scripts.
 
 const API_BASE = 'https://api.telegram.org';
 

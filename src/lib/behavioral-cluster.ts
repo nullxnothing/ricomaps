@@ -4,11 +4,11 @@ import { UnionFind } from './graph-analysis';
 // Behavioral clustering catches crews that LAUNDER their funding (no shared funder
 // link) but still act as one hand: same buy-slot, same co-buy cohort, similar wallet
 // age and position size. It reuses only features holder-mapper actually populates in
-// token mode — buy-slot proximity, co-slot peers, funding-age proxy, holding size.
+// token mode: buy-slot proximity, co-slot peers, funding-age proxy, holding size.
 
 export interface BehavioralFeatures {
   wallet: string;
-  buySlotOffset: number;   // blocksAfterLaunch (0 if unknown — non-sniper)
+  buySlotOffset: number;   // blocksAfterLaunch (0 if unknown, non-sniper)
   sameSlotPeers: number;   // # of holders that bought in the SAME slot
   ageDaysProxy: number;    // (now - first-incoming-SOL) in days, from fundingSource.timestamp
   holdingShare: number;    // this wallet's holding / total analyzed holding (0..1)
@@ -62,7 +62,7 @@ function buildNormalizer(features: BehavioralFeatures[]) {
   });
 }
 
-// Weighted Euclidean. Co-slot proximity + buy-slot timing dominate — those are the
+// Weighted Euclidean. Co-slot proximity + buy-slot timing dominate; those are the
 // signatures of a coordinated hand; age and size are secondary corroboration.
 const WEIGHTS = { slot: 0.35, peers: 0.4, age: 0.15, holding: 0.1 };
 

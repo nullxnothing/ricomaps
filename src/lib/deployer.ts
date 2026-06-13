@@ -7,13 +7,13 @@ const SERIAL_THRESHOLD = 3;
 interface ResolvedDeployer {
   address: string;
   source: DeployerInfo['source'];
-  /** Program/PDA creator — skip launch-history lookup (would return garbage). */
+  /** Program/PDA creator: skip launch-history lookup (would return garbage). */
   unattributable: boolean;
   notes: string[];
 }
 
 /**
- * Resolve the true deployer of a token. Zero API calls — uses already-fetched data.
+ * Resolve the true deployer of a token. Zero API calls, uses already-fetched data.
  *
  * Primary signal is the fee payer of the first mint tx (the human dev). The DAS
  * creator/update-authority is preferred only as a fallback because on pump.fun
@@ -30,22 +30,22 @@ export function extractDeployer(
     return { address: signer, source: 'mint-tx-signer', unattributable: false, notes };
   }
 
-  // Signer missing or itself a program — fall back to DAS metadata.
+  // Signer missing or itself a program, fall back to DAS metadata.
   if (signer && shouldFilterAddress(signer)) {
-    notes.push('Mint tx signer is a program — using creator metadata.');
+    notes.push('Mint tx signer is a program, using creator metadata.');
   }
 
   const creator = asset?.creators?.find(c => c.share > 0)?.address;
   if (creator) {
     const unattributable = shouldFilterAddress(creator);
-    if (unattributable) notes.push('Creator is the pump.fun program — true dev not attributable on-chain.');
+    if (unattributable) notes.push('Creator is the pump.fun program: true dev not attributable on-chain.');
     return { address: creator, source: 'creator', unattributable, notes };
   }
 
   const authority = asset?.authorities?.[0]?.address;
   if (authority) {
     const unattributable = shouldFilterAddress(authority);
-    if (unattributable) notes.push('Update authority is a program — true dev not attributable.');
+    if (unattributable) notes.push('Update authority is a program: true dev not attributable.');
     return { address: authority, source: 'update-authority', unattributable, notes };
   }
 
@@ -54,7 +54,7 @@ export function extractDeployer(
 
 /**
  * Coverage-aware "does the dev still hold" check. Zero API calls.
- * Absence from the analyzed top-N is UNKNOWN (null), not "dumped" — the dev may
+ * Absence from the analyzed top-N is UNKNOWN (null), not "dumped"; the dev may
  * hold below the visibility cutoff.
  */
 export function computeDeployerHoldings(
@@ -75,7 +75,7 @@ export function computeDeployerHoldings(
     stillHolds: null,
     heldSupplyPct: null,
     inAnalyzedSet: false,
-    note: `Dev not in top holders — may hold below the visibility cutoff (coverage ${supply.analyzedSupplyPct.toFixed(0)}%).`,
+    note: `Dev not in top holders: may hold below the visibility cutoff (coverage ${supply.analyzedSupplyPct.toFixed(0)}%).`,
   };
 }
 

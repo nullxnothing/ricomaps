@@ -34,7 +34,7 @@ export async function POST(request: NextRequest) {
   }
   const cacheKey = typeof mint === 'string' && isValidSolanaAddress(mint) ? mint : null;
 
-  // Return a cached narrative verbatim — no model call, no billing.
+  // Return a cached narrative verbatim: no model call, no billing.
   if (cacheKey) {
     const cached = await getCachedNarrative(cacheKey);
     if (cached) {
@@ -93,7 +93,7 @@ export async function POST(request: NextRequest) {
 
 function deriveFactors(b: NarrativeBrief): string[] {
   const out: string[] = [];
-  if (b.cabal.fingerprintMatches > 0) out.push(`Known crew — ${b.cabal.fingerprintMatches} prior token(s)`);
+  if (b.cabal.fingerprintMatches > 0) out.push(`Known crew: ${b.cabal.fingerprintMatches} prior token(s)`);
   if (b.supply && b.supply.cabalPct > 0) out.push(`Cabal holds ${b.supply.cabalPct.toFixed(1)}% of supply`);
   if (b.supply && b.supply.bundledPct > 0) out.push(`${b.supply.bundledPct.toFixed(1)}% bundled`);
   if (b.snipers > 0) out.push(`${b.snipers} snipers`);

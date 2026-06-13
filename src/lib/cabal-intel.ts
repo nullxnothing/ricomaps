@@ -9,9 +9,9 @@ export type { CabalIntel, CabalPosition, CabalWalletPnl };
  * On-demand "what is this crew doing right now" intel for the atlas drill-down.
  *
  * Two questions, answered Helius-only:
- *  1. WHAT ARE THEY HOLDING — current token positions (USD-valued) aggregated
+ *  1. WHAT ARE THEY HOLDING: current token positions (USD-valued) aggregated
  *     across the crew's wallets, so you see the bags they're sitting in.
- *  2. ARE THEY WINNING — SOL-flow PnL: realized SOL out minus SOL in per wallet.
+ *  2. ARE THEY WINNING: SOL-flow PnL: realized SOL out minus SOL in per wallet.
  *     Honest proxy, not mark-to-market: positive = they've pulled more SOL than
  *     they put in (taken profit / extracted); negative = still underwater / holding.
  *
@@ -21,7 +21,7 @@ export type { CabalIntel, CabalPosition, CabalWalletPnl };
 
 const MAX_WALLETS = 8;                 // hard cap on credit spend per drill-down
 const TOP_POSITIONS = 8;
-// Helius prices illiquid memecoins off thin pools — a single bad quote can read
+// Helius prices illiquid memecoins off thin pools: a single bad quote can read
 // as tens of millions. Ignore any one position above this ceiling so the crew's
 // "holding now" total stays honest. Real bags on pump.fun crews sit well under it.
 const MAX_PLAUSIBLE_POSITION_USD = 5_000_000;
@@ -67,7 +67,7 @@ export async function getCabalIntel(id: string): Promise<CabalIntel | null> {
     )
   );
 
-  // Aggregate current positions across the crew (skip bare SOL — that's the rail, not a bag).
+  // Aggregate current positions across the crew (skip bare SOL, that's the rail, not a bag).
   const positionMap = new Map<string, CabalPosition>();
   let totalPortfolioUsd = 0;
   let netRealizedSol = 0;

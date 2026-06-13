@@ -51,7 +51,7 @@ function EmbedContent() {
           setData(quick.data);
           setIsLoading(false);
         })
-        .catch(() => {}); // best-effort (e.g. wallet addresses) — ignore
+        .catch(() => {}); // best-effort (e.g. wallet addresses): ignore
 
       try {
         const response = await fetch('/api/scan', {

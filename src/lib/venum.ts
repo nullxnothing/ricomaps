@@ -1,7 +1,7 @@
 /**
  * Venum execution-infrastructure client (https://venum.dev).
  *
- * RicoMaps stays read-only/forensic — this wrapper only consumes Venum's
+ * RicoMaps stays read-only/forensic: this wrapper only consumes Venum's
  * market-data surface (batch prices + pool snapshots) to replace the
  * GeckoTerminal / DAS `pricePerToken` pricing path with real, multi-DEX,
  * swap-derived prices that resolve on fresh launches (where Gecko is empty).
@@ -51,7 +51,7 @@ export interface VenumPrice {
   change24h?: number;
 }
 
-/** A token with no active pool — Venum returns this instead of omitting it. */
+/** A token with no active pool: Venum returns this instead of omitting it. */
 export interface VenumPriceUnavailable {
   status: 'unavailable';
   reason?: string;
@@ -132,7 +132,7 @@ function authHeaders(): HeadersInit {
 // ─── Prices ──────────────────────────────────────────────────────────────────
 
 /**
- * Batch price lookup — GET /v1/prices?tokens=...
+ * Batch price lookup: GET /v1/prices?tokens=...
  * Accepts up to 50 tracked symbols or mint addresses. Returns a map keyed by
  * the symbol/mint you passed; unavailable tokens carry `{ status: 'unavailable' }`.
  * Returns `null` on error so callers fall back to existing price sources.
@@ -192,7 +192,7 @@ export interface VenumPoolsQuery {
 }
 
 /**
- * Pool snapshots — GET /v1/pools. Returns `null` on error.
+ * Pool snapshots: GET /v1/pools. Returns `null` on error.
  */
 export async function getVenumPools(query: VenumPoolsQuery = {}): Promise<VenumPool[] | null> {
   const params = new URLSearchParams();

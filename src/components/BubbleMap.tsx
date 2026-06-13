@@ -43,7 +43,7 @@ const CLUSTER_COLORS = [
 const UNLINKED_COLOR = '#555566';
 const BG_COLOR = '#000000';
 
-// Semantic node color by type — falls back to cluster color for generic types
+// Semantic node color by type; falls back to cluster color for generic types
 function getNodeColor(type: NodeType, clusterId: number): string {
   const semantic: string | undefined = NODE_COLORS[type];
   if (semantic && semantic !== (NODE_COLORS.default as string)) return semantic;
@@ -156,13 +156,13 @@ export function BubbleMap({ data, onNodeClick, onTraceFunders, filter = null }: 
   const autoFitRef = useRef<(() => void) | null>(null);
   // A node id to flash a ring around (find result), with an expiry timestamp.
   const highlightRef = useRef<{ id: string; until: number } | null>(null);
-  // Node ids hidden via the context menu — skipped in the draw loop.
+  // Node ids hidden via the context menu, skipped in the draw loop.
   const hiddenIdsRef = useRef<Set<string>>(new Set());
   // Radius scale (largest holder amount) fixed at scan time, so live balance updates
   // resize one bubble relative to the original scale instead of rescaling the whole graph.
   const maxAmountRef = useRef(1);
 
-  // Tooltip is the only piece of React state — it drives the overlay DOM
+  // Tooltip is the only piece of React state; it drives the overlay DOM
   const [tooltip, setTooltip] = useState<TooltipData | null>(null);
   const [heatmapMode, setHeatmapMode] = useState(false);
   const heatmapRef = useRef(false);
@@ -178,7 +178,7 @@ export function BubbleMap({ data, onNodeClick, onTraceFunders, filter = null }: 
   const [findError, setFindError] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; node: BubbleNode } | null>(null);
 
-  // Summary for screen readers — recomputes only when graph changes
+  // Summary for screen readers; recomputes only when graph changes
   const ariaSummary = useMemo(() => {
     const nodes = data?.nodes ?? [];
     const cabalCount = nodes.filter(n => n.type === 'cabal-funder').length;
@@ -243,7 +243,7 @@ export function BubbleMap({ data, onNodeClick, onTraceFunders, filter = null }: 
   }
   const dataVersion = dataVersionRef.current;
 
-  // Incremental live update — handles streaming deltas without rebuilding the graph:
+  // Incremental live update: handles streaming deltas without rebuilding the graph:
   //   • existing node balance changed → update radius + supplyPct
   //   • new buyer in data           → add a bubble node (+ its links), gently reheat
   //   • holder removed (sold to 0)   → drop node, its links, and particles
@@ -256,7 +256,7 @@ export function BubbleMap({ data, onNodeClick, onTraceFunders, filter = null }: 
     const holders = data.nodes.filter(n => n.type !== 'token');
     const totalSupply = holders.reduce((sum, n) => sum + (n.tokenAmount || n.solBalance || 0), 0);
     // Reuse the scan-time scale so live updates don't rescale every bubble. Only grow it
-    // if a holder genuinely exceeds the current max (never shrink — that's what caused the
+    // if a holder genuinely exceeds the current max (never shrink; that's what caused the
     // "all bubbles get smaller" flicker when streaming started).
     const liveMax = Math.max(...holders.map(n => n.tokenAmount || n.solBalance || 0), 1);
     const maxAmount = Math.max(maxAmountRef.current, liveMax);
@@ -264,7 +264,7 @@ export function BubbleMap({ data, onNodeClick, onTraceFunders, filter = null }: 
     const clusterMap = assignClusters(data.nodes, data.links);
     const { width, height } = sizeRef.current;
 
-    // 1. Update existing nodes in place — radius now tracks live balance changes.
+    // 1. Update existing nodes in place; radius now tracks live balance changes.
     for (const node of nodesRef.current) {
       const updated = dataNodeMap.get(node.id);
       if (!updated) continue;
@@ -352,7 +352,7 @@ export function BubbleMap({ data, onNodeClick, onTraceFunders, filter = null }: 
       canvas.height = h * dpr;
       canvas.style.width = w + 'px';
       canvas.style.height = h + 'px';
-      // Reset transform each resize — ctx.scale compounds otherwise
+      // Reset transform each resize; ctx.scale compounds otherwise
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     }
     resize();
@@ -468,7 +468,7 @@ export function BubbleMap({ data, onNodeClick, onTraceFunders, filter = null }: 
       }
     }
 
-    // ── Force simulation — adapts to graph density ──
+    // ── Force simulation, adapts to graph density ──
     const nLinks = bubbleLinks.length;
     // Charge scales: sparse graphs get light repulsion, dense get more
     const chargeStr = nLinks > 10 ? -60 : -25;
@@ -533,7 +533,7 @@ export function BubbleMap({ data, onNodeClick, onTraceFunders, filter = null }: 
       }
     }
 
-    // Layout was pre-warmed, so fit immediately — the graph shows already-arranged.
+    // Layout was pre-warmed, so fit immediately; the graph shows already-arranged.
     autoFit();
     // Expose to the reset button / find centering. Recomputes against live node positions.
     autoFitRef.current = autoFit;
@@ -575,7 +575,7 @@ export function BubbleMap({ data, onNodeClick, onTraceFunders, filter = null }: 
       ctx.translate(t.x, t.y);
       ctx.scale(t.k, t.k);
 
-      // ── Cluster hulls (toggle, default-off) — drawn behind everything ──
+      // ── Cluster hulls (toggle, default-off), drawn behind everything ──
       // Cheap O(n) blob: per cluster, a translucent circle at the centroid sized to
       // cover its members. Not a true convex hull (which would be per-frame expensive).
       if (hullsRef.current) {
@@ -758,7 +758,7 @@ export function BubbleMap({ data, onNodeClick, onTraceFunders, filter = null }: 
         if (isDimmed) ctx.globalAlpha = 0.65;
         if (nodeFilterDim) ctx.globalAlpha = (ctx.globalAlpha || 1) * 0.18;
 
-        // Threat ring — drawn OUTSIDE the node for medium+ threats
+        // Threat ring, drawn OUTSIDE the node for medium+ threats
         if (!isHeatmap && threatLevel && threatScore >= 30) {
           const threatColor = THREAT_COLORS[threatLevel];
           ctx.beginPath();
@@ -835,13 +835,13 @@ export function BubbleMap({ data, onNodeClick, onTraceFunders, filter = null }: 
       animRef.current = requestAnimationFrame(draw);
     }
 
-    // Kick off render loop — rAF passes timestamp automatically
+    // Kick off render loop; rAF passes timestamp automatically
     animRef.current = requestAnimationFrame(draw);
 
     // Handle resize
     const resizeObserver = new ResizeObserver(() => {
       resize();
-      // Update center force target but don't reheat — nodes stay in place
+      // Update center force target but don't reheat; nodes stay in place
       sim.force('center', forceCenter(sizeRef.current.width / 2, sizeRef.current.height / 2).strength(0.03));
     });
     resizeObserver.observe(container);
@@ -853,7 +853,7 @@ export function BubbleMap({ data, onNodeClick, onTraceFunders, filter = null }: 
       cancelAnimationFrame(animRef.current);
       resizeObserver.disconnect();
     };
-  }, [dataVersion]); // Only restart sim on new scan — poll updates handled incrementally
+  }, [dataVersion]); // Only restart sim on new scan; poll updates handled incrementally
 
   // ── Keyboard: "/" focuses the find box, Esc clears find + closes the context menu ──
   useEffect(() => {
@@ -907,7 +907,7 @@ export function BubbleMap({ data, onNodeClick, onTraceFunders, filter = null }: 
       return;
     }
 
-    // Node dragging — only start after actual movement (5px threshold)
+    // Node dragging: only start after actual movement (5px threshold)
     if (drag.isDragging && drag.draggedNode) {
       const dx = sx - drag.startX;
       const dy = sy - drag.startY;
@@ -923,7 +923,7 @@ export function BubbleMap({ data, onNodeClick, onTraceFunders, filter = null }: 
       drag.draggedNode.fy = y;
       canvas.style.cursor = 'grabbing';
 
-      // Gentle reheat — just enough for the dragged node
+      // Gentle reheat: just enough for the dragged node
       if (simRef.current && simRef.current.alpha() < 0.03) {
         simRef.current.alpha(0.03).restart();
       }
@@ -957,7 +957,7 @@ export function BubbleMap({ data, onNodeClick, onTraceFunders, filter = null }: 
     const { x, y } = screenToWorld(sx, sy);
     const node = findNodeAt(x, y);
 
-    // Don't pin node immediately — wait until actual drag movement
+    // Don't pin node immediately; wait until actual drag movement
     dragRef.current = {
       isDragging: true,
       isPanning: !node,
@@ -1215,7 +1215,7 @@ export function BubbleMap({ data, onNodeClick, onTraceFunders, filter = null }: 
       dragRef.current = { isDragging: false, isPanning: false, startX: 0, startY: 0, draggedNode: null };
       touchRef.current = { lastDist: 0, lastCenter: null };
     } else if (e.touches.length === 1) {
-      // Went from pinch to single finger — reset to pan
+      // Went from pinch to single finger; reset to pan
       const canvas = canvasRef.current;
       if (!canvas) return;
       const rect = canvas.getBoundingClientRect();
@@ -1364,7 +1364,7 @@ export function BubbleMap({ data, onNodeClick, onTraceFunders, filter = null }: 
         ))}
       </ul>
 
-      {/* Tooltip — clamped to viewport edges */}
+      {/* Tooltip, clamped to viewport edges */}
       {tooltip && (() => {
         const tooltipW = 200;
         const tooltipH = 120;
@@ -1435,12 +1435,12 @@ export function BubbleMap({ data, onNodeClick, onTraceFunders, filter = null }: 
 
             {tooltip.node.originalNode.type === 'cabal-funder' && (
               <div className="mt-1.5 pt-1.5 text-[11px] font-medium" style={{ borderTop: '1px solid #1f1f1f', color: NODE_COLORS['cabal-funder'] }}>
-                Cabal — funded {tooltip.node.originalNode.metadata?.fundedCount} holders
+                Cabal: funded {tooltip.node.originalNode.metadata?.fundedCount} holders
               </div>
             )}
             {tooltip.node.originalNode.metadata?.isSniper && (
               <div className="mt-1.5 pt-1.5 text-[11px] font-medium" style={{ borderTop: '1px solid #1f1f1f', color: NODE_COLORS.sniper }}>
-                Sniper — {Math.abs(tooltip.node.originalNode.metadata?.blocksAfterLaunch || 0)} blocks after launch
+                Sniper: {Math.abs(tooltip.node.originalNode.metadata?.blocksAfterLaunch || 0)} blocks after launch
               </div>
             )}
           </div>
@@ -1448,7 +1448,7 @@ export function BubbleMap({ data, onNodeClick, onTraceFunders, filter = null }: 
         );
       })()}
 
-      {/* Bottom-left controls — legend on top, toggles beneath, single aligned column */}
+      {/* Bottom-left controls: legend on top, toggles beneath, single aligned column */}
       <div className="absolute bottom-4 left-4 z-10 flex flex-col gap-2 items-start">
       <ul
         className="pointer-events-none flex flex-col gap-1 rounded-lg backdrop-blur-md bg-black/70 border border-white/[0.06] px-3 py-2"

@@ -11,7 +11,7 @@ export const dynamic = 'force-dynamic';
  * The browser connects to this same-origin route with an EventSource; we open
  * the upstream Venum stream server-side and pipe it through, injecting the
  * `x-api-key` header so the key never reaches the client. Events (`ready`,
- * `price`, `heartbeat`) pass through unmodified — see `useVenumPriceStream`.
+ * `price`, `heartbeat`) pass through unmodified; see `useVenumPriceStream`.
  *
  *   GET /api/prices/stream?tokens=SOL,USDC&includeOptimistic=true
  */

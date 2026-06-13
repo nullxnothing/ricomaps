@@ -26,15 +26,15 @@ const STREAM_CONNECT_GRACE_MS = 6_000;
 // Live-graph clutter controls: a new buyer only earns a bubble if their holding is at
 // least this fraction of the current largest holder (filters dust/micro buys), and the
 // graph stops adding live nodes past this cap so it stays readable. Balance updates and
-// removals on existing nodes are unaffected — only brand-new tiny buyers are suppressed.
+// removals on existing nodes are unaffected; only brand-new tiny buyers are suppressed.
 const LIVE_MIN_FRACTION_OF_TOP = 0.01; // 1% of the top holder
 const MAX_LIVE_NODES = 150;
 // A holder controlling more than this share of holder supply is treated as a pool/AMM,
-// not a real holder — tagged distinctly so it doesn't read as a whale.
+// not a real holder, tagged distinctly so it doesn't read as a whale.
 const POOL_SUPPLY_SHARE = 0.15;
 
 export interface RecentEvent {
-  id: string;          // signature+owner — stable key for the list
+  id: string;          // signature+owner, stable key for the list
   owner: string;
   kind: 'buy' | 'sell' | 'out';
   ts: number;
@@ -118,7 +118,7 @@ export function useGraphData(): UseGraphDataReturn {
   const dataRef = useRef<GraphData | null>(null);
   dataRef.current = data;
 
-  // SSE callbacks fire outside React's render closure — read the live mint via a ref.
+  // SSE callbacks fire outside React's render closure: read the live mint via a ref.
   const scannedMintRef = useRef<string | null>(null);
   scannedMintRef.current = scannedMint;
 
@@ -186,7 +186,7 @@ export function useGraphData(): UseGraphDataReturn {
           continue;
         }
 
-        // New buyer — suppress dust and stop once the graph hits its readable cap.
+        // New buyer: suppress dust and stop once the graph hits its readable cap.
         if (d.newBalance <= 0 || removed.has(d.owner)) continue;
         if (d.newBalance < minNewBuyerBalance) continue;
         if (liveNodeCount >= MAX_LIVE_NODES) continue;
@@ -260,12 +260,12 @@ export function useGraphData(): UseGraphDataReturn {
     }
   }, [flushDeltas]);
 
-  // Live stream handler — queue one delta from the LaserStream worker.
+  // Live stream handler: queue one delta from the LaserStream worker.
   const handleHolderDelta = useCallback((delta: HolderDelta) => {
     enqueueDelta(delta);
   }, [enqueueDelta]);
 
-  // Poll fallback handler — adapt {added, removed, changed} into per-owner deltas
+  // Poll fallback handler: adapt {added, removed, changed} into per-owner deltas
   // and run them through the SAME queue so behaviour matches the live path.
   const handleHolderDiff = useCallback(
     (diff: { added: { owner: string; amount: number }[]; removed: string[]; changed: { owner: string; amount: number }[] }) => {
@@ -304,7 +304,7 @@ export function useGraphData(): UseGraphDataReturn {
     return () => clearTimeout(timer);
   }, [liveEnabled, detectedMode, streamUnsupported, streamConnected]);
 
-  // Poll fallback transport — only runs when the stream is unavailable.
+  // Poll fallback transport: only runs when the stream is unavailable.
   const {
     isPolling,
     pollCount,
@@ -428,7 +428,7 @@ export function useGraphData(): UseGraphDataReturn {
       if (result.mode === 'token') {
         setScannedMint(address);
       } else {
-        setScannedMint(null); // wallet mode — discard any quick-scan mint
+        setScannedMint(null); // wallet mode, discard any quick-scan mint
       }
 
       return result.mode || null;

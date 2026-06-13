@@ -9,11 +9,11 @@ export type SubscriptionKind = 'mint' | 'wallet';
 export interface TelegramSubscription {
   chatId: number;
   kind: SubscriptionKind;
-  target: string; // mint address or wallet address, lowercased-insensitive (base58 is case-sensitive — stored verbatim)
+  target: string; // mint address or wallet address (base58 is case-sensitive, stored verbatim)
   createdAt: number;
 }
 
-// A chat can't watch more than this many targets — keeps the funnel fan-out bounded.
+// A chat can't watch more than this many targets; keeps the funnel fan-out bounded.
 const MAX_PER_CHAT = 50;
 
 // ============================================================================
@@ -91,7 +91,7 @@ export async function removeSubscription(chatId: number, kind: SubscriptionKind,
   }
 }
 
-/** Chat ids subscribed to a given target — the alert fan-out list. */
+/** Chat ids subscribed to a given target: the alert fan-out list. */
 export async function getSubscribers(kind: SubscriptionKind, target: string): Promise<number[]> {
   if (!pool) {
     return [...memSubs.values()].filter((s) => s.kind === kind && s.target === target).map((s) => s.chatId);

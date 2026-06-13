@@ -44,14 +44,14 @@ function formatSol(value: number): string {
   return `${sign}${num} SOL`;
 }
 
-/** Live "what are they doing now" section — bags + SOL-flow PnL, fetched on select. */
+/** Live "what are they doing now" section: bags + SOL-flow PnL, fetched on select. */
 interface IntelState {
   intel: CabalIntel | null;
   phase: 'loading' | 'ready' | 'empty' | 'error';
 }
 
 // Mounted with `key={cabal.id}` by the parent, so each crew gets a fresh
-// instance — the effect just fetches once, no in-effect reset needed.
+// instance. The effect just fetches once, no in-effect reset needed.
 function CabalIntelSection({ cabalId }: { cabalId: string }) {
   const [{ intel, phase: state }, setData] = useState<IntelState>({ intel: null, phase: 'loading' });
 

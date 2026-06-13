@@ -16,9 +16,9 @@ interface DetectOptions {
 
 /**
  * Detect bundle clusters from holder transaction data.
- * Groups transactions by slot — 2+ wallets in the same slot = bundle.
+ * Groups transactions by slot: 2+ wallets in the same slot = bundle.
  * Merges overlapping clusters via union-find.
- * Zero API calls — operates on pre-fetched data.
+ * Zero API calls, operates on pre-fetched data.
  */
 export function detectBundleClusters(
   holderTxMap: Map<string, HeliusTransaction[]>,
@@ -138,14 +138,14 @@ function findEarliestBuyTx(
   const sorted = [...txs].sort((a, b) => (a.slot || 0) - (b.slot || 0));
 
   for (const tx of sorted) {
-    // Check token transfers — wallet received the target token
+    // Check token transfers: wallet received the target token
     if (tx.tokenTransfers?.some(tt =>
       tt.mint === mintAddress && tt.toUserAccount === wallet && tt.tokenAmount > 0
     )) {
       return tx;
     }
 
-    // Check swap events — token appears in outputs
+    // Check swap events: token appears in outputs
     if (tx.events?.swap) {
       const swap = tx.events.swap;
       const hasTokenOutput = swap.tokenOutputs?.some(o => o.mint === mintAddress);

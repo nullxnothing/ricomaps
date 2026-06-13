@@ -20,7 +20,7 @@ interface UseHolderStreamReturn {
   error: string | null;
   lastUpdate: number | null;
   eventCount: number;
-  /** True when the worker URL isn't configured — caller should use the poll fallback. */
+  /** True when the worker URL isn't configured: caller should use the poll fallback. */
   unsupported: boolean;
 }
 
@@ -65,7 +65,7 @@ export function useHolderStream(
       }
     });
 
-    // `heartbeat` just keeps the connection warm — no handler needed.
+    // `heartbeat` just keeps the connection warm, no handler needed.
 
     es.addEventListener('error', (event) => {
       // Application-level error frame from the worker (e.g. reconnecting upstream).
@@ -73,7 +73,7 @@ export function useHolderStream(
         const data = JSON.parse((event as MessageEvent).data) as { message?: string };
         if (data?.message) setError(data.message);
       } catch {
-        // Native EventSource error (no data) — handled by onerror below.
+        // Native EventSource error (no data), handled by onerror below.
       }
     });
 

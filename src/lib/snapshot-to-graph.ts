@@ -61,7 +61,7 @@ export function snapshotToGraphData(
     metadata: liveTokenNode?.metadata,
   });
 
-  // Holder nodes — use live node type/color if available
+  // Holder nodes: use live node type/color if available
   for (const holder of snapshot.holders) {
     const liveNode = liveNodeMap.get(holder.address);
     const sizeBase = Math.max(3, Math.sqrt(holder.pctSupply) * 4);

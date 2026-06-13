@@ -23,7 +23,7 @@ export interface AtlasStreamHandlers {
 interface UseAtlasStreamReturn {
   connected: boolean;
   eventCount: number;
-  /** True when no worker URL is configured — the page runs in snapshot mode. */
+  /** True when no worker URL is configured: the page runs in snapshot mode. */
   unsupported: boolean;
 }
 
@@ -49,7 +49,7 @@ export function useAtlasStream(enabled: boolean, handlers: AtlasStreamHandlers):
           fn(handlersRef.current, JSON.parse((msg as MessageEvent).data) as T);
           setEventCount((c) => c + 1);
         } catch {
-          // Malformed frame — skip rather than kill the stream.
+          // Malformed frame, skip rather than kill the stream.
         }
       });
     };
