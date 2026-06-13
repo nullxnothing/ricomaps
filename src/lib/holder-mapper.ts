@@ -315,17 +315,15 @@ export async function mapTokenHolders(mintAddress: string, options: MapOptions =
     }
   }
 
+  // Bundled = members of a QUALIFYING cluster only. bundleClusters already merges
+  // both holder-tx and mint-slot detections after the ≥3-or-shared-funder gate and
+  // noisy-launch-slot drop. Do NOT re-add raw mintSlotBuyers: that bypassed every
+  // filter and tagged a lone wallet "bundled" just for sharing a launch slot with
+  // one unrelated buyer.
   const bundledWalletSet = new Set<string>();
-  // From holder-tx-based bundle detection
   for (const cluster of bundleClusters) {
     for (const wallet of cluster.wallets) {
       bundledWalletSet.add(wallet);
-    }
-  }
-  // From mint-tx-based bundle detection
-  for (const [, buyers] of mintSlotBuyers) {
-    if (buyers.length >= 2) {
-      buyers.forEach(b => bundledWalletSet.add(b));
     }
   }
 
@@ -383,8 +381,18 @@ export async function mapTokenHolders(mintAddress: string, options: MapOptions =
 
   // A single holder controlling a large share of circulating supply is almost
   // always a pool/AMM/treasury, not a real holder, tag those distinctly too.
+  // Denominator MUST be real mint supply, not the top-N sum: the top ~20 cover a
+  // fraction of supply, so dividing by their sum inflates every holder's share
+  // (3% real reads as ~10%) and false-tags normal wallets as pools.
   const POOL_SUPPLY_SHARE = 0.15;
-  const holderSupplyTotal = topHolders.reduce((sum, h) => sum + h.amount, 0);
+  const poolSupplyDecimals = tokenSecurity?.decimals;
+  const poolMintSupplyRaw = tokenSecurity?.supply;
+  const poolMintSupply = poolMintSupplyRaw && poolSupplyDecimals !== undefined
+    ? Number(poolMintSupplyRaw) / 10 ** poolSupplyDecimals
+    : 0;
+  const topNHolderSum = topHolders.reduce((sum, h) => sum + h.amount, 0);
+  // Prefer real supply; fall back to top-N sum only when mint supply is unknown.
+  const holderSupplyTotal = poolMintSupply > 0 ? poolMintSupply : topNHolderSum;
 
   // 4a: Create holder nodes
   for (const holder of topHolders) {
