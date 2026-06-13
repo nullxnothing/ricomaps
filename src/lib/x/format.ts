@@ -59,17 +59,21 @@ export function formatXReply(mint: string, result: ScanResultLike): string {
   if (fpMatches > 0) devBits.push(`🚩 ${fpMatches} known bundler${fpMatches === 1 ? '' : 's'}`);
   if (devBits.length) optional.push(devBits.join(' · '));
 
-  const mapLine = `🫧 ${mapUrl}`;
+  // The URL goes inline in a real CTA sentence. X strips a bare URL out of the
+  // visible text when it builds the link-preview card, which would leave a
+  // dangling emoji; phrasing it as "Full map: <url>" reads fine either way.
+  const ctaLine = `Full bubble map ${mapUrl}`;
 
-  // Assemble within budget: header + as many optional lines as fit + map line.
+  // Assemble within budget: header + as many optional lines as fit, a blank
+  // separator, then the CTA line. Budget reserves the blank line + CTA up front.
   const lines = [header];
-  let used = header.length + 1 /*\n*/ + weightedLength(mapLine, mapUrl);
+  let used = header.length + 1 /*\n*/ + 1 /*blank line*/ + weightedLength(ctaLine, mapUrl);
   for (const line of optional) {
     const cost = line.length + 1;
     if (used + cost > TWEET_LIMIT) break;
     lines.push(line);
     used += cost;
   }
-  lines.push(mapLine);
+  lines.push('', ctaLine);
   return lines.join('\n');
 }
