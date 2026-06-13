@@ -43,10 +43,17 @@ function weightedLength(line: string, mapUrl: string): number {
   return line.includes(mapUrl) ? line.length - mapUrl.length + URL_WEIGHT : line.length;
 }
 
+// Tree connectors, mirroring the Telegram card so both channels read the same.
+const T = '├';
+const L = '└';
+
 /**
  * Build a compact plain-text X reply (no HTML, no buttons) for a token scan.
- * Single tweet, <=280 chars. Lines are priority-ordered; if over budget we drop
- * from the bottom up, but the header and the map link are always kept.
+ * Single tweet, <=280 chars, laid out as a tree to match the Telegram card.
+ *
+ * Header line is always kept; the body rows degrade from the bottom up, and the
+ * last surviving body row is re-tagged with the └ connector so the tree never
+ * ends on a ├. The map link always trails after a blank separator.
  */
 export function formatXReply(mint: string, result: ScanResultLike): string {
   const { stats, tokenMetadata: meta, deployerInfo: dep } = result;
@@ -56,58 +63,59 @@ export function formatXReply(mint: string, result: ScanResultLike): string {
   const sym = meta?.symbol ? `$${meta.symbol}` : (meta?.name ?? 'Token');
   const mapUrl = `${APP_URL}/?mint=${mint}`;
 
-  // Priority-ordered lines. [0] header and the final map line are mandatory.
+  // Header: pill · symbol · rug verdict. Always kept.
   const header = rug
     ? `${rugEmoji(rug.level)} ${sym} · rug ${rug.score}/100`
     : `${rugEmoji(undefined)} ${sym}`;
 
-  const optional: string[] = [];
+  // Body rows, priority-ordered. Connectors are assigned after we know which
+  // rows survived the budget, so the tree is always well-formed.
+  const rows: string[] = [];
 
-  // Context line: MC · age · holders. Legitimacy at a glance, so a flagged score
-  // on a big established token isn't read as "about to rug".
+  // Context: MC · age · holders — legitimacy at a glance.
   const ctx: string[] = [];
   const mc = usd(meta?.marketCap);
   if (mc) ctx.push(`MC ${mc}`);
   const tokenAge = age(meta?.launchTimestamp);
-  if (tokenAge) ctx.push(`${tokenAge} old`);
+  if (tokenAge) ctx.push(tokenAge);
   if (stats.totalHolders != null) ctx.push(`👀 ${stats.totalHolders}`);
-  if (ctx.length) optional.push(ctx.join(' · '));
+  if (ctx.length) rows.push(ctx.join(' · '));
 
   if (sc) {
-    // "Not detected" (no bundle/sniper found in coverage) shows as "—", not a
-    // bare 0% that reads like a confident clean bill. Cabal is funder-derived.
+    // "Not detected" shows as "—", never a bare 0% that reads as a clean bill.
     const bundled = (stats.bundleClustersDetected ?? 0) > 0 ? pct(sc.bundledSupplyPct) : '—';
     const snipers = (stats.snipersDetected ?? 0) > 0 ? pct(sc.sniperSupplyPct) : '—';
-    optional.push(`cabal ${pct(sc.cabalSupplyPct)} · bundled ${bundled} · snipers ${snipers}`);
+    rows.push(`cabal ${pct(sc.cabalSupplyPct)} · bundled ${bundled} · snipers ${snipers}`);
   }
 
   const devBits: string[] = [];
   if (dep) {
-    if (dep.isSerialDeployer) {
-      devBits.push(dep.pastLaunchCount != null ? `dev: serial (${dep.pastLaunchCount})` : 'dev: serial');
-    } else {
-      devBits.push('dev: clean');
-    }
+    devBits.push(dep.isSerialDeployer
+      ? (dep.pastLaunchCount != null ? `dev serial (${dep.pastLaunchCount})` : 'dev serial')
+      : 'dev clean');
   }
   const fpMatches = stats.cabalFingerprint?.matches?.length ?? 0;
   if (fpMatches > 0) devBits.push(`🚩 ${fpMatches} known bundler${fpMatches === 1 ? '' : 's'}`);
-  if (devBits.length) optional.push(devBits.join(' · '));
+  if (devBits.length) rows.push(devBits.join(' · '));
 
-  // The URL goes inline in a real CTA sentence. X strips a bare URL out of the
-  // visible text when it builds the link-preview card, which would leave a
-  // dangling emoji; phrasing it as "Full map: <url>" reads fine either way.
-  const ctaLine = `Full bubble map ${mapUrl}`;
+  // CTA: the map link trails after a blank line. X folds a trailing URL into its
+  // link-preview card, so the "full map:" label keeps the text reading cleanly.
+  const ctaLine = `🔍 full map: ${mapUrl}`;
 
-  // Assemble within budget: header + as many optional lines as fit, a blank
-  // separator, then the CTA line. Budget reserves the blank line + CTA up front.
-  const lines = [header];
-  let used = header.length + 1 /*\n*/ + 1 /*blank line*/ + weightedLength(ctaLine, mapUrl);
-  for (const line of optional) {
-    const cost = line.length + 1;
+  // Assemble within budget. Reserve header + blank + CTA up front, then add body
+  // rows top-down while they fit (each costs +2 for the connector prefix + \n).
+  const reserved = header.length + 2 /*\n + blank*/ + 1 /*\n before cta*/ + weightedLength(ctaLine, mapUrl);
+  let used = reserved;
+  const kept: string[] = [];
+  for (const row of rows) {
+    const cost = row.length + 2 /*connector + space*/ + 1 /*\n*/;
     if (used + cost > TWEET_LIMIT) break;
-    lines.push(line);
+    kept.push(row);
     used += cost;
   }
-  lines.push('', ctaLine);
-  return lines.join('\n');
+
+  // Prefix connectors: every row gets ├ except the last, which gets └.
+  const body = kept.map((row, i) => `${i === kept.length - 1 ? L : T} ${row}`);
+
+  return [header, ...body, '', ctaLine].join('\n');
 }
