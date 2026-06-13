@@ -71,10 +71,8 @@ function rugEmoji(level: RugScore['level'] | undefined): string {
 export interface TokenCard {
   text: string;
   replyMarkup: InlineKeyboard;
-  /** Token logo for sendPhoto; undefined → send as text card. */
-  photoUrl?: string;
-  /** Full charts/trade-bot/attribution link grid, sent as a follow-up message. */
-  linksText: string;
+  /** Token logo URL, rendered as a small preview thumbnail above the text card. */
+  previewUrl?: string;
 }
 
 // Tree connectors: mid branch and last branch, matching the reference layout.
@@ -269,8 +267,11 @@ export function formatTokenCard(mint: string, result: ScanResultLike): TokenCard
     lines.push(`🚩 <b>${fpMatches} known bundler${fpMatches === 1 ? '' : 's'}</b> <i>seen on prior launches</i>`);
   }
 
-  // Token's own socials as a compact tappable line (fits the caption cap).
+  // Token's own socials line, then the full link grid — all inline in one text
+  // message (4096-char cap, plenty of room). The logo rides as a small preview.
   lines.push(...socialLine(meta));
+  const dexUrl = meta?.dexUrl ?? `https://dexscreener.com/solana/${mint}`;
+  lines.push('', formatLinksMessage(mint, dexUrl));
 
   const text = lines.join('\n');
 
@@ -287,13 +288,7 @@ export function formatTokenCard(mint: string, result: ScanResultLike): TokenCard
     ],
   ];
 
-  const dexUrl = meta?.dexUrl ?? `https://dexscreener.com/solana/${mint}`;
-  return {
-    text,
-    replyMarkup,
-    photoUrl: resolvePhotoUrl(meta?.image),
-    linksText: formatLinksMessage(mint, dexUrl),
-  };
+  return { text, replyMarkup, previewUrl: resolvePhotoUrl(meta?.image) };
 }
 
 /**

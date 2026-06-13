@@ -44,6 +44,17 @@ interface SendMessageOptions {
   replyToMessageId?: number;
   /** Telegram caps message text at 4096 chars; we trim defensively. */
   disablePreview?: boolean;
+  /** Render this URL's image as a small preview thumbnail above the message (the token logo). */
+  previewUrl?: string;
+}
+
+function linkPreviewOptions(opts: SendMessageOptions): Record<string, unknown> {
+  if (opts.previewUrl) {
+    // Show the logo as a small preview thumbnail, anchored to a specific URL so
+    // it doesn't depend on link order in the text.
+    return { url: opts.previewUrl, prefer_small_media: true, show_above_text: true };
+  }
+  return { is_disabled: opts.disablePreview ?? true };
 }
 
 export async function sendMessage(opts: SendMessageOptions): Promise<void> {
@@ -51,7 +62,7 @@ export async function sendMessage(opts: SendMessageOptions): Promise<void> {
     chat_id: opts.chatId,
     text: opts.text.slice(0, 4096),
     parse_mode: 'HTML',
-    link_preview_options: { is_disabled: opts.disablePreview ?? true },
+    link_preview_options: linkPreviewOptions(opts),
     ...(opts.replyToMessageId ? { reply_to_message_id: opts.replyToMessageId } : {}),
     ...(opts.replyMarkup ? { reply_markup: { inline_keyboard: opts.replyMarkup } } : {}),
   });
