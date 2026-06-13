@@ -207,7 +207,7 @@ export function AtlasDossier({ cabal, token, graph, onClose }: AtlasDossierProps
             CABAL C-{cabal!.id.slice(0, 4).toUpperCase()}
           </div>
           <div className="font-mono text-[9.5px] uppercase tracking-[0.1em] text-text-tertiary mt-0.5">
-            {cabal!.funderCategory} funding · active {timeAgo(cabal!.lastSeen, true)}
+            {cabal!.funderCategory} funding · last seen {timeAgo(cabal!.lastSeen, true)}
           </div>
         </div>
         <CloseButton onClose={onClose} />
@@ -215,7 +215,7 @@ export function AtlasDossier({ cabal, token, graph, onClose }: AtlasDossierProps
 
       <div className="grid grid-cols-2 gap-x-4 gap-y-3 mb-3.5">
         <Stat label="Tokens hit" value={String(cabal!.tokenCount)} />
-        <Stat label="Wallets" value={String(cabal!.walletCount)} />
+        <Stat label="Wallets seen" value={String(cabal!.walletCount)} />
         <Stat label="Rugged" value={String(cabal!.ruggedCount)} danger={cabal!.ruggedCount > 0} />
         <Stat label="Extracted" value={formatUsd(cabal!.estExtractedUsd)} danger={cabal!.estExtractedUsd > 0} />
       </div>
@@ -237,7 +237,10 @@ export function AtlasDossier({ cabal, token, graph, onClose }: AtlasDossierProps
 
       {cabalTokens.length > 0 && (
         <div className="mt-3.5 pt-3" style={{ borderTop: '1px solid var(--border-base)' }}>
-          <div className="stats-label mb-1.5">Token history</div>
+          <div className="stats-label mb-1">Token history</div>
+          <div className="text-[10px] text-text-tertiary mb-1.5 leading-snug">
+            Forensic record of tokens this crew has ever touched — not current holdings. See Live intel above for what they hold now.
+          </div>
           {cabalTokens.map(({ edge, token: t }) => (
             <Link
               key={t.mint}
