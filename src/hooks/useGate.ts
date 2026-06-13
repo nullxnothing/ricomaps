@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import bs58 from 'bs58';
+import { needsMobileWalletDeepLink, openInWallet, type MobileWallet } from '@/lib/mobile-wallet';
 
 interface SolanaProvider {
   isPhantom?: boolean;
@@ -21,10 +22,13 @@ interface GateState {
   address: string | null;
   loading: boolean;
   error: string | null;
+  /** Set when the user is on mobile with no injected wallet; UI should show
+   *  "Open in Phantom/Solflare" deep-link buttons instead of an error. */
+  needsMobileWallet: boolean;
 }
 
 export function useGate() {
-  const [state, setState] = useState<GateState>({ unlocked: false, address: null, loading: true, error: null });
+  const [state, setState] = useState<GateState>({ unlocked: false, address: null, loading: true, error: null, needsMobileWallet: false });
 
   // Read existing session on mount (cheap cookie check, no chain call).
   useEffect(() => {
@@ -39,11 +43,17 @@ export function useGate() {
   const unlock = useCallback(async () => {
     const provider = getProvider();
     if (!provider) {
+      // On a phone with no extension the only path to a wallet is the in-app
+      // browser — surface deep-link buttons rather than a dead-end error.
+      if (needsMobileWalletDeepLink()) {
+        setState(s => ({ ...s, loading: false, needsMobileWallet: true, error: null }));
+        return false;
+      }
       setState(s => ({ ...s, error: 'No Solana wallet found. Install Phantom or Solflare.' }));
       return false;
     }
 
-    setState(s => ({ ...s, loading: true, error: null }));
+    setState(s => ({ ...s, loading: true, error: null, needsMobileWallet: false }));
     try {
       const { publicKey } = await provider.connect();
       const address = publicKey.toString();
@@ -75,7 +85,7 @@ export function useGate() {
         return false;
       }
 
-      setState({ unlocked: true, address, loading: false, error: null });
+      setState({ unlocked: true, address, loading: false, error: null, needsMobileWallet: false });
       return true;
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Wallet connection failed';
@@ -86,8 +96,18 @@ export function useGate() {
 
   const lock = useCallback(async () => {
     await fetch('/api/gate/session', { method: 'DELETE' }).catch(() => {});
-    setState({ unlocked: false, address: null, loading: false, error: null });
+    setState({ unlocked: false, address: null, loading: false, error: null, needsMobileWallet: false });
   }, []);
 
-  return { ...state, unlock, lock };
+  // Deep-link into a wallet's in-app browser, then the page reloads there with
+  // an injected provider and the user retries unlock normally.
+  const openWallet = useCallback((wallet: MobileWallet) => {
+    openInWallet(wallet);
+  }, []);
+
+  const dismissMobileWallet = useCallback(() => {
+    setState(s => ({ ...s, needsMobileWallet: false }));
+  }, []);
+
+  return { ...state, unlock, lock, openWallet, dismissMobileWallet };
 }

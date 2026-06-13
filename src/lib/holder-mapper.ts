@@ -441,20 +441,24 @@ export async function mapTokenHolders(mintAddress: string, options: MapOptions =
     if (poolAddresses.has(funder)) continue;
     const isShared = fundedHolders.length > 1;
 
-    if (isShared) {
-      suspiciousWallets.push(funder);
-      cabalConnectionsFound += fundedHolders.length;
-    }
+    // Lone funders (1 holder) add scattered satellite pairs that read as visual
+    // noise and imply a "crew" that isn't one. Only a SHARED funder is a real crew
+    // hub, so we render a node + spokes only when isShared. The lone funder is still
+    // preserved as fundingSource metadata on the holder (set in 4a), so the detail
+    // panel and trace-funders flow keep working — we just don't draw a bubble for it.
+    if (!isShared) continue;
 
-    let confidence = isShared ? 40 + Math.min(30, fundedHolders.length * 10) : 0;
-    if (isShared && sniperWallets.some(s => fundedHolders.includes(s))) confidence += 15;
-    if (isShared && bundledWalletSet.has(funder)) confidence += 10;
+    suspiciousWallets.push(funder);
+    cabalConnectionsFound += fundedHolders.length;
+
+    let confidence = 40 + Math.min(30, fundedHolders.length * 10);
+    if (sniperWallets.some(s => fundedHolders.includes(s))) confidence += 15;
+    if (bundledWalletSet.has(funder)) confidence += 10;
 
     if (!existingNodeIds.has(funder)) {
       const fi = identities.get(funder);
-      const funderType = isShared ? 'cabal-funder' : 'funder';
-      const funderNode = createNode(funder, 2, funderType, funderAmounts.get(funder) || 0,
-        isShared ? { suspicious: true, fundedCount: fundedHolders.length, cabalConfidence: Math.min(100, confidence) } : undefined
+      const funderNode = createNode(funder, 2, 'cabal-funder', funderAmounts.get(funder) || 0,
+        { suspicious: true, fundedCount: fundedHolders.length, cabalConfidence: Math.min(100, confidence) }
       );
       if (fi?.name) {
         funderNode.identity = { name: fi.name, category: fi.category, type: fi.type, tags: fi.tags };
@@ -462,7 +466,7 @@ export async function mapTokenHolders(mintAddress: string, options: MapOptions =
       }
       nodes.push(funderNode);
       existingNodeIds.add(funder);
-    } else if (isShared) {
+    } else {
       const idx = nodes.findIndex(n => n.id === funder);
       if (idx !== -1) {
         nodes[idx] = { ...nodes[idx], type: 'cabal-funder', color: NODE_COLORS['cabal-funder'],
@@ -481,7 +485,7 @@ export async function mapTokenHolders(mintAddress: string, options: MapOptions =
           holder,
           linkInfo?.amount ?? 0,
           linkInfo?.txSignature,
-          { suspicious: isShared },
+          { suspicious: true },
         ));
       }
     }
@@ -529,17 +533,25 @@ export async function mapTokenHolders(mintAddress: string, options: MapOptions =
     }
   }
 
-  // 4d: Bundle cluster links
+  // 4d: Bundle cluster links — STAR topology (members → highest-supply anchor), not a
+  // full mesh. A full mesh on an N-wallet bundle draws N·(N−1)/2 edges, which turns a
+  // 12+ wallet bundle into an unreadable criss-cross ball. A star gives the same
+  // "these wallets are one crew" grouping with clean radial spokes and a clear hub.
   for (const cluster of bundleClusters) {
     const wallets = cluster.wallets.filter(w => existingNodeIds.has(w));
-    for (let i = 0; i < wallets.length; i++) {
-      for (let j = i + 1; j < wallets.length; j++) {
-        const key = `${wallets[i]}->${wallets[j]}`;
-        const reverseKey = `${wallets[j]}->${wallets[i]}`;
-        if (!linkSet.has(key) && !linkSet.has(reverseKey)) {
-          linkSet.add(key);
-          links.push(createLink(wallets[i], wallets[j], 0, undefined, { suspicious: true }));
-        }
+    if (wallets.length < 2) continue;
+    const anchor = wallets.reduce((top, w) => {
+      const tw = nodes.find(n => n.id === top)?.tokenAmount ?? 0;
+      const cw = nodes.find(n => n.id === w)?.tokenAmount ?? 0;
+      return cw > tw ? w : top;
+    }, wallets[0]);
+    for (const wallet of wallets) {
+      if (wallet === anchor) continue;
+      const key = `${anchor}->${wallet}`;
+      const reverseKey = `${wallet}->${anchor}`;
+      if (!linkSet.has(key) && !linkSet.has(reverseKey)) {
+        linkSet.add(key);
+        links.push(createLink(anchor, wallet, 0, undefined, { suspicious: true }));
       }
     }
   }
@@ -582,6 +594,44 @@ export async function mapTokenHolders(mintAddress: string, options: MapOptions =
     if (node.metadata.sharedFunderGroup) {
       node.metadata.cabalConfidence = Math.min(100, (node.metadata.cabalConfidence ?? 50) + 20);
       node.metadata.suspicious = true;
+    }
+  }
+
+  // 4f-links: Give behavioral crews (laundered funding → no shared-funder hub) real
+  // graph edges so they clump into a star-burst instead of scattering as singletons.
+  // Star topology (members → cluster anchor) mirrors the funder-hub look without the
+  // O(n²) edge spam of a full mesh. Skip pairs already linked via funder/bundle.
+  //
+  // GUARDS — behavioral clustering (DBSCAN/union-find) can transitively merge most
+  // holders into one blob when they share generic features (same era, non-sniper
+  // slot=0, small holdings). Linking such a "cluster" wires the whole graph to one
+  // hub (the mega-fan bug). A real laundered crew is a SMALL, TIGHT subset, so we
+  // only draw links when the cluster is crew-sized, cohesive, and not a large share
+  // of the holder set.
+  const BEHAVIORAL_MAX_CREW = 8;          // above this it's a blob, not a crew
+  const BEHAVIORAL_MIN_COHESION = 55;     // loose clusters are coincidence, not coordination
+  const holderNodeCount = topHolders.length || 1;
+  for (const cluster of behavioralClusters) {
+    const members = cluster.wallets.filter(w => existingNodeIds.has(w));
+    if (members.length < 2 || members.length > BEHAVIORAL_MAX_CREW) continue;
+    if (cluster.cohesion < BEHAVIORAL_MIN_COHESION) continue;
+    // Never group a cluster that spans more than ~40% of holders — that's the whole
+    // population, not a crew.
+    if (members.length / holderNodeCount > 0.4) continue;
+    // Anchor = highest-supply member, so the densest node sits at the hub center.
+    const anchor = members.reduce((top, w) => {
+      const tw = nodes.find(n => n.id === top)?.tokenAmount ?? 0;
+      const cw = nodes.find(n => n.id === w)?.tokenAmount ?? 0;
+      return cw > tw ? w : top;
+    }, members[0]);
+    for (const member of members) {
+      if (member === anchor) continue;
+      const key = `${anchor}->${member}`;
+      const reverseKey = `${member}->${anchor}`;
+      if (!linkSet.has(key) && !linkSet.has(reverseKey)) {
+        linkSet.add(key);
+        links.push(createLink(anchor, member, 0, undefined, { suspicious: true }));
+      }
     }
   }
 

@@ -87,15 +87,30 @@ export function clusterByBehavior(
     );
   };
 
-  // DBSCAN-style connectivity via union-find: link any pair within eps.
+  // Proper DBSCAN: union only through CORE points (points with ≥ minPts neighbors
+  // within eps). The previous single-link union merged the whole holder set into one
+  // blob whenever holders shared generic features — a non-core point could chain two
+  // unrelated dense regions together. Requiring a core endpoint stops that bridging.
+  const neighbors: number[][] = features.map(() => []);
+  for (let i = 0; i < features.length; i++) {
+    for (let j = i + 1; j < features.length; j++) {
+      if (distance(i, j) < eps) {
+        neighbors[i].push(j);
+        neighbors[j].push(i);
+      }
+    }
+  }
+  const isCore = neighbors.map(nbrs => nbrs.length >= minPts);
+
   const uf = new UnionFind();
   const pairDistances: number[] = [];
   for (let i = 0; i < features.length; i++) {
-    for (let j = i + 1; j < features.length; j++) {
-      const d = distance(i, j);
-      if (d < eps) {
+    if (!isCore[i]) continue; // only core points seed/grow a cluster
+    for (const j of neighbors[i]) {
+      // Grow into neighbors; border points (non-core) attach but never bridge.
+      if (isCore[j] || isCore[i]) {
         uf.union(features[i].wallet, features[j].wallet);
-        pairDistances.push(d);
+        pairDistances.push(distance(i, j));
       }
     }
   }
@@ -113,10 +128,16 @@ export function clusterByBehavior(
     : eps;
   const cohesion = Math.round(Math.max(0, Math.min(100, (1 - avgDist / eps) * 100)));
 
+  // A behavioral crew is a MINORITY of holders. If union-find still produced a
+  // component covering most of the set (generic-feature blob), it is not a crew —
+  // drop it rather than mislabel the whole population.
+  const MAX_CLUSTER_SHARE = 0.4;
+  const maxClusterSize = Math.max(2, Math.floor(features.length * MAX_CLUSTER_SHARE));
+
   let clusterId = 0;
   const out: BehavioralCluster[] = [];
   for (const wallets of groups.values()) {
-    if (wallets.length < minPts) continue;
+    if (wallets.length < minPts || wallets.length > maxClusterSize) continue;
     out.push({ clusterId: clusterId++, wallets, cohesion });
   }
   return out;

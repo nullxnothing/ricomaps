@@ -25,6 +25,7 @@ function EmbedContent() {
   const hideWatermark = compact || searchParams.get('hideWatermark') === 'true';
 
   const [data, setData] = useState<GraphData | null>(null);
+  const [totalSupply, setTotalSupply] = useState<number | undefined>(undefined);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null);
@@ -68,6 +69,7 @@ function EmbedContent() {
         }
 
         setData(result.data);
+        setTotalSupply(result.stats?.supplyConcentration?.totalMintSupply);
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Failed to load data';
         setError(message);
@@ -120,7 +122,7 @@ function EmbedContent() {
   return (
     <div className="relative w-full h-full" style={{ background: 'var(--bg-void)' }}>
       <div className="absolute inset-0">
-        <BubbleMap data={data} onNodeClick={handleNodeClick} />
+        <BubbleMap data={data} onNodeClick={handleNodeClick} totalSupply={totalSupply} />
       </div>
 
       {selectedNode && (

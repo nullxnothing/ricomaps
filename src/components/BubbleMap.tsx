@@ -1,18 +1,35 @@
 'use client';
 
-import { useRef, useEffect, useCallback, useState, useMemo } from 'react';
-import { forceSimulation, forceLink, forceManyBody, forceCenter, forceCollide, SimulationNodeDatum, SimulationLinkDatum, Simulation } from 'd3-force';
+import { useRef, useEffect, useCallback, useState, useMemo, forwardRef, useImperativeHandle } from 'react';
+import { forceSimulation, forceLink, forceManyBody, forceX, forceY, forceCollide, SimulationNodeDatum, SimulationLinkDatum, Simulation } from 'd3-force';
 import { GraphData, GraphNode, GraphLink, NODE_COLORS, NodeType } from '@/lib/types';
-import { THREAT_COLORS } from '@/lib/threat-scorer';
-import { isValidSolanaAddress, truncateAddress } from '@/lib/address-utils';
+import { truncateAddress } from '@/lib/address-utils';
 
 export type BubbleMapFilter = 'cabal' | 'snipers' | 'bundles' | 'behavioral' | null;
+export type BubbleRenderMode = 'default' | 'heatmap' | 'cluster';
+
+/** Imperative surface driven by the external control dock. */
+export interface BubbleMapHandle {
+  zoomIn: () => void;
+  zoomOut: () => void;
+  fit: () => void;
+  exportPng: () => void;
+  exportCsv: () => void;
+  /** Spawn a Go-Live pulse ring on a random holder (called per live event). */
+  pulseRandom: () => void;
+}
 
 interface BubbleMapProps {
   data: GraphData;
   onNodeClick?: (node: GraphNode) => void;
   onTraceFunders?: (node: GraphNode) => void;
   filter?: BubbleMapFilter;
+  /** Render mode driven by the dock (default colors / risk heatmap / cluster hulls). */
+  mode?: BubbleRenderMode;
+  /** Reports the current zoom level (0–1 scale → %) so the dock can display it. */
+  onZoomChange?: (pct: number) => void;
+  /** Full on-chain mint supply (pool included) for honest per-bubble %. Falls back to top-N sum if absent. */
+  totalSupply?: number;
 }
 
 interface BubbleNode extends SimulationNodeDatum {
@@ -22,6 +39,11 @@ interface BubbleNode extends SimulationNodeDatum {
   radius: number;
   supplyPct: number;
   clusterId: number;
+  /** Bundle/crew home anchor — nodes gravitate here so bundles form islands. */
+  homeX: number;
+  homeY: number;
+  /** True once a drag pins this node in place (persists until double-click). */
+  pinned?: boolean;
   originalNode: GraphNode;
 }
 
@@ -35,40 +57,74 @@ interface TooltipData {
   y: number;
 }
 
+// Bundle/crew palette (spec): each funded crew = one color, cabal hub pink.
 const CLUSTER_COLORS = [
-  '#5B7FFF', '#FF5B8E', '#5BFFB0', '#FFB85B', '#B05BFF',
-  '#5BE8FF', '#FF5B5B', '#C4FF5B', '#FF5BFF', '#5BFFD4',
+  '#a78bfa', '#60a5fa', '#22d3ee', '#2dd4bf', '#f472b6',
+  '#34d399', '#facc15', '#f59e0b', '#a78bfa', '#60a5fa',
 ];
 
-const UNLINKED_COLOR = '#555566';
-const BG_COLOR = '#000000';
+const UNLINKED_COLOR = '#00FF41'; // lone (unconnected) holder → brand green
+const POOL_COLOR = '#9aa3b2';
+const TOKEN_COLOR = '#00FF41';
 
-// Semantic node color by type; falls back to cluster color for generic types
+// Semantic node color by type; falls back to cluster color for generic types.
 function getNodeColor(type: NodeType, clusterId: number): string {
-  const semantic: string | undefined = NODE_COLORS[type];
-  if (semantic && semantic !== (NODE_COLORS.default as string)) return semantic;
+  if (type === 'pool') return POOL_COLOR;
+  if (type === 'token') return TOKEN_COLOR;
+  if (type === 'sniper') return '#22d3ee';
+  if (type === 'bundled') return clusterId >= 0 ? CLUSTER_COLORS[clusterId % CLUSTER_COLORS.length] : '#a78bfa';
+  if (type === 'cabal-funder') return '#f472b6';
   if (clusterId >= 0) return CLUSTER_COLORS[clusterId % CLUSTER_COLORS.length];
   return UNLINKED_COLOR;
 }
 
-// Legend entries for node types present in the graph
-const LEGEND_ENTRIES: { type: NodeType; label: string }[] = [
-  { type: 'target', label: 'Target' },
-  { type: 'cabal-funder', label: 'Cabal Funder' },
-  { type: 'sniper', label: 'Sniper' },
-  { type: 'bundled', label: 'Bundled' },
-  { type: 'token', label: 'Token' },
-  { type: 'pool', label: 'Liquidity Pool' },
-  { type: 'holder', label: 'Holder' },
-  { type: 'funder', label: 'Funder' },
-  { type: 'funded', label: 'Funded' },
-  { type: 'connected', label: 'Connected' },
-];
+// Heatmap recolor: lower risk = greener. Mirrors the prototype thresholds.
+function heatColor(node: BubbleNode): string {
+  const t = node.originalNode.type;
+  if (t === 'bundled') return '#ef4444';
+  if (t === 'sniper') return '#f59e0b';
+  if (t === 'pool') return POOL_COLOR;
+  if (t === 'funder' || t === 'cabal-funder') return '#60a5fa';
+  const pct = node.supplyPct;
+  if (pct > 4.5) return '#f59e0b';
+  if (pct > 3.6) return '#facc15';
+  return '#00FF41';
+}
+
+// "#rrggbb" + alpha → rgba()
+function hexA(hex: string, a: number): string {
+  const h = hex.replace('#', '');
+  const r = parseInt(h.slice(0, 2), 16);
+  const g = parseInt(h.slice(2, 4), 16);
+  const b = parseInt(h.slice(4, 6), 16);
+  return `rgba(${r},${g},${b},${a})`;
+}
+function rgbStr(hex: string): string {
+  const h = hex.replace('#', '');
+  return `${parseInt(h.slice(0, 2), 16)},${parseInt(h.slice(2, 4), 16)},${parseInt(h.slice(4, 6), 16)}`;
+}
+// Quadratic bézier point at parameter t.
+function qpt(x0: number, y0: number, cx: number, cy: number, x1: number, y1: number, t: number) {
+  const u = 1 - t;
+  return { x: u * u * x0 + 2 * u * t * cx + t * t * x1, y: u * u * y0 + 2 * u * t * cy + t * t * y1 };
+}
 
 function computeSupplyPct(node: GraphNode, totalSupply: number): number {
   const amount = node.tokenAmount || node.solBalance || node.val || 0;
   if (totalSupply <= 0) return 0;
   return (amount / totalSupply) * 100;
+}
+
+/**
+ * Denominator for per-bubble supply %. Each bubble shows its share of the FULL
+ * on-chain mint supply (pool included), so the pool bubble reads ~30% and real
+ * holders read their true 3-5% — matching Trench/Axiom. Falling back to the sum
+ * of rendered top-N holders inflates every %: the top ~20 cover only a fraction
+ * of supply, so 3% real reads as ~10%.
+ */
+function resolveSupplyDenominator(totalSupply: number | undefined, holders: GraphNode[]): number {
+  if (totalSupply && totalSupply > 0) return totalSupply;
+  return holders.reduce((sum, n) => sum + (n.tokenAmount || n.solBalance || 0), 0);
 }
 
 const MIN_RADIUS = 6;
@@ -126,10 +182,67 @@ function assignClusters(nodes: GraphNode[], links: GraphLink[]): Map<string, num
   return result;
 }
 
-export function BubbleMap({ data, onNodeClick, onTraceFunders, filter = null }: BubbleMapProps) {
+// Spread each bundle's home anchor around a ring so bundles form separate islands;
+// lone holders get their own scattered homes, the token sits at the origin. Returns
+// a per-node {hx,hy} the physics pulls toward (spec: home-anchored clumping).
+// Golden-angle (sunflower) point: even, organic, non-ring spread. Deterministic
+// in `index`, so positions are stable across renders (no Math.random — it would
+// jitter every frame and is unavailable in this runtime anyway).
+const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
+function sunflower(index: number, cx: number, cy: number, spread: number): { hx: number; hy: number } {
+  const r = spread * Math.sqrt(index + 0.5);
+  const ang = index * GOLDEN_ANGLE;
+  return { hx: cx + Math.cos(ang) * r, hy: cy + Math.sin(ang) * r };
+}
+
+function computeHomes(
+  nodes: { id: string; type: NodeType; clusterId: number }[],
+  width: number,
+  height: number,
+): Map<string, { hx: number; hy: number }> {
+  const homes = new Map<string, { hx: number; hy: number }>();
+  const cx = width / 2;
+  const cy = height / 2;
+  const base = Math.min(width, height);
+
+  // Each cluster (crew) and each lone holder gets its OWN scattered anchor, placed
+  // on a shared sunflower spiral so they fill the canvas as separate islands
+  // instead of all sitting on a ring. The link + collide forces then pull a crew's
+  // members tightly around their funder hub (the star-bursts in the spec).
+  const clusterIds = Array.from(new Set(nodes.filter(n => n.clusterId >= 0).map(n => n.clusterId))).sort((a, b) => a - b);
+  const loneNodes = nodes.filter(n => n.clusterId < 0 && n.type !== 'token' && n.type !== 'pool');
+
+  // One spiral slot per island (cluster or lone holder). Spacing scales so a
+  // crowded map spreads wider. Skip the first few slots so nothing lands on the
+  // centered token.
+  const islandCount = clusterIds.length + loneNodes.length;
+  const spread = (base * 0.5) / Math.sqrt(Math.max(islandCount, 1) + 4);
+  const SKIP = 3; // reserve the dense center for the token
+
+  const clusterHome = new Map<number, { hx: number; hy: number }>();
+  clusterIds.forEach((cid, i) => clusterHome.set(cid, sunflower(SKIP + i, cx, cy, spread)));
+
+  const loneHome = new Map<string, { hx: number; hy: number }>();
+  loneNodes.forEach((n, i) => loneHome.set(n.id, sunflower(SKIP + clusterIds.length + i, cx, cy, spread)));
+
+  for (const n of nodes) {
+    if (n.type === 'token') { homes.set(n.id, { hx: cx, hy: cy }); continue; }
+    if (n.type === 'pool') { homes.set(n.id, { hx: cx - base * 0.34, hy: cy - base * 0.16 }); continue; }
+    if (n.clusterId >= 0) {
+      homes.set(n.id, clusterHome.get(n.clusterId)!);
+    } else {
+      homes.set(n.id, loneHome.get(n.id) ?? { hx: cx, hy: cy });
+    }
+  }
+  return homes;
+}
+
+export const BubbleMap = forwardRef<BubbleMapHandle, BubbleMapProps>(function BubbleMap(
+  { data, onNodeClick, onTraceFunders, filter = null, mode = 'default', onZoomChange, totalSupply: totalSupplyProp },
+  ref,
+) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const findInputRef = useRef<HTMLInputElement>(null);
   const nodesRef = useRef<BubbleNode[]>([]);
   const linksRef = useRef<BubbleLink[]>([]);
   const transformRef = useRef({ x: 0, y: 0, k: 1 });
@@ -164,18 +277,25 @@ export function BubbleMap({ data, onNodeClick, onTraceFunders, filter = null }: 
 
   // Tooltip is the only piece of React state; it drives the overlay DOM
   const [tooltip, setTooltip] = useState<TooltipData | null>(null);
-  const [heatmapMode, setHeatmapMode] = useState(false);
-  const heatmapRef = useRef(false);
-  heatmapRef.current = heatmapMode;
-  const [hullsMode, setHullsMode] = useState(false);
-  const hullsRef = useRef(false);
-  hullsRef.current = hullsMode;
+  // Render mode (default | heatmap | cluster) is driven by the external dock.
+  const modeRef = useRef<BubbleRenderMode>('default');
+  modeRef.current = mode;
   const filterRef = useRef<BubbleMapFilter>(null);
   filterRef.current = filter;
+  // Go-Live pulse rings: expanding rings spawned on holders per live event.
+  const pulsesRef = useRef<{ id: string; life: number }[]>([]);
+  // Throttle zoom-% reporting to React to avoid per-frame setState churn.
+  const lastZoomPctRef = useRef(-1);
+  const reportZoom = useCallback(() => {
+    if (!onZoomChange) return;
+    const pct = Math.round(transformRef.current.k * 100);
+    if (pct !== lastZoomPctRef.current) {
+      lastZoomPctRef.current = pct;
+      onZoomChange(pct);
+    }
+  }, [onZoomChange]);
 
-  // Find box + context menu state (rare user-driven events, so plain state is fine).
-  const [findValue, setFindValue] = useState('');
-  const [findError, setFindError] = useState(false);
+  // Context menu state (rare user-driven event, so plain state is fine).
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; node: BubbleNode } | null>(null);
 
   // Summary for screen readers; recomputes only when graph changes
@@ -191,12 +311,6 @@ export function BubbleMap({ data, onNodeClick, onTraceFunders, filter = null }: 
     if (sniperCount) parts.push(`${sniperCount} sniper${sniperCount === 1 ? '' : 's'}`);
     if (tokenCount) parts.push(`${tokenCount} token${tokenCount === 1 ? '' : 's'}`);
     return parts.join(', ');
-  }, [data]);
-
-  // Legend types derived from data (state-driven so legend renders on initial load)
-  const legendTypes = useMemo(() => {
-    if (!data) return new Set<string>();
-    return new Set(data.nodes.filter(n => n.type !== 'token').map(n => n.type));
   }, [data]);
 
   // Convert screen (CSS) coords to world coords
@@ -254,7 +368,7 @@ export function BubbleMap({ data, onNodeClick, onTraceFunders, filter = null }: 
 
     const dataNodeMap = new Map(data.nodes.map(n => [n.id, n]));
     const holders = data.nodes.filter(n => n.type !== 'token');
-    const totalSupply = holders.reduce((sum, n) => sum + (n.tokenAmount || n.solBalance || 0), 0);
+    const totalSupply = resolveSupplyDenominator(totalSupplyProp, holders);
     // Reuse the scan-time scale so live updates don't rescale every bubble. Only grow it
     // if a holder genuinely exceeds the current max (never shrink; that's what caused the
     // "all bubbles get smaller" flicker when streaming started).
@@ -276,10 +390,16 @@ export function BubbleMap({ data, onNodeClick, onTraceFunders, filter = null }: 
 
     // 2. Add new buyers as fresh bubbles near center, so they fly in and settle.
     const existingIds = new Set(nodesRef.current.map(n => n.id));
+    const liveHomes = computeHomes(
+      data.nodes.map(n => ({ id: n.id, type: n.type, clusterId: clusterMap.get(n.id) ?? -1 })),
+      width || 800,
+      height || 600,
+    );
     let added = 0;
     for (const node of data.nodes) {
       if (node.type === 'token' || existingIds.has(node.id)) continue;
       const amount = node.tokenAmount || node.solBalance || 0;
+      const home = liveHomes.get(node.id) ?? { hx: (width || 800) / 2, hy: (height || 600) / 2 };
       nodesRef.current.push({
         id: node.id,
         label: node.label,
@@ -287,9 +407,11 @@ export function BubbleMap({ data, onNodeClick, onTraceFunders, filter = null }: 
         radius: computeRadius(amount, maxAmount),
         supplyPct: computeSupplyPct(node, totalSupply),
         clusterId: clusterMap.get(node.id) ?? -1,
+        homeX: home.hx,
+        homeY: home.hy,
         originalNode: node,
-        x: (width || 800) / 2 + (Math.random() - 0.5) * 80,
-        y: (height || 600) / 2 + (Math.random() - 0.5) * 80,
+        x: home.hx + (Math.random() - 0.5) * 60,
+        y: home.hy + (Math.random() - 0.5) * 60,
       });
       added++;
     }
@@ -362,29 +484,42 @@ export function BubbleMap({ data, onNodeClick, onTraceFunders, filter = null }: 
 
     // ── Build node/link data ──
     const holders = data.nodes.filter(n => n.type !== 'token');
-    const totalSupply = holders.reduce((sum, n) => sum + (n.tokenAmount || n.solBalance || 0), 0);
+    const totalSupply = resolveSupplyDenominator(totalSupplyProp, holders);
     const clusterMap = assignClusters(data.nodes, data.links);
 
     const maxAmount = Math.max(...holders.map(n => n.tokenAmount || n.solBalance || 0), 1);
     maxAmountRef.current = maxAmount; // fix the radius scale for the duration of this scan
 
-    const bubbleNodes: BubbleNode[] = data.nodes
-      .filter(n => n.type !== 'token')
-      .map(node => {
-        const amount = node.tokenAmount || node.solBalance || 0;
-        const radius = computeRadius(amount, maxAmount);
-        return {
-          id: node.id,
-          label: node.label,
-          type: node.type,
-          radius,
-          supplyPct: computeSupplyPct(node, totalSupply),
-          clusterId: clusterMap.get(node.id) ?? -1,
-          originalNode: node,
-          x: width / 2 + (Math.random() - 0.5) * Math.min(width, height) * 0.5,
-          y: height / 2 + (Math.random() - 0.5) * Math.min(width, height) * 0.5,
-        };
-      });
+    // Token node is rendered (center anchor) so beams converge on it visually.
+    const includedNodes = data.nodes;
+    const homes = computeHomes(
+      includedNodes.map(n => ({ id: n.id, type: n.type, clusterId: clusterMap.get(n.id) ?? -1 })),
+      width,
+      height,
+    );
+
+    const bubbleNodes: BubbleNode[] = includedNodes.map(node => {
+      const amount = node.tokenAmount || node.solBalance || 0;
+      const radius = node.type === 'token' ? 30 : node.type === 'pool' ? 46 : computeRadius(amount, maxAmount);
+      const home = homes.get(node.id) ?? { hx: width / 2, hy: height / 2 };
+      return {
+        id: node.id,
+        label: node.label,
+        type: node.type,
+        radius,
+        supplyPct: computeSupplyPct(node, totalSupply),
+        clusterId: clusterMap.get(node.id) ?? -1,
+        homeX: home.hx,
+        homeY: home.hy,
+        originalNode: node,
+        // Token pinned at center; everything else seeds near its bundle home.
+        x: node.type === 'token' ? width / 2 : home.hx + (Math.random() - 0.5) * 80,
+        y: node.type === 'token' ? height / 2 : home.hy + (Math.random() - 0.5) * 80,
+        fx: node.type === 'token' ? width / 2 : undefined,
+        fy: node.type === 'token' ? height / 2 : undefined,
+        pinned: node.type === 'token',
+      };
+    });
 
     const nodeIds = new Set(bubbleNodes.map(n => n.id));
     const bubbleLinks: BubbleLink[] = data.links
@@ -413,87 +548,35 @@ export function BubbleMap({ data, onNodeClick, onTraceFunders, filter = null }: 
     particlesRef.current = particles;
     lastFrameTimeRef.current = 0;
 
-    // ── Compute cluster membership for cluster force ──
-    const clusterNodes = new Map<number, BubbleNode[]>();
-    for (const node of bubbleNodes) {
-      if (node.clusterId < 0) continue;
-      const arr = clusterNodes.get(node.clusterId) || [];
-      arr.push(node);
-      clusterNodes.set(node.clusterId, arr);
-    }
-
-    // Single combined cluster force: attract members + repel overlapping centroids
-    function clusterForce(alpha: number) {
-      // 1. Compute centroids
-      const centroids = new Map<number, { cx: number; cy: number; count: number; totalRadius: number }>();
-      for (const [cid, members] of clusterNodes) {
-        let cx = 0, cy = 0, totalR = 0;
-        for (const m of members) { cx += m.x || 0; cy += m.y || 0; totalR += m.radius; }
-        cx /= members.length;
-        cy /= members.length;
-        centroids.set(cid, { cx, cy, count: members.length, totalRadius: totalR });
-      }
-
-      // 2. Pull members toward their centroid
-      const attractStrength = alpha * 0.3;
-      for (const [cid, members] of clusterNodes) {
-        if (members.length < 2) continue;
-        const c = centroids.get(cid)!;
-        for (const m of members) {
-          m.vx = (m.vx || 0) + (c.cx - (m.x || 0)) * attractStrength;
-          m.vy = (m.vy || 0) + (c.cy - (m.y || 0)) * attractStrength;
-        }
-      }
-
-      // 3. Push centroids apart only when overlapping
-      const ids = Array.from(centroids.keys());
-      for (let i = 0; i < ids.length; i++) {
-        for (let j = i + 1; j < ids.length; j++) {
-          const a = centroids.get(ids[i])!;
-          const b = centroids.get(ids[j])!;
-          const dx = a.cx - b.cx;
-          const dy = a.cy - b.cy;
-          const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-          const minDist = a.totalRadius + b.totalRadius + 20;
-          if (dist < minDist) {
-            const force = Math.min(alpha * 0.5 * (minDist - dist) / dist, 3);
-            const nx = (dx / dist) * force;
-            const ny = (dy / dist) * force;
-            const membersA = clusterNodes.get(ids[i])!;
-            const membersB = clusterNodes.get(ids[j])!;
-            for (const m of membersA) { m.vx = (m.vx || 0) + nx / membersA.length; m.vy = (m.vy || 0) + ny / membersA.length; }
-            for (const m of membersB) { m.vx = (m.vx || 0) - nx / membersB.length; m.vy = (m.vy || 0) - ny / membersB.length; }
-          }
-        }
-      }
-    }
-
-    // ── Force simulation, adapts to graph density ──
-    const nLinks = bubbleLinks.length;
-    // Charge scales: sparse graphs get light repulsion, dense get more
-    const chargeStr = nLinks > 10 ? -60 : -25;
-    // Center gravity: sparse graphs need stronger pull to stay compact
-    const centerStr = nLinks > 20 ? 0.05 : 0.12;
-
+    // ── Force simulation: home-anchored islands (spec physics) ──
+    // Each node is pulled toward its bundle/crew home (forceX/forceY); gentle charge
+    // separates members within a bundle while collide keeps them clumped, and the
+    // link springs hold funder→funded ties together. Token home gravity is stronger.
     const sim = forceSimulation(bubbleNodes)
       .force('link', forceLink<BubbleNode, BubbleLink>(bubbleLinks)
         .id(d => d.id)
         .distance(d => {
           const src = d.source as BubbleNode;
           const tgt = d.target as BubbleNode;
-          return src.radius + tgt.radius + 8;
+          // Crew spokes (funder→funded) sit tight; token spokes longer so the
+          // hub fans out from the center.
+          const tokenSpoke = src.type === 'token' || tgt.type === 'token';
+          return src.radius + tgt.radius + (tokenSpoke ? 60 : 10);
         })
-        .strength(0.8)
+        .strength(d => {
+          const src = d.source as BubbleNode;
+          const tgt = d.target as BubbleNode;
+          return (src.type === 'token' || tgt.type === 'token') ? 0.05 : 0.8;
+        })
       )
-      .force('charge', forceManyBody()
-        .strength(chargeStr)
-        .distanceMax(250)
-      )
-      .force('cluster', clusterForce)
-      .force('center', forceCenter(width / 2, height / 2).strength(centerStr))
-      .force('collide', forceCollide<BubbleNode>().radius(d => d.radius + 3).strength(0.8).iterations(1))
+      // Light charge keeps members from overlapping but doesn't blow bundles apart.
+      .force('charge', forceManyBody().strength(-18).distanceMax(160))
+      // Strong home gravity = tight islands clumped at their anchor.
+      .force('homeX', forceX<BubbleNode>(d => d.homeX).strength(d => (d.type === 'token' ? 0.6 : 0.18)))
+      .force('homeY', forceY<BubbleNode>(d => d.homeY).strength(d => (d.type === 'token' ? 0.6 : 0.18)))
+      .force('collide', forceCollide<BubbleNode>().radius(d => d.radius + 3).strength(0.9).iterations(2))
       .alphaDecay(0.035)
-      .velocityDecay(0.4);
+      .velocityDecay(0.42);
 
     // Pre-warm the layout synchronously (no paint) so the graph appears already
     // settled instead of visibly churning for ~1.5s on load. Cheap: a few dozen
@@ -518,18 +601,20 @@ export function BubbleMap({ data, onNodeClick, onTraceFunders, filter = null }: 
       }
       const graphW = maxX - minX;
       const graphH = maxY - minY;
+      const { width: fw, height: fh } = sizeRef.current;
       if (graphW > 0 && graphH > 0) {
-        const padding = 60;
-        const scaleX = (width - padding * 2) / graphW;
-        const scaleY = (height - padding * 2) / graphH;
-        const targetK = Math.min(scaleX, scaleY, 0.9);
+        const padding = 160;
+        const scaleX = (fw - padding) / graphW;
+        const scaleY = (fh - padding) / graphH;
+        const targetK = Math.min(scaleX, scaleY, 1.3);
         const graphCx = (minX + maxX) / 2;
         const graphCy = (minY + maxY) / 2;
         transformRef.current = {
-          x: width / 2 - graphCx * targetK,
-          y: height / 2 - graphCy * targetK,
+          x: fw / 2 - graphCx * targetK,
+          y: fh / 2 - graphCy * targetK,
           k: targetK,
         };
+        reportZoom();
       }
     }
 
@@ -560,47 +645,50 @@ export function BubbleMap({ data, onNodeClick, onTraceFunders, filter = null }: 
 
     // ── Render function (reads refs only, no React state) ──
     function draw(timestamp: number) {
-      const dt = lastFrameTimeRef.current ? (timestamp - lastFrameTimeRef.current) / 1000 : 1 / 60;
       lastFrameTimeRef.current = timestamp;
 
       const { width: w, height: h } = sizeRef.current;
       const t = transformRef.current;
       const hovered = hoveredNodeRef.current;
+      const renderMode = modeRef.current;
+      const isHeatmap = renderMode === 'heatmap';
+      const isCluster = renderMode === 'cluster';
 
+      // Transparent clear: the page's technical-grid stage shows through the canvas.
       ctx.clearRect(0, 0, w, h);
-      ctx.fillStyle = BG_COLOR;
-      ctx.fillRect(0, 0, w, h);
 
       ctx.save();
       ctx.translate(t.x, t.y);
       ctx.scale(t.k, t.k);
 
-      // ── Cluster hulls (toggle, default-off), drawn behind everything ──
-      // Cheap O(n) blob: per cluster, a translucent circle at the centroid sized to
-      // cover its members. Not a true convex hull (which would be per-frame expensive).
-      if (hullsRef.current) {
-        const agg = new Map<number, { sx: number; sy: number; n: number }>();
+      // ── Cluster hulls (cluster mode): dashed translucent blob behind each multi-node cluster ──
+      if (isCluster) {
+        const agg = new Map<number, BubbleNode[]>();
         for (const node of nodesRef.current) {
           if (node.clusterId < 0 || node.x == null || node.y == null) continue;
+          if (node.type === 'token' || node.type === 'pool') continue;
           if (hiddenIdsRef.current.has(node.id)) continue;
-          const a = agg.get(node.clusterId) ?? { sx: 0, sy: 0, n: 0 };
-          a.sx += node.x; a.sy += node.y; a.n++;
-          agg.set(node.clusterId, a);
+          const arr = agg.get(node.clusterId) ?? [];
+          arr.push(node);
+          agg.set(node.clusterId, arr);
         }
-        for (const [cid, a] of agg) {
-          if (a.n < 2) continue;
-          const cx = a.sx / a.n, cy = a.sy / a.n;
+        for (const [cid, members] of agg) {
+          if (members.length < 2) continue;
+          let cx = 0, cy = 0;
+          for (const m of members) { cx += m.x!; cy += m.y!; }
+          cx /= members.length; cy /= members.length;
           let maxR = 0;
-          for (const node of nodesRef.current) {
-            if (node.clusterId !== cid || node.x == null || node.y == null) continue;
-            if (hiddenIdsRef.current.has(node.id)) continue;
-            const dx = node.x - cx, dy = node.y - cy;
-            maxR = Math.max(maxR, Math.sqrt(dx * dx + dy * dy) + node.radius);
-          }
+          for (const m of members) maxR = Math.max(maxR, Math.hypot(m.x! - cx, m.y! - cy) + m.radius);
+          const col = CLUSTER_COLORS[cid % CLUSTER_COLORS.length];
           ctx.beginPath();
-          ctx.arc(cx, cy, maxR + 12, 0, Math.PI * 2);
-          ctx.fillStyle = CLUSTER_COLORS[cid % CLUSTER_COLORS.length] + '14';
+          ctx.arc(cx, cy, maxR + 20, 0, Math.PI * 2);
+          ctx.fillStyle = hexA(col, 0.11);
           ctx.fill();
+          ctx.strokeStyle = hexA(col, 0.33);
+          ctx.lineWidth = 1.4;
+          ctx.setLineDash([5, 5]);
+          ctx.stroke();
+          ctx.setLineDash([]);
         }
       }
 
@@ -632,172 +720,217 @@ export function BubbleMap({ data, onNodeClick, onTraceFunders, filter = null }: 
         return true;
       };
 
-      // ── Links ──
+      // ── Beams (curved animated links with arrowhead + traveling comet) ──
+      let li = -1;
       for (const link of linksRef.current) {
+        li++;
         const src = link.source as BubbleNode;
         const tgt = link.target as BubbleNode;
         if (src.x == null || src.y == null || tgt.x == null || tgt.y == null) continue;
+        if (!Number.isFinite(src.x) || !Number.isFinite(src.y) || !Number.isFinite(tgt.x) || !Number.isFinite(tgt.y)) continue;
+        if (hiddenIdsRef.current.has(src.id) || hiddenIdsRef.current.has(tgt.id)) continue;
+        const sx: number = src.x, sy: number = src.y, tx: number = tgt.x, ty: number = tgt.y;
 
         const key = linkKey(link);
         const isConnected = connectedEdges.has(key);
-        const isDimmed = hovered && !isConnected;
-        const filterDim = activeFilter && !(matchesFilter(src) && matchesFilter(tgt));
+        const touched = !!hovered && isConnected;
+        // Token spokes (funder→token) stay hidden unless hovered or in cluster mode.
+        const isTokenSpoke = src.type === 'token' || tgt.type === 'token';
+        if (isTokenSpoke && !touched && !isCluster) continue;
 
-        // Determine link style based on hover state
-        let alpha: number;
-        let lineW: number;
-        if (link.suspicious) {
-          alpha = isDimmed ? 0.35 : isConnected ? 0.9 : 0.6;
-          lineW = isDimmed ? 1.2 : isConnected ? 2.5 : 1.5;
+        const filterDim = activeFilter && !(matchesFilter(src) && matchesFilter(tgt));
+        const dimmed = (hovered && !isConnected) || filterDim;
+
+        // Base + pulse colors per mode/state.
+        let baseStyle: string, beamRGB: string, lw: number;
+        const crewColor = isCluster
+          ? CLUSTER_COLORS[(src.clusterId >= 0 ? src.clusterId : 0) % CLUSTER_COLORS.length]
+          : src.clusterId >= 0 ? CLUSTER_COLORS[src.clusterId % CLUSTER_COLORS.length] : null;
+        if (touched) {
+          baseStyle = 'rgba(0,255,65,0.5)'; beamRGB = '0,255,65'; lw = 1.9;
+        } else if (crewColor) {
+          baseStyle = hexA(crewColor, dimmed ? 0.12 : 0.32); beamRGB = rgbStr(crewColor); lw = 1.4;
         } else {
-          alpha = isDimmed ? 0.1 : isConnected ? 0.5 : 0.15;
-          lineW = isDimmed ? 0.7 : isConnected ? 1.8 : 0.8;
+          baseStyle = `rgba(125,170,235,${dimmed ? 0.1 : 0.34})`; beamRGB = '155,200,255'; lw = 1.3;
         }
-        if (filterDim) alpha *= 0.15;
+
+        // Terminate rim-to-rim: pull the endpoints in by each node's radius (+ a
+        // small gap) along the straight line so the beam starts and the arrowhead
+        // lands exactly on the bubble edges, not their centers.
+        const ddx = tx - sx, ddy = ty - sy;
+        const dist = Math.hypot(ddx, ddy) || 1;
+        const ux = ddx / dist, uy = ddy / dist;
+        const ax = sx + ux * (src.radius + 1.5);
+        const ay = sy + uy * (src.radius + 1.5);
+        const bx = tx - ux * (tgt.radius + 2.5);
+        const by = ty - uy * (tgt.radius + 2.5);
+        const span = Math.hypot(bx - ax, by - ay) || 1;
+
+        // Bow: fixed pixel sag (scaled down for short ties), NOT a fraction of length,
+        // so a long beam points straight at the node instead of arcing into space.
+        const BOW_PX = 14;
+        const bow = Math.min(BOW_PX, span * 0.28) * (li % 2 ? 1 : -1);
+        const mx = (ax + bx) / 2, my = (ay + by) / 2;
+        const cpx = mx + (-(by - ay) / span) * bow;
+        const cpy = my + ((bx - ax) / span) * bow;
 
         ctx.beginPath();
-        ctx.moveTo(src.x, src.y);
-        ctx.lineTo(tgt.x, tgt.y);
-        ctx.strokeStyle = link.suspicious
-          ? `rgba(255, 91, 142, ${alpha})`
-          : `rgba(255, 255, 255, ${alpha})`;
-        ctx.lineWidth = lineW;
+        ctx.moveTo(ax, ay);
+        ctx.quadraticCurveTo(cpx, cpy, bx, by);
+        ctx.strokeStyle = baseStyle;
+        ctx.lineWidth = lw;
         ctx.stroke();
+
+        const animate = !dimmed || touched;
+
+        // Arrowhead at the rim (curve end), pointing into the target node.
+        if (animate) {
+          const ah = qpt(ax, ay, cpx, cpy, bx, by, 0.86);
+          const ang = Math.atan2(by - ah.y, bx - ah.x), s = 4.6;
+          ctx.fillStyle = `rgba(${beamRGB},0.9)`;
+          ctx.beginPath();
+          ctx.moveTo(bx, by);
+          ctx.lineTo(bx - Math.cos(ang - 0.5) * s, by - Math.sin(ang - 0.5) * s);
+          ctx.lineTo(bx - Math.cos(ang + 0.5) * s, by - Math.sin(ang + 0.5) * s);
+          ctx.closePath();
+          ctx.fill();
+        }
+
+        // Traveling comet: ~9 fading segments looping every 2.6s + glowing head dot.
+        if (animate) {
+          const period = 2600 / (touched ? 1.6 : 1);
+          const phase = (li * 0.137) % 1;
+          const tt = ((timestamp / period) + phase) % 1;
+          const steps = 9, tail = 0.26;
+          ctx.lineCap = 'round';
+          for (let i = 0; i < steps; i++) {
+            const ta = tt - (tail * i / steps), tb = tt - (tail * (i + 1) / steps);
+            if (tb < 0 || ta > 1) continue;
+            const p1 = qpt(ax, ay, cpx, cpy, bx, by, Math.max(0, Math.min(1, ta)));
+            const p2 = qpt(ax, ay, cpx, cpy, bx, by, Math.max(0, Math.min(1, tb)));
+            ctx.strokeStyle = `rgba(${beamRGB},${((1 - i / steps) * 0.9).toFixed(2)})`;
+            ctx.lineWidth = lw + 0.7;
+            ctx.beginPath();
+            ctx.moveTo(p1.x, p1.y);
+            ctx.lineTo(p2.x, p2.y);
+            ctx.stroke();
+          }
+          if (tt >= 0 && tt <= 1) {
+            const hp = qpt(ax, ay, cpx, cpy, bx, by, tt);
+            ctx.beginPath();
+            ctx.arc(hp.x, hp.y, 1.9, 0, Math.PI * 2);
+            ctx.fillStyle = `rgba(${beamRGB},0.95)`;
+            ctx.shadowColor = `rgba(${beamRGB},0.9)`;
+            ctx.shadowBlur = 7;
+            ctx.fill();
+            ctx.shadowBlur = 0;
+          }
+          ctx.lineCap = 'butt';
+        }
       }
 
-      // ── Animated particles on edges ──
-      const particleSpeed = 1 / 3; // full traversal in 3 seconds
-      for (const link of linksRef.current) {
-        const src = link.source as BubbleNode;
-        const tgt = link.target as BubbleNode;
-        if (src.x == null || src.y == null || tgt.x == null || tgt.y == null) continue;
-
-        const key = linkKey(link);
-        const isConnected = connectedEdges.has(key);
-        const isDimmed = hovered && !isConnected;
-
-        const edgeParticles = particlesRef.current.get(key);
-        if (!edgeParticles) continue;
-
-        const accentColor = link.suspicious ? '#FF5B8E' : (
-          src.clusterId >= 0 ? CLUSTER_COLORS[src.clusterId % CLUSTER_COLORS.length] : '#ffffff'
-        );
-
-        for (const p of edgeParticles) {
-          // Advance particle position
-          p.t = (p.t + dt * particleSpeed) % 1;
-
-          const px = src.x + (tgt.x - src.x) * p.t;
-          const py = src.y + (tgt.y - src.y) * p.t;
-
-          // Trail: draw a gradient line from behind to current position
-          const trailT = Math.max(0, p.t - 0.08);
-          const tx = src.x + (tgt.x - src.x) * trailT;
-          const ty = src.y + (tgt.y - src.y) * trailT;
-
-          const particleFilterDim = activeFilter && !(matchesFilter(src) && matchesFilter(tgt));
-          ctx.save();
-          ctx.globalAlpha = (isDimmed ? 0.3 : isConnected ? 1 : 0.7) * (particleFilterDim ? 0.15 : 1);
-
-          // Gradient trail
-          const trailGrad = ctx.createLinearGradient(tx, ty, px, py);
-          trailGrad.addColorStop(0, 'transparent');
-          trailGrad.addColorStop(1, accentColor);
-          ctx.strokeStyle = trailGrad;
-          ctx.lineWidth = 2;
-          ctx.beginPath();
-          ctx.moveTo(tx, ty);
-          ctx.lineTo(px, py);
-          ctx.stroke();
-
-          // Glowing head
-          const headGlow = ctx.createRadialGradient(px, py, 0, px, py, 5);
-          headGlow.addColorStop(0, accentColor);
-          headGlow.addColorStop(1, 'transparent');
-          ctx.fillStyle = headGlow;
-          ctx.beginPath();
-          ctx.arc(px, py, 5, 0, Math.PI * 2);
-          ctx.fill();
-
-          // Solid core dot
-          ctx.fillStyle = accentColor;
-          ctx.beginPath();
-          ctx.arc(px, py, 1.5, 0, Math.PI * 2);
-          ctx.fill();
-
-          ctx.restore();
-        }
+      // ── Go-Live pulse rings: expanding green rings on holders ──
+      pulsesRef.current = pulsesRef.current.filter(p => { p.life -= 0.018; return p.life > 0; });
+      for (const p of pulsesRef.current) {
+        const node = nodesRef.current.find(n => n.id === p.id);
+        if (!node || node.x == null || node.y == null) continue;
+        ctx.beginPath();
+        ctx.arc(node.x, node.y, node.radius + (1 - p.life) * 40, 0, Math.PI * 2);
+        ctx.strokeStyle = `rgba(0,255,65,${(p.life * 0.5).toFixed(2)})`;
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
       }
 
       // ── Nodes ──
-      const isHeatmap = heatmapRef.current;
-
+      const bold = isHeatmap || isCluster;
       for (const node of nodesRef.current) {
         if (node.x == null || node.y == null) continue;
+        if (!Number.isFinite(node.x) || !Number.isFinite(node.y)) continue;
         if (hiddenIdsRef.current.has(node.id)) continue;
 
+        const type = node.originalNode.type;
         const isHovered = hovered?.id === node.id;
         const isNeighbor = connectedNodes.has(node.id);
         const isDimmed = hovered && !isHovered && !isNeighbor;
+        const r = node.radius;
 
-        // Color priority: heatmap > semantic type (pool/cabal/sniper/bundled/token) >
-        // cluster color > unlinked. Semantic types must override the cluster hue so a
-        // pool/AMM, cabal funder, sniper, etc. always read distinctly. getNodeColor
-        // falls back to the cluster color for generic types (holder/funder/connected).
-        const threatLevel = node.originalNode.metadata?.threatLevel;
-        const threatScore = node.originalNode.metadata?.threatScore || 0;
+        // Color: heatmap (risk) > cluster recolor > semantic/bundle.
         let color: string;
-        if (isHeatmap && threatLevel) {
-          color = THREAT_COLORS[threatLevel] || UNLINKED_COLOR;
-        } else {
-          color = getNodeColor(node.originalNode.type, node.clusterId);
-        }
+        if (isHeatmap) color = heatColor(node);
+        else if (isCluster && type !== 'token' && type !== 'pool')
+          color = CLUSTER_COLORS[(node.clusterId >= 0 ? node.clusterId : 0) % CLUSTER_COLORS.length];
+        else color = getNodeColor(type, node.clusterId);
 
         const nodeFilterDim = activeFilter && !matchesFilter(node);
         ctx.save();
-        if (isDimmed) ctx.globalAlpha = 0.65;
-        if (nodeFilterDim) ctx.globalAlpha = (ctx.globalAlpha || 1) * 0.18;
+        // Un-connected nodes dim to 55% (readability floor); filter dims further.
+        if (isDimmed) ctx.globalAlpha = 0.55;
+        if (nodeFilterDim) ctx.globalAlpha = (ctx.globalAlpha || 1) * 0.3;
 
-        // Threat ring, drawn OUTSIDE the node for medium+ threats
-        if (!isHeatmap && threatLevel && threatScore >= 30) {
-          const threatColor = THREAT_COLORS[threatLevel];
-          ctx.beginPath();
-          ctx.arc(node.x, node.y, node.radius + 4, 0, Math.PI * 2);
-          ctx.strokeStyle = threatColor;
-          ctx.lineWidth = 2.5;
-          ctx.stroke();
-        }
+        const isFunder = type === 'funder' || type === 'cabal-funder';
+        const isSolid = isFunder || type === 'funded' || type === 'connected';
+        let glow = 0;
 
-        // Glow
-        if (node.clusterId >= 0 || (isHeatmap && threatLevel)) {
-          ctx.beginPath();
-          ctx.arc(node.x, node.y, node.radius + 4, 0, Math.PI * 2);
-          const grad = ctx.createRadialGradient(node.x, node.y, node.radius * 0.5, node.x, node.y, node.radius + 8);
-          grad.addColorStop(0, color + '40');
-          grad.addColorStop(1, 'transparent');
-          ctx.fillStyle = grad;
-          ctx.fill();
-        }
-
-        // Hover ring
-        if (isHovered) {
-          ctx.beginPath();
-          ctx.arc(node.x, node.y, node.radius + 3, 0, Math.PI * 2);
-          ctx.strokeStyle = '#ffffff55';
-          ctx.lineWidth = 6;
-          ctx.stroke();
-        }
-
-        // Main circle
         ctx.beginPath();
-        ctx.arc(node.x, node.y, node.radius, 0, Math.PI * 2);
-        ctx.fillStyle = color + (node.clusterId >= 0 || isHeatmap ? '30' : '20');
+        ctx.arc(node.x, node.y, r, 0, Math.PI * 2);
+        if (type === 'pool') {
+          const g = ctx.createRadialGradient(node.x, node.y, 1, node.x, node.y, r);
+          g.addColorStop(0, 'rgba(154,163,178,0.30)');
+          g.addColorStop(1, 'rgba(154,163,178,0.04)');
+          ctx.fillStyle = g;
+        } else if (type === 'token') {
+          const g = ctx.createRadialGradient(node.x, node.y, 1, node.x, node.y, r);
+          g.addColorStop(0, 'rgba(0,255,65,0.55)');
+          g.addColorStop(1, 'rgba(0,255,65,0.10)');
+          ctx.fillStyle = g;
+          glow = 14;
+        } else if (isSolid) {
+          // Funder / crew hub: sphere gradient, bright center → 0.78 edge.
+          const g = ctx.createRadialGradient(node.x - r * 0.35, node.y - r * 0.35, 0.5, node.x, node.y, r);
+          g.addColorStop(0, hexA(color, 1));
+          g.addColorStop(0.6, hexA(color, 0.95));
+          g.addColorStop(1, hexA(color, 0.78));
+          ctx.fillStyle = g;
+          glow = bold ? 4 : 6;
+        } else {
+          // Holder / sniper / bundled: translucent fill (bolder in heatmap/cluster).
+          ctx.fillStyle = hexA(color, bold ? 0.42 : 0.14);
+          if (bold) glow = 8;
+        }
+        if (isHovered) glow = Math.max(glow, 12);
+        if (glow) { ctx.shadowColor = color; ctx.shadowBlur = glow; }
         ctx.fill();
+        ctx.shadowBlur = 0;
 
-        // Border
-        ctx.strokeStyle = isHovered ? '#ffffff' : color + (node.clusterId >= 0 || isHeatmap ? 'aa' : '60');
-        ctx.lineWidth = isHovered ? 2.5 : 1.5;
+        // Stroke
+        ctx.beginPath();
+        ctx.arc(node.x, node.y, r, 0, Math.PI * 2);
+        ctx.strokeStyle = hexA(color, isFunder ? 0.9 : 0.62);
+        ctx.lineWidth = isHovered ? 2 : 1.3;
         ctx.stroke();
+
+        // Connected-group accent ring (hover).
+        if (hovered && (isHovered || isNeighbor)) {
+          ctx.beginPath();
+          ctx.arc(node.x, node.y, r + 4.5, 0, Math.PI * 2);
+          ctx.strokeStyle = isHovered ? 'rgba(0,255,65,0.95)' : 'rgba(0,255,65,0.6)';
+          ctx.lineWidth = isHovered ? 2 : 1.4;
+          ctx.shadowColor = 'rgba(0,255,65,0.5)';
+          ctx.shadowBlur = isHovered ? 10 : 5;
+          ctx.stroke();
+          ctx.shadowBlur = 0;
+        }
+
+        // Pinned indicator: small dashed ring so users know a node is held in place.
+        if (node.pinned && type !== 'token') {
+          ctx.beginPath();
+          ctx.arc(node.x, node.y, r + 2, 0, Math.PI * 2);
+          ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+          ctx.lineWidth = 1;
+          ctx.setLineDash([2, 3]);
+          ctx.stroke();
+          ctx.setLineDash([]);
+        }
 
         // Find-highlight: pulsing ring around the located node for ~2.2s.
         const hl = highlightRef.current;
@@ -806,8 +939,8 @@ export function BubbleMap({ data, onNodeClick, onTraceFunders, filter = null }: 
             const pulse = 6 + 4 * Math.sin(timestamp / 150);
             const remaining = (hl.until - timestamp) / 2200;
             ctx.beginPath();
-            ctx.arc(node.x, node.y, node.radius + pulse, 0, Math.PI * 2);
-            ctx.strokeStyle = `rgba(255,255,255,${0.85 * remaining})`;
+            ctx.arc(node.x, node.y, r + pulse, 0, Math.PI * 2);
+            ctx.strokeStyle = `rgba(0,255,65,${0.85 * remaining})`;
             ctx.lineWidth = 2.5 / t.k;
             ctx.stroke();
           } else {
@@ -815,34 +948,47 @@ export function BubbleMap({ data, onNodeClick, onTraceFunders, filter = null }: 
           }
         }
 
-        // Supply % label
-        if (node.radius > 14 && node.supplyPct >= 0.5) {
-          ctx.fillStyle = 'rgba(255,255,255,0.85)';
-          ctx.font = `${Math.max(9, Math.min(14, node.radius * 0.35))}px -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif`;
+        // Label: token symbol (dark), else white % when the bubble is big enough.
+        if (type === 'token' && node.label) {
+          ctx.fillStyle = '#03100a';
+          ctx.font = `700 ${Math.max(9, Math.min(13, r * 0.42))}px var(--font-jetbrains-mono), monospace`;
           ctx.textAlign = 'center';
           ctx.textBaseline = 'middle';
-          ctx.fillText(
-            node.supplyPct >= 1 ? node.supplyPct.toFixed(1) + '%' : '<1%',
-            node.x,
-            node.y,
-          );
+          ctx.fillText(node.label.slice(0, 4).toUpperCase(), node.x, node.y);
+        } else if (r > 11 && node.supplyPct >= 0.5) {
+          ctx.fillStyle = '#f0f0f0';
+          ctx.font = `600 ${Math.max(9, Math.min(13, r * 0.42))}px var(--font-jetbrains-mono), monospace`;
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(node.supplyPct >= 1 ? node.supplyPct.toFixed(1) + '%' : '<1%', node.x, node.y);
         }
 
         ctx.restore();
       }
 
       ctx.restore();
+      reportZoom();
       animRef.current = requestAnimationFrame(draw);
     }
 
     // Kick off render loop; rAF passes timestamp automatically
     animRef.current = requestAnimationFrame(draw);
 
-    // Handle resize
+    // Handle resize: recompute homes against the new size and gently re-anchor.
     const resizeObserver = new ResizeObserver(() => {
       resize();
-      // Update center force target but don't reheat; nodes stay in place
-      sim.force('center', forceCenter(sizeRef.current.width / 2, sizeRef.current.height / 2).strength(0.03));
+      const newHomes = computeHomes(
+        nodesRef.current.map(n => ({ id: n.id, type: n.type, clusterId: n.clusterId })),
+        sizeRef.current.width,
+        sizeRef.current.height,
+      );
+      const cw = sizeRef.current.width, chh = sizeRef.current.height;
+      for (const n of nodesRef.current) {
+        const home = newHomes.get(n.id);
+        if (home) { n.homeX = home.hx; n.homeY = home.hy; }
+        if (n.type === 'token') { n.fx = cw / 2; n.fy = chh / 2; n.homeX = cw / 2; n.homeY = chh / 2; }
+      }
+      if (sim.alpha() < 0.05) sim.alpha(0.05).restart();
     });
     resizeObserver.observe(container);
 
@@ -853,24 +999,13 @@ export function BubbleMap({ data, onNodeClick, onTraceFunders, filter = null }: 
       cancelAnimationFrame(animRef.current);
       resizeObserver.disconnect();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dataVersion]); // Only restart sim on new scan; poll updates handled incrementally
 
-  // ── Keyboard: "/" focuses the find box, Esc clears find + closes the context menu ──
+  // ── Keyboard: Esc closes the context menu ──
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const target = e.target as HTMLElement | null;
-      const inField = target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA');
-      if (e.key === '/' && !inField) {
-        e.preventDefault();
-        findInputRef.current?.focus();
-      } else if (e.key === 'Escape') {
-        setContextMenu(null);
-        if (findInputRef.current && document.activeElement === findInputRef.current) {
-          findInputRef.current.blur();
-          setFindValue('');
-          setFindError(false);
-        }
-      }
+      if (e.key === 'Escape') setContextMenu(null);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -972,9 +1107,9 @@ export function BubbleMap({ data, onNodeClick, onTraceFunders, filter = null }: 
     const drag = dragRef.current;
     const wasDrag = (drag as { hasMoved?: boolean }).hasMoved;
 
-    if (drag.draggedNode) {
-      drag.draggedNode.fx = null;
-      drag.draggedNode.fy = null;
+    // A dragged node stays pinned where it was dropped (fx/fy persist); double-click unpins.
+    if (drag.draggedNode && wasDrag) {
+      drag.draggedNode.pinned = true;
     }
     dragRef.current = { isDragging: false, isPanning: false, startX: 0, startY: 0, draggedNode: null };
     if (canvasRef.current) {
@@ -987,6 +1122,21 @@ export function BubbleMap({ data, onNodeClick, onTraceFunders, filter = null }: 
     }
   }, [onNodeClick]);
 
+  // Double-click a pinned node → release it back into the layout.
+  const handleDoubleClick = useCallback((e: React.MouseEvent) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const { x, y } = screenToWorld(e.clientX - rect.left, e.clientY - rect.top);
+    const node = findNodeAt(x, y);
+    if (node && node.type !== 'token' && node.pinned) {
+      node.fx = null;
+      node.fy = null;
+      node.pinned = false;
+      if (simRef.current) simRef.current.alpha(0.1).restart();
+    }
+  }, [screenToWorld, findNodeAt]);
+
   const handleWheel = useCallback((e: React.WheelEvent) => {
     e.preventDefault();
     const canvas = canvasRef.current;
@@ -996,59 +1146,79 @@ export function BubbleMap({ data, onNodeClick, onTraceFunders, filter = null }: 
     const sx = e.clientX - rect.left;
     const sy = e.clientY - rect.top;
     const t = transformRef.current;
-    const factor = e.deltaY < 0 ? 1.1 : 0.9;
-    const newK = Math.max(0.1, Math.min(5, t.k * factor));
+    const factor = e.deltaY < 0 ? 1.12 : 0.89;
+    const newK = Math.max(0.25, Math.min(3, t.k * factor));
 
     // Zoom toward cursor
     t.x = sx - (sx - t.x) * (newK / t.k);
     t.y = sy - (sy - t.y) * (newK / t.k);
     t.k = newK;
-  }, []);
+    reportZoom();
+  }, [reportZoom]);
 
-  // Zoom toward an arbitrary point (used by the +/- buttons, aimed at canvas center).
+  // Zoom toward an arbitrary point (used by the dock +/- buttons, aimed at canvas center).
   const zoomToward = useCallback((cx: number, cy: number, factor: number) => {
     const t = transformRef.current;
-    const newK = Math.max(0.1, Math.min(5, t.k * factor));
+    const newK = Math.max(0.25, Math.min(3, t.k * factor));
     t.x = cx - (cx - t.x) * (newK / t.k);
     t.y = cy - (cy - t.y) * (newK / t.k);
     t.k = newK;
-  }, []);
+    reportZoom();
+  }, [reportZoom]);
 
   const handleZoomIn = useCallback(() => {
     const { width, height } = sizeRef.current;
-    zoomToward(width / 2, height / 2, 1.2);
+    zoomToward(width / 2, height / 2, 1.18);
   }, [zoomToward]);
 
   const handleZoomOut = useCallback(() => {
     const { width, height } = sizeRef.current;
-    zoomToward(width / 2, height / 2, 1 / 1.2);
+    zoomToward(width / 2, height / 2, 0.85);
   }, [zoomToward]);
 
   const handleResetView = useCallback(() => {
     autoFitRef.current?.();
   }, []);
 
-  // Find a wallet by id, center the view on it, and flash a highlight ring.
-  const handleFind = useCallback((raw: string) => {
-    const addr = raw.trim();
-    if (!addr) return;
-    if (!isValidSolanaAddress(addr)) { setFindError(true); return; }
-    const node = nodesRef.current.find(n => n.id === addr);
-    if (!node || node.x == null || node.y == null) { setFindError(true); return; }
-    setFindError(false);
+  // Export handlers are defined below; refs let the imperative handle call the
+  // latest versions without depending on declaration order.
+  const handleExportPngRef = useRef<() => void>(() => {});
+  const handleExportCsvRef = useRef<() => void>(() => {});
 
-    const { width, height } = sizeRef.current;
-    const k = Math.min(2, Math.max(transformRef.current.k, 1.2));
-    transformRef.current = { x: width / 2 - node.x * k, y: height / 2 - node.y * k, k };
-    highlightRef.current = { id: addr, until: performance.now() + 2200 };
+  // Spawn a Go-Live pulse ring on a random holder node.
+  const pulseRandom = useCallback(() => {
+    const holders = nodesRef.current.filter(n => n.type !== 'token' && n.type !== 'pool');
+    if (!holders.length) return;
+    const n = holders[Math.floor(Math.random() * holders.length)];
+    pulsesRef.current.push({ id: n.id, life: 1 });
   }, []);
 
-  // Export the current canvas as a PNG (already DPR-scaled, opaque background).
+  // Imperative surface for the external control dock.
+  useImperativeHandle(ref, () => ({
+    zoomIn: handleZoomIn,
+    zoomOut: handleZoomOut,
+    fit: handleResetView,
+    exportPng: () => handleExportPngRef.current(),
+    exportCsv: () => handleExportCsvRef.current(),
+    pulseRandom,
+  }), [handleZoomIn, handleZoomOut, handleResetView, pulseRandom]);
+
+  // Export the current canvas as a PNG (already DPR-scaled).
   const handleExportPng = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
+    // The live canvas is transparent (grid shows through); composite onto the
+    // void background so the exported PNG isn't see-through.
+    const out = document.createElement('canvas');
+    out.width = canvas.width;
+    out.height = canvas.height;
+    const octx = out.getContext('2d');
+    if (!octx) return;
+    octx.fillStyle = '#050508';
+    octx.fillRect(0, 0, out.width, out.height);
+    octx.drawImage(canvas, 0, 0);
     const a = document.createElement('a');
-    a.href = canvas.toDataURL('image/png');
+    a.href = out.toDataURL('image/png');
     a.download = `ricomaps-${Date.now()}.png`;
     a.click();
   }, []);
@@ -1080,6 +1250,9 @@ export function BubbleMap({ data, onNodeClick, onTraceFunders, filter = null }: 
     a.click();
     URL.revokeObjectURL(url);
   }, [data]);
+
+  handleExportPngRef.current = handleExportPng;
+  handleExportCsvRef.current = handleExportCsv;
 
   // Right-click → context menu on the node under the cursor.
   const handleContextMenu = useCallback((e: React.MouseEvent) => {
@@ -1205,9 +1378,8 @@ export function BubbleMap({ data, onNodeClick, onTraceFunders, filter = null }: 
     if (e.touches.length === 0) {
       const drag = dragRef.current;
       const wasDrag = (drag as { hasMoved?: boolean }).hasMoved;
-      if (drag.draggedNode) {
-        drag.draggedNode.fx = null;
-        drag.draggedNode.fy = null;
+      if (drag.draggedNode && wasDrag) {
+        drag.draggedNode.pinned = true; // touch-drag pins too
       }
       if (!wasDrag && drag.draggedNode && onNodeClick) {
         onNodeClick(drag.draggedNode.originalNode);
@@ -1240,7 +1412,7 @@ export function BubbleMap({ data, onNodeClick, onTraceFunders, filter = null }: 
   }
 
   return (
-    <div ref={containerRef} className="relative w-full h-full" style={{ background: BG_COLOR }}>
+    <div ref={containerRef} className="relative w-full h-full">
       <canvas
         ref={canvasRef}
         className="w-full h-full"
@@ -1251,6 +1423,7 @@ export function BubbleMap({ data, onNodeClick, onTraceFunders, filter = null }: 
         onMouseDown={handleMouseDown}
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseLeave}
+        onDoubleClick={handleDoubleClick}
         onWheel={handleWheel}
         onContextMenu={handleContextMenu}
         onTouchStart={handleTouchStart}
@@ -1258,73 +1431,6 @@ export function BubbleMap({ data, onNodeClick, onTraceFunders, filter = null }: 
         onTouchEnd={handleTouchEnd}
         style={{ cursor: 'grab', touchAction: 'none' }}
       />
-
-      {/* Find a wallet on the canvas */}
-      <div className="absolute top-3 left-3 z-10 flex flex-col gap-1">
-        <form
-          onSubmit={(e) => { e.preventDefault(); handleFind(findValue); }}
-          className="flex items-center gap-1.5 rounded-lg backdrop-blur-md bg-black/70 border border-white/[0.08] px-2 py-1.5"
-        >
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#888" strokeWidth="2" className="flex-shrink-0">
-            <circle cx="11" cy="11" r="8" /><path d="M21 21l-4.35-4.35" />
-          </svg>
-          <input
-            ref={findInputRef}
-            value={findValue}
-            onChange={(e) => { setFindValue(e.target.value); setFindError(false); }}
-            placeholder="Find wallet…"
-            spellCheck={false}
-            className="w-32 sm:w-44 bg-transparent text-[11px] font-mono text-text-primary placeholder:text-text-tertiary outline-none"
-          />
-        </form>
-        {findError && (
-          <span className="text-[10px] font-mono text-red-primary pl-2">Not in graph</span>
-        )}
-      </div>
-
-      {/* Zoom + view controls (bottom-right, clears the page Deep Scan button) */}
-      <div className="absolute bottom-20 right-4 z-10 flex flex-col gap-1.5">
-        {([
-          ['+', 'Zoom in', handleZoomIn],
-          ['−', 'Zoom out', handleZoomOut],
-        ] as const).map(([label, title, fn]) => (
-          <button
-            key={title}
-            onClick={fn}
-            title={title}
-            aria-label={title}
-            className="w-9 h-9 flex items-center justify-center rounded-lg backdrop-blur-md bg-black/70 border border-white/[0.08] text-text-secondary hover:text-text-primary hover:border-white/20 transition-colors text-lg leading-none"
-          >
-            {label}
-          </button>
-        ))}
-        <button
-          onClick={handleResetView}
-          title="Fit to screen"
-          aria-label="Fit to screen"
-          className="w-9 h-9 flex items-center justify-center rounded-lg backdrop-blur-md bg-black/70 border border-white/[0.08] text-text-secondary hover:text-text-primary hover:border-white/20 transition-colors"
-        >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" />
-          </svg>
-        </button>
-        <button
-          onClick={handleExportPng}
-          title="Export PNG"
-          aria-label="Export PNG"
-          className="w-9 h-9 flex items-center justify-center rounded-lg backdrop-blur-md bg-black/70 border border-white/[0.08] text-text-secondary hover:text-text-primary hover:border-white/20 transition-colors text-[9px] font-semibold"
-        >
-          PNG
-        </button>
-        <button
-          onClick={handleExportCsv}
-          title="Export CSV"
-          aria-label="Export CSV"
-          className="w-9 h-9 flex items-center justify-center rounded-lg backdrop-blur-md bg-black/70 border border-white/[0.08] text-text-secondary hover:text-text-primary hover:border-white/20 transition-colors text-[9px] font-semibold"
-        >
-          CSV
-        </button>
-      </div>
 
       {/* Context menu */}
       {contextMenu && (
@@ -1447,88 +1553,9 @@ export function BubbleMap({ data, onNodeClick, onTraceFunders, filter = null }: 
         </div>
         );
       })()}
-
-      {/* Bottom-left controls: legend on top, toggles beneath, single aligned column */}
-      <div className="absolute bottom-4 left-4 z-10 flex flex-col gap-2 items-start">
-      <ul
-        className="pointer-events-none flex flex-col gap-1 rounded-lg backdrop-blur-md bg-black/70 border border-white/[0.06] px-3 py-2"
-        role="list"
-        aria-label={heatmapMode ? 'Threat level legend' : 'Node type legend'}
-      >
-        {heatmapMode ? (
-          ([
-            ['critical', 'Critical (70-100)'],
-            ['high', 'High (50-69)'],
-            ['medium', 'Medium (30-49)'],
-            ['low', 'Low (15-29)'],
-            ['safe', 'Safe (0-14)'],
-          ] as const).map(([level, label]) => (
-            <li key={level} className="flex items-center gap-2">
-              <span
-                className="w-2.5 h-2.5 rounded-full flex-shrink-0"
-                style={{ background: THREAT_COLORS[level] }}
-                aria-hidden="true"
-              />
-              <span className="text-[10px] text-text-tertiary">{label}</span>
-            </li>
-          ))
-        ) : (
-          LEGEND_ENTRIES
-            .filter(entry => legendTypes.has(entry.type))
-            .map(entry => (
-              <li key={entry.type} className="flex items-center gap-2">
-                <span
-                  className="w-2.5 h-2.5 rounded-full flex-shrink-0"
-                  style={{ background: NODE_COLORS[entry.type] }}
-                  aria-hidden="true"
-                />
-                <span className="text-[10px] text-text-tertiary">{entry.label}</span>
-              </li>
-            ))
-        )}
-      </ul>
-
-      {/* Toggle row */}
-      <div className="flex items-center gap-2">
-        <button
-          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[10px] font-medium transition-all duration-150 pointer-events-auto backdrop-blur-md"
-          style={{
-            background: heatmapMode ? 'rgba(255,136,0,0.12)' : 'rgba(255,255,255,0.04)',
-            border: `1px solid ${heatmapMode ? 'rgba(255,136,0,0.25)' : 'rgba(255,255,255,0.08)'}`,
-            color: heatmapMode ? '#ff8800' : '#888',
-          }}
-          onClick={() => setHeatmapMode(!heatmapMode)}
-          aria-label="Toggle risk heatmap"
-          aria-pressed={heatmapMode}
-        >
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <circle cx="12" cy="12" r="10" />
-            <path d="M12 8v4M12 16h.01" />
-          </svg>
-          {heatmapMode ? 'Heatmap ON' : 'Heatmap'}
-        </button>
-
-        <button
-          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[10px] font-medium transition-all duration-150 pointer-events-auto backdrop-blur-md"
-          style={{
-            background: hullsMode ? 'rgba(91,127,255,0.12)' : 'rgba(255,255,255,0.04)',
-            border: `1px solid ${hullsMode ? 'rgba(91,127,255,0.25)' : 'rgba(255,255,255,0.08)'}`,
-            color: hullsMode ? '#5B7FFF' : '#888',
-          }}
-          onClick={() => setHullsMode(!hullsMode)}
-          aria-label="Toggle cluster hulls"
-          aria-pressed={hullsMode}
-        >
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <circle cx="12" cy="12" r="9" />
-          </svg>
-          {hullsMode ? 'Clusters ON' : 'Clusters'}
-        </button>
-      </div>
-      </div>
     </div>
   );
-}
+});
 
 function formatCompact(n: number): string {
   if (n >= 1e12) return (n / 1e12).toFixed(1) + 'T';

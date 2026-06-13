@@ -41,14 +41,23 @@
   --purple-dim: #8b5cf6;
   --purple-ghost: rgba(167, 139, 250, 0.08);
 
+  /* Extended categories (bubble-graph crews + heatmap) */
+  --yellow-primary: #facc15;
+  --teal-primary: #2dd4bf;
+  --pink-primary: #f472b6;   /* cabal hub */
+  --pool-gray: #9aa3b2;
+  --green-clean: #34d399;
+
   /* Text: neutral grays, NOT green */
   --text-primary: #f0f0f0;
   --text-secondary: #b8b8b8;
   --text-tertiary: #8a8a8a;
+  --text-faint: #5a5a68;
 
   /* Borders: barely visible, cool-tinted */
   --border-base: #1c1c28;
   --border-hover: #262635;
+  --border-hairline: #15151f; /* row dividers */
 
   /* Panels */
   --glass-bg: rgba(9, 9, 14, 0.96);
@@ -57,6 +66,7 @@
   /* Layout */
   --header-height: 48px;
   --panel-top: 56px; /* header + breathing room */
+  --topbar-height: 58px; /* redesign app shell top bar */
 }
 
 @theme inline {
@@ -75,10 +85,12 @@
   --color-text-primary: var(--text-primary);
   --color-text-secondary: var(--text-secondary);
   --color-text-tertiary: var(--text-tertiary);
+  --color-text-faint: var(--text-faint);
 
   /* Borders */
   --color-border-base: var(--border-base);
   --color-border-hover: var(--border-hover);
+  --color-border-hairline: var(--border-hairline);
 
   /* Accents */
   --color-green-primary: var(--green-primary);
@@ -96,6 +108,11 @@
   --color-purple-primary: var(--purple-primary);
   --color-purple-dim: var(--purple-dim);
   --color-purple-ghost: var(--purple-ghost);
+  --color-yellow-primary: var(--yellow-primary);
+  --color-teal-primary: var(--teal-primary);
+  --color-pink-primary: var(--pink-primary);
+  --color-pool-gray: var(--pool-gray);
+  --color-green-clean: var(--green-clean);
 
   --font-sans: var(--font-inter), -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
   --font-mono: var(--font-jetbrains-mono), 'Fira Code', 'Consolas', monospace;
@@ -1509,4 +1526,468 @@
   outline: 2px solid rgba(0, 255, 65, 0.3);
   outline-offset: 4px;
   border-radius: 3px;
+}
+
+/* ========================================
+   Bubble-Map Redesign — App Shell
+   Full-viewport shell: top bar (58px) + body row (rails | graph | rails).
+   ======================================== */
+
+.app-shell {
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-void);
+}
+
+.app-topbar {
+  height: var(--topbar-height);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 12px;
+  background: var(--bg-base);
+  border-bottom: 1px solid var(--border-base);
+  position: relative;
+  z-index: 30;
+}
+@media (max-width: 640px) {
+  .app-topbar { gap: 8px; padding: 0 8px; }
+  .topbar-search { padding-left: 10px; }
+}
+
+.app-body {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+
+/* Center stage: graph + faint technical grid */
+.app-stage {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  background-color: var(--bg-void);
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.018) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.018) 1px, transparent 1px);
+  background-size: 58px 58px;
+}
+
+/* Brand mark chip in the top bar */
+.brand-chip {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  background: radial-gradient(circle at 50% 40%, rgba(0, 255, 65, 0.22), rgba(0, 255, 65, 0.04));
+  border: 1px solid rgba(0, 255, 65, 0.18);
+  flex-shrink: 0;
+}
+
+.topbar-iconbtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-base);
+  border-radius: 9px;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all 0.15s ease;
+  text-decoration: none;
+}
+.topbar-iconbtn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  border-color: var(--border-hover);
+}
+
+/* Top-bar search field */
+.topbar-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  max-width: 540px;
+  margin: 0 auto;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-base);
+  border-radius: 10px;
+  padding: 5px 6px 5px 14px;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+.topbar-search:focus-within {
+  border-color: rgba(0, 255, 65, 0.4);
+  box-shadow: 0 0 0 3px rgba(0, 255, 65, 0.06);
+}
+.topbar-search input {
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+.topbar-search input::placeholder {
+  color: var(--text-tertiary);
+}
+.topbar-scan {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: linear-gradient(180deg, #0dff4a, #00d836);
+  color: #03100a;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  font-weight: 700;
+  border: none;
+  border-radius: 7px;
+  padding: 6px 12px;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: filter 0.15s ease, box-shadow 0.15s ease;
+}
+.topbar-scan:hover:not(:disabled) {
+  filter: brightness(1.08);
+  box-shadow: 0 0 18px rgba(0, 255, 65, 0.3);
+}
+.topbar-scan:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Segmented Token Map / Atlas switch */
+.segmented {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-base);
+  border-radius: 9px;
+  padding: 3px;
+  flex-shrink: 0;
+}
+.segmented a,
+.segmented button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: none;
+  background: transparent;
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 6px;
+  cursor: pointer;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: all 0.15s ease;
+}
+.segmented a:hover,
+.segmented button:hover {
+  color: var(--text-secondary);
+}
+.segmented a.active,
+.segmented button.active {
+  background: rgba(0, 255, 65, 0.12);
+  color: var(--green-primary);
+}
+
+/* ========================================
+   Rails (left identity / right risk / atlas HUD / most-wanted)
+   ======================================== */
+
+.rail {
+  flex-shrink: 0;
+  background: var(--bg-base);
+  padding: 16px;
+  overflow-y: auto;
+  flex-direction: column;
+  gap: 14px;
+}
+/* Visibility is owned by the element's Tailwind `hidden lg:flex` classes so the
+   rails collapse on phones. The base `.rail` intentionally sets no `display` —
+   if it forced `flex` it would beat Tailwind's `.hidden` on source order and the
+   rails would render side-by-side off-screen on mobile. */
+.rail--left {
+  border-right: 1px solid var(--border-base);
+}
+.rail--right {
+  border-left: 1px solid var(--border-base);
+}
+
+/* Section label: uppercase mono tracking */
+.section-label {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+}
+
+/* Surface card */
+.surface-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-base);
+  border-radius: 11px;
+}
+
+/* Authority / status pills */
+.auth-badge {
+  display: inline-flex;
+  align-items: center;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  padding: 3px 7px;
+  border-radius: 5px;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+.auth-badge--green {
+  color: var(--green-primary);
+  background: rgba(0, 255, 65, 0.08);
+  border-color: rgba(0, 255, 65, 0.18);
+}
+.auth-badge--amber {
+  color: var(--amber-primary);
+  background: rgba(245, 158, 11, 0.08);
+  border-color: rgba(245, 158, 11, 0.2);
+}
+.auth-badge--red {
+  color: var(--red-primary);
+  background: rgba(239, 68, 68, 0.08);
+  border-color: rgba(239, 68, 68, 0.2);
+}
+
+/* Market grid cell */
+.market-cell {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-base);
+  border-radius: 9px;
+  padding: 10px 11px;
+}
+
+/* Contract chip + social buttons */
+.rail-chip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-base);
+  border-radius: 9px;
+  padding: 9px 11px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.rail-chip:hover {
+  border-color: var(--border-hover);
+  background: var(--bg-hover);
+}
+.social-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-base);
+  border-radius: 8px;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  text-decoration: none;
+  transition: all 0.15s ease;
+}
+.social-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  border-color: var(--border-hover);
+}
+
+/* Hairline-divided rows (holder analysis) */
+.kv-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--border-hairline);
+}
+.kv-row:last-child {
+  border-bottom: none;
+}
+.kv-key {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-tertiary);
+}
+.kv-val {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+/* Signal chip (3-col grid) */
+.signal-chip {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-base);
+  border-radius: 9px;
+  padding: 9px 4px;
+}
+.signal-chip .val {
+  font-family: var(--font-mono);
+  font-size: 16px;
+  font-weight: 700;
+}
+.signal-chip .lbl {
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+}
+
+/* ========================================
+   Graph overlays: legend, detail, AI read, dock
+   ======================================== */
+
+.glass-legend {
+  background: rgba(9, 9, 14, 0.72);
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 10px;
+  padding: 11px 13px;
+}
+
+.glass-detail {
+  background: rgba(9, 9, 14, 0.92);
+  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55);
+}
+
+.glass-ai {
+  background: rgba(9, 9, 14, 0.94);
+  -webkit-backdrop-filter: blur(22px);
+  backdrop-filter: blur(22px);
+  border: 1px solid rgba(0, 255, 65, 0.18);
+  border-radius: 13px;
+}
+
+/* Floating control dock */
+.control-dock {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  background: rgba(9, 9, 14, 0.86);
+  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 13px;
+  padding: 6px;
+  box-shadow: 0 10px 36px rgba(0, 0, 0, 0.5);
+}
+.dock-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.13s ease;
+}
+.dock-btn:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-primary);
+}
+.dock-btn--icon {
+  width: 34px;
+  padding: 0;
+  justify-content: center;
+}
+.dock-btn.active {
+  background: rgba(0, 255, 65, 0.1);
+  border-color: rgba(0, 255, 65, 0.25);
+  color: var(--green-primary);
+}
+.dock-divider {
+  width: 1px;
+  height: 22px;
+  background: var(--border-base);
+  margin: 0 2px;
+  flex-shrink: 0;
+}
+.dock-zoom {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-tertiary);
+  min-width: 38px;
+  text-align: center;
+  user-select: none;
+}
+
+/* ========================================
+   Risk gauge + animations
+   ======================================== */
+
+.rm-live-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--green-primary);
+  box-shadow: 0 0 8px var(--green-primary);
+  animation: rm-pulse 2s infinite;
+}
+
+@keyframes rm-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+@keyframes rm-tickin {
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Rail collapse: on narrow viewports rails become slide-in overlays */
+@media (max-width: 1023px) {
+  .rail--overlay {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    z-index: 25;
+    width: min(86vw, 340px);
+    box-shadow: 0 0 40px rgba(0, 0, 0, 0.6);
+  }
+  .rail--overlay.rail--left { left: 0; }
+  .rail--overlay.rail--right { right: 0; }
 }

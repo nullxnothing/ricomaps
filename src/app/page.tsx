@@ -5,7 +5,7 @@ import dynamic from 'next/dynamic';
 import { useSearchParams } from 'next/navigation';
 import { GraphNode, GraphData } from '@/lib/types';
 import { AddressInput } from '@/components/AddressInput';
-import { StatsPanel, type StatsFilter } from '@/components/StatsPanel';
+import { type StatsFilter } from '@/components/StatsPanel';
 import { LoadingOverlay } from '@/components/LoadingOverlay';
 import { TrendingTokens } from '@/components/TrendingTokens';
 import { NodeDetailPanel } from '@/components/NodeDetailPanel';
@@ -21,14 +21,13 @@ import { LiveActivityFeed } from '@/components/LiveActivityFeed';
 import { AnimatedShinyText } from '@/components/ui/animated-shiny-text';
 import { ShimmerButton } from '@/components/ui/shimmer-button';
 import { useGateContext } from '@/components/GateProvider';
-import { NarrativePanel } from '@/components/NarrativePanel';
-
-function formatCompact(n: number): string {
-  if (n >= 1e9) return `$${(n / 1e9).toFixed(2)}B`;
-  if (n >= 1e6) return `$${(n / 1e6).toFixed(2)}M`;
-  if (n >= 1e3) return `$${(n / 1e3).toFixed(1)}K`;
-  return `$${n.toFixed(2)}`;
-}
+import { TopBar } from '@/components/app/TopBar';
+import { ControlDock, type RenderMode } from '@/components/app/ControlDock';
+import { TokenIdentityRail } from '@/components/app/TokenIdentityRail';
+import { RiskRail } from '@/components/app/RiskRail';
+import { GraphLegend } from '@/components/app/GraphLegend';
+import { GraphAIPanel } from '@/components/app/GraphAIPanel';
+import type { BubbleMapHandle } from '@/components/BubbleMap';
 
 const BubbleMap = dynamic(
   () => import('@/components/BubbleMap').then((mod) => mod.BubbleMap),
@@ -41,6 +40,41 @@ const BubbleMap = dynamic(
     ),
   }
 );
+
+/**
+ * Cluster stats for the rail's "Clusters N (max M)" row. Union-find over graph
+ * links (same grouping the BubbleMap dashed hulls use); singletons are ignored so
+ * the count reflects real multi-wallet crews.
+ */
+function clusterStats(data: GraphData): { clusterCount: number; maxClusterSize: number } {
+  const parent = new Map<string, string>();
+  const find = (x: string): string => {
+    let r = x;
+    while (parent.get(r) !== undefined && parent.get(r) !== r) r = parent.get(r)!;
+    parent.set(x, r);
+    return r;
+  };
+  const union = (a: string, b: string) => {
+    parent.set(find(a), find(b));
+  };
+  for (const n of data.nodes) if (!parent.has(n.id)) parent.set(n.id, n.id);
+  for (const l of data.links) {
+    const s = typeof l.source === 'string' ? l.source : (l.source as GraphNode).id;
+    const t = typeof l.target === 'string' ? l.target : (l.target as GraphNode).id;
+    if (parent.has(s) && parent.has(t)) union(s, t);
+  }
+  const sizes = new Map<string, number>();
+  for (const n of data.nodes) {
+    if (n.type === 'token' || n.type === 'pool') continue;
+    const root = find(n.id);
+    sizes.set(root, (sizes.get(root) ?? 0) + 1);
+  }
+  let clusterCount = 0, maxClusterSize = 0;
+  for (const size of sizes.values()) {
+    if (size >= 2) { clusterCount++; maxClusterSize = Math.max(maxClusterSize, size); }
+  }
+  return { clusterCount, maxClusterSize };
+}
 
 export default function Home() {
   return (
@@ -56,13 +90,19 @@ function HomeContent() {
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null);
   const [clipboardAddress, setClipboardAddress] = useState<string | null>(null);
   const autoScannedRef = useRef(false);
-  const [statsPanelOpen, setStatsPanelOpen] = useState(false);
   const [scannedAddress, setScannedAddress] = useState<string | null>(null);
   const [deepScanOpen, setDeepScanOpen] = useState(false);
   const [selectedWallet, setSelectedWallet] = useState<string | null>(null);
   const [historicalSnapshot, setHistoricalSnapshot] = useState<HistoricalSnapshot | null>(null);
   const [graphFilter, setGraphFilter] = useState<StatsFilter>(null);
   const [linkCopied, setLinkCopied] = useState(false);
+  // Redesign shell state: render mode, AI panel, zoom %, mobile rail overlays.
+  const [renderMode, setRenderMode] = useState<RenderMode>('default');
+  const [aiOpen, setAiOpen] = useState(false);
+  const [zoomPct, setZoomPct] = useState(100);
+  const [leftRailOpen, setLeftRailOpen] = useState(false);
+  const [rightRailOpen, setRightRailOpen] = useState(false);
+  const bubbleRef = useRef<BubbleMapHandle>(null);
   const {
     data,
     stats,
@@ -81,6 +121,9 @@ function HomeContent() {
     startStreaming,
     stopStreaming,
   } = useGraphData();
+
+  // Cluster count + largest-cluster size for the risk rail's "Clusters" row.
+  const clusters = useMemo(() => (data ? clusterStats(data) : { clusterCount: 0, maxClusterSize: 0 }), [data]);
 
   useEffect(() => {
     async function checkClipboard() {
@@ -144,6 +187,9 @@ function HomeContent() {
       setSelectedNode(null);
       setSelectedWallet(null);
       setDeepScanOpen(false);
+      setAiOpen(false);
+      setLeftRailOpen(false);
+      setRightRailOpen(false);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -152,7 +198,30 @@ function HomeContent() {
   const handleBack = useCallback(() => {
     reset();
     setSelectedNode(null);
+    setAiOpen(false);
+    setRenderMode('default');
   }, [reset]);
+
+  const handleShare = useCallback(() => {
+    if (!scannedAddress) return;
+    navigator.clipboard.writeText(`${window.location.origin}/?address=${scannedAddress}`);
+    setLinkCopied(true);
+    setTimeout(() => setLinkCopied(false), 2000);
+  }, [scannedAddress]);
+
+  // Go-Live: spawn a pulse ring on the graph for each new streamed event.
+  const lastEventCountRef = useRef(0);
+  useEffect(() => {
+    if (!streaming.isStreaming) { lastEventCountRef.current = recentEvents.length; return; }
+    const delta = recentEvents.length - lastEventCountRef.current;
+    for (let i = 0; i < Math.min(delta, 4); i++) bubbleRef.current?.pulseRandom();
+    lastEventCountRef.current = recentEvents.length;
+  }, [recentEvents, streaming.isStreaming]);
+
+  const toggleLive = useCallback(() => {
+    if (streaming.isStreaming || streaming.isConnecting) stopStreaming();
+    else startStreaming();
+  }, [streaming.isStreaming, streaming.isConnecting, startStreaming, stopStreaming]);
 
   // Compute effective graph data: historical snapshot or live data
   const effectiveData: GraphData | null = useMemo(() => {
@@ -168,481 +237,234 @@ function HomeContent() {
     return effectiveData?.nodes.find(n => n.id === selectedNode.id) ?? selectedNode;
   }, [effectiveData, selectedNode]);
 
-  // Graph View
+  // Graph View — structured app shell: top bar · left rail · graph · right rail · dock.
   if (data) {
+    const isToken = detectedMode === 'token';
+    const cabalWallets = data.nodes.filter(n => n.type === 'cabal-funder').map(n => n.id);
+
     return (
-      <main className="relative w-screen h-screen overflow-hidden bg-bg-void">
+      <div className="app-shell">
         <LoadingOverlay isLoading={isLoading} mode={detectedMode || 'wallet'} />
 
-        {/* Nav Bar: full width to match marketing pages */}
-        <header className="absolute top-0 left-0 right-0 z-10 h-[52px] glass-panel-floating border-t-0 border-x-0 border-b border-border-base">
-          <div className="w-full px-5 sm:px-8 h-full flex items-center gap-4">
-            <div className="flex items-center gap-2.5 flex-shrink-0">
-              <button onClick={handleBack} className="btn-back" title="Back">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M19 12H5M12 19l-7-7 7-7"/>
-                </svg>
-              </button>
-              <div className="flex items-center gap-2 select-none">
-                <img src="/favicon.png" alt="" className="w-6 h-6 rounded-md border border-white/10" />
-                <span className="text-sm font-bold tracking-tight hidden sm:inline text-text-primary">RicoMaps</span>
-              </div>
-            </div>
-            <div className="flex-1 max-w-md mx-auto">
-              <AddressInput onSubmit={handleScan} isLoading={isLoading} isDetecting={isDetecting} />
-            </div>
-            <div className="w-[80px] flex-shrink-0 hidden md:block" />
-          </div>
-        </header>
+        <TopBar
+          active="token"
+          onScan={handleScan}
+          isLoading={isLoading}
+          isDetecting={isDetecting}
+          onBack={handleBack}
+          onShare={handleShare}
+          shareCopied={linkCopied}
+        />
 
-        {/* Token identity card: floating below nav */}
-        {detectedMode === 'token' && tokenMetadata && (
-          <div className="absolute top-[56px] left-3 sm:left-4 z-10 w-[220px] sm:w-[260px] xl:w-[280px] overflow-hidden rounded-lg glass-panel">
-            {/* Header: image + name + symbol */}
-            <div className="flex items-center gap-2.5 px-3 pt-3 pb-2">
-              {tokenMetadata.image && (
-                <img
-                  src={tokenMetadata.image.startsWith('https://') ? tokenMetadata.image : ''}
-                  alt=""
-                  className="w-9 h-9 rounded-lg flex-shrink-0 object-cover border border-white/10"
-                  onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-                />
-              )}
-              <div className="min-w-0 flex-1">
-                <div className="text-sm font-semibold truncate leading-tight text-text-primary">
-                  {tokenMetadata.name || 'Unknown'}
-                </div>
-                {tokenMetadata.symbol && (
-                  <div className="text-[11px] leading-tight text-text-tertiary">${tokenMetadata.symbol}</div>
-                )}
-              </div>
-            </div>
-
-            {/* Security badges */}
-            {tokenSecurity && (
-              <div className="flex items-center gap-1 px-3 pb-2 flex-wrap">
-                {stats?.rugScore && (
-                  <span
-                    className="text-[10px] font-bold px-1.5 py-0.5 rounded"
-                    style={{
-                      color: stats.rugScore.level === 'red' ? 'var(--red-primary)' : stats.rugScore.level === 'yellow' ? 'var(--amber-primary)' : 'var(--green-primary)',
-                      background: stats.rugScore.level === 'red' ? 'var(--red-ghost)' : stats.rugScore.level === 'yellow' ? 'var(--amber-ghost)' : 'var(--green-ghost)',
-                    }}
-                    title={`Rug score ${stats.rugScore.score}/100 · ${stats.rugScore.confidence} confidence`}
-                  >
-                    RUG {stats.rugScore.score}
-                  </span>
-                )}
-                <span className={`text-[10px] px-1.5 py-0.5 rounded ${tokenSecurity.hasFreezeAuthority ? 'bg-red-ghost text-red-primary' : 'bg-green-ghost text-green-primary'}`}>
-                  {tokenSecurity.hasFreezeAuthority ? 'Freeze' : 'No Freeze'}
-                </span>
-                <span className={`text-[10px] px-1.5 py-0.5 rounded ${tokenSecurity.hasMintAuthority ? 'bg-amber-ghost text-amber-primary' : 'bg-green-ghost text-green-primary'}`}>
-                  {tokenSecurity.hasMintAuthority ? 'Mintable' : 'No Mint'}
-                </span>
-                {tokenSecurity.isMutable && (
-                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-ghost text-amber-primary">
-                    Mutable
-                  </span>
-                )}
-              </div>
-            )}
-
-            {/* Market data */}
-            {(tokenMetadata.priceUsd != null || tokenMetadata.marketCap != null) && (
-              <div className="px-3 pb-2 pt-2 space-y-1 border-t border-border-base">
-                {tokenMetadata.priceUsd != null && (
-                  <div className="flex items-center justify-between">
-                    <span className="text-[11px] text-text-tertiary">Price</span>
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-[12px] font-mono font-semibold text-text-primary">
-                        ${tokenMetadata.priceUsd < 0.001
-                          ? tokenMetadata.priceUsd.toExponential(2)
-                          : tokenMetadata.priceUsd < 1
-                            ? tokenMetadata.priceUsd.toFixed(6)
-                            : tokenMetadata.priceUsd.toFixed(4)}
-                      </span>
-                      {tokenMetadata.priceChange24h != null && (
-                        <span className={`text-[10px] font-mono ${tokenMetadata.priceChange24h >= 0 ? 'text-green-primary' : 'text-red-primary'}`}>
-                          {tokenMetadata.priceChange24h >= 0 ? '+' : ''}{tokenMetadata.priceChange24h.toFixed(1)}%
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                )}
-                {tokenMetadata.marketCap != null && (
-                  <div className="flex items-center justify-between">
-                    <span className="text-[11px] text-text-tertiary">Mkt Cap</span>
-                    <span className="text-[11px] font-mono text-text-secondary">{formatCompact(tokenMetadata.marketCap)}</span>
-                  </div>
-                )}
-                {tokenMetadata.volume24h != null && (
-                  <div className="flex items-center justify-between">
-                    <span className="text-[11px] text-text-tertiary">Vol 24h</span>
-                    <span className="text-[11px] font-mono text-text-secondary">{formatCompact(tokenMetadata.volume24h)}</span>
-                  </div>
-                )}
-                {tokenMetadata.liquidity != null && (
-                  <div className="flex items-center justify-between">
-                    <span className="text-[11px] text-text-tertiary">Liquidity</span>
-                    <span className="text-[11px] font-mono text-text-secondary">{formatCompact(tokenMetadata.liquidity)}</span>
-                  </div>
-                )}
-                {tokenMetadata.fdv != null && (
-                  <div className="flex items-center justify-between">
-                    <span className="text-[11px] text-text-tertiary">FDV</span>
-                    <span className="text-[11px] font-mono text-text-secondary">{formatCompact(tokenMetadata.fdv)}</span>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Description */}
-            {tokenMetadata.description && (
-              <div className="px-3 pb-2 pt-2 border-t border-border-base">
-                <p className="text-[10px] leading-relaxed line-clamp-3 text-text-tertiary">
-                  {tokenMetadata.description}
-                </p>
-              </div>
-            )}
-
-            {/* CA: click to copy */}
-            {scannedAddress && (
-              <button
-                className="flex items-center justify-between w-full px-3 py-2 transition-colors duration-150 group bg-transparent border-t border-border-base"
-                onClick={() => { navigator.clipboard.writeText(scannedAddress); }}
-                title="Copy contract address"
-              >
-                <span className="text-[10px] font-mono text-text-tertiary">{truncateAddress(scannedAddress, 6)}</span>
-                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
-                  className="flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity text-text-tertiary">
-                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
-                  <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/>
-                </svg>
-              </button>
-            )}
-
-            {/* Share link: copies a deep link that auto-scans this token */}
-            {scannedAddress && (
-              <button
-                className="flex items-center justify-between w-full px-3 py-2 transition-colors duration-150 bg-transparent border-t border-border-base hover:bg-white/[0.03]"
-                onClick={() => {
-                  navigator.clipboard.writeText(`${window.location.origin}/?address=${scannedAddress}`);
-                  setLinkCopied(true);
-                  setTimeout(() => setLinkCopied(false), 2000);
-                }}
-                title="Copy shareable link"
-              >
-                <span className="text-[10px] font-medium" style={{ color: linkCopied ? 'var(--green-primary)' : 'var(--text-tertiary)' }}>
-                  {linkCopied ? 'Link copied' : 'Share link'}
-                </span>
-                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
-                  className="flex-shrink-0 text-text-tertiary">
-                  <path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71" />
-                  <path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71" />
-                </svg>
-              </button>
-            )}
-
-            {/* Social / external links */}
-            {(tokenMetadata.website || tokenMetadata.twitter || tokenMetadata.telegram || tokenMetadata.discord || tokenMetadata.dexUrl) && (
-              <div className="flex items-center gap-1 px-3 pb-3 pt-2 border-t border-border-base">
-                {tokenMetadata.website && (
-                  <a href={tokenMetadata.website} target="_blank" rel="noopener noreferrer"
-                    className="flex items-center justify-center w-7 h-7 rounded-md transition-colors duration-150 bg-bg-elevated text-text-tertiary hover:text-text-primary"
-                    title="Website"
-                  >
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 010 20M12 2a15.3 15.3 0 000 20"/>
-                    </svg>
-                  </a>
-                )}
-                {tokenMetadata.twitter && (
-                  <a href={tokenMetadata.twitter.startsWith('http') ? tokenMetadata.twitter : `https://x.com/${tokenMetadata.twitter}`}
-                    target="_blank" rel="noopener noreferrer"
-                    className="flex items-center justify-center w-7 h-7 rounded-md transition-colors duration-150 bg-bg-elevated text-text-tertiary hover:text-text-primary"
-                    title="Twitter / X"
-                  >
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
-                      <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.746l7.73-8.835L1.254 2.25H8.08l4.253 5.622zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
-                    </svg>
-                  </a>
-                )}
-                {tokenMetadata.telegram && (
-                  <a href={tokenMetadata.telegram.startsWith('http') ? tokenMetadata.telegram : `https://t.me/${tokenMetadata.telegram}`}
-                    target="_blank" rel="noopener noreferrer"
-                    className="flex items-center justify-center w-7 h-7 rounded-md transition-colors duration-150 bg-bg-elevated text-text-tertiary hover:text-text-primary"
-                    title="Telegram"
-                  >
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
-                      <path d="M11.944 0A12 12 0 000 12a12 12 0 0012 12 12 12 0 0012-12A12 12 0 0012 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 01.171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/>
-                    </svg>
-                  </a>
-                )}
-                {tokenMetadata.discord && (
-                  <a href={tokenMetadata.discord} target="_blank" rel="noopener noreferrer"
-                    className="flex items-center justify-center w-7 h-7 rounded-md transition-colors duration-150 bg-bg-elevated text-text-tertiary hover:text-text-primary"
-                    title="Discord"
-                  >
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
-                      <path d="M20.317 4.37a19.791 19.791 0 00-4.885-1.515.074.074 0 00-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 00-5.487 0 12.64 12.64 0 00-.617-1.25.077.077 0 00-.079-.037A19.736 19.736 0 003.677 4.37a.07.07 0 00-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 00.031.057 19.9 19.9 0 005.993 3.03.078.078 0 00.084-.028 14.09 14.09 0 001.226-1.994.076.076 0 00-.041-.106 13.107 13.107 0 01-1.872-.892.077.077 0 01-.008-.128 10.2 10.2 0 00.372-.292.074.074 0 01.077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 01.078.01c.12.098.246.198.373.292a.077.077 0 01-.006.127 12.299 12.299 0 01-1.873.892.077.077 0 00-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 00.084.028 19.839 19.839 0 006.002-3.03.077.077 0 00.032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 00-.031-.03z"/>
-                    </svg>
-                  </a>
-                )}
-                {tokenMetadata.dexUrl && (
-                  <a href={tokenMetadata.dexUrl} target="_blank" rel="noopener noreferrer"
-                    className="flex items-center justify-center w-7 h-7 rounded-md transition-colors duration-150 bg-bg-elevated text-text-tertiary hover:text-text-primary"
-                    title="DexScreener"
-                  >
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
-                    </svg>
-                  </a>
-                )}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Wallet mode card */}
-        {detectedMode === 'wallet' && scannedAddress && (
-          <div className="absolute top-[56px] left-3 sm:left-4 z-10 overflow-hidden px-3.5 py-2 rounded-md glass-panel">
-            <span className="text-[11px] font-mono text-text-secondary">
-              {truncateAddress(scannedAddress, 8)}
-            </span>
-          </div>
-        )}
-
-        {error && (
-          <div className="absolute left-2 right-2 sm:left-4 sm:right-4 z-10" style={{ top: 'var(--panel-top)' }}>
-            <div className="glass-panel-danger p-3">
-              <p className="text-sm text-red-primary">{error}</p>
-            </div>
-          </div>
-        )}
-
-        {/* Live control: pill + activity feed in one top-center column so the feed
-            always hangs directly under the pill and never collides with other panels. */}
-        {detectedMode === 'token' && !historicalSnapshot && (
-          <div className="absolute left-1/2 -translate-x-1/2 z-10 flex flex-col items-center gap-2" style={{ top: 'var(--panel-top)' }}>
-            <button
-              onClick={() => (streaming.isStreaming || streaming.isConnecting ? stopStreaming() : startStreaming())}
-              title={
-                streaming.error
-                  ? streaming.error
-                  : streaming.isStreaming
-                    ? `Live via ${streaming.transport} · ${streaming.transactionCount} updates`
-                    : 'Stream live holder activity'
-              }
-              className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-mono transition-all duration-200 border shadow-[0_4px_12px_rgba(0,0,0,0.3)] bg-black/80 backdrop-blur-md hover:border-white/20"
-            >
-              <span
-                className={`inline-block w-2 h-2 rounded-full ${
-                  streaming.isStreaming
-                    ? 'bg-green-400 animate-pulse'
-                    : streaming.isConnecting
-                      ? 'bg-amber-400 animate-pulse'
-                      : streaming.error
-                        ? 'bg-red-500'
-                        : 'bg-white/30'
-                }`}
-              />
-              {streaming.isStreaming
-                ? `Live${streaming.transport === 'polling' ? ' (poll)' : ''}`
-                : streaming.isConnecting
-                  ? 'Connecting…'
-                  : 'Go Live'}
-              {streaming.isStreaming && streaming.transactionCount > 0 && (
-                <span className="text-text-tertiary">· {streaming.transactionCount}</span>
-              )}
-            </button>
-
-            {streaming.isStreaming && recentEvents.length > 0 && (
-              <LiveActivityFeed events={recentEvents} />
-            )}
-          </div>
-        )}
-
-        {/* Historical mode indicator */}
-        {historicalSnapshot && (
-          <div
-            className="absolute left-1/2 -translate-x-1/2 z-10 flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-mono transition-all duration-200 bg-amber-ghost text-amber-primary border border-amber-primary/20 shadow-[0_4px_12px_rgba(0,0,0,0.3)]"
-            style={{ top: 'var(--panel-top)' }}
-          >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <circle cx="12" cy="12" r="10" />
-              <polyline points="12 6 12 12 16 14" />
-            </svg>
-            Viewing: {new Date(historicalSnapshot.blockTime * 1000).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true })}
-          </div>
-        )}
-
-        {/* Bubble Map: use absolute instead of fixed to avoid Safari issues */}
-        <div
-          className="absolute inset-0 z-0"
-          style={historicalSnapshot ? { boxShadow: 'inset 0 0 0 2px rgba(245,158,11,0.3)' } : undefined}
-        >
-          <ErrorBoundary
-            resetKey={scannedAddress ?? ''}
-            fallback={(error, reset) => (
-              <div className="w-full h-full flex items-center justify-center p-4 bg-bg-void">
-                <div className="glass-panel-danger p-5 max-w-md text-center">
-                  <p className="text-sm font-semibold text-text-primary mb-2">Graph failed to render</p>
-                  <p className="text-[11px] font-mono text-text-tertiary mb-4 break-words">{error.message}</p>
-                  <button onClick={reset} className="btn-primary text-[11px] px-3 py-1.5">Retry graph</button>
-                </div>
-              </div>
-            )}
-          >
-            <BubbleMap data={effectiveData || data} onNodeClick={handleNodeClick} onTraceFunders={handleTraceFunders} filter={graphFilter} />
-          </ErrorBoundary>
-        </div>
-
-        {/* Sparse results overlay: shown when only 1 node with no links */}
-        {data.nodes.length <= 1 && data.links.length === 0 && !isLoading && (
-          <div className="absolute inset-0 z-[5] flex items-center justify-center pointer-events-none">
-            <div className="text-center px-7 py-6 rounded-xl max-w-sm bg-black/90 border border-white/[0.06] backdrop-blur-md shadow-[0_8px_32px_rgba(0,0,0,0.4)]">
-              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="mx-auto mb-3 text-text-tertiary">
-                <circle cx="11" cy="11" r="8" />
-                <path d="M21 21l-4.35-4.35" />
-                <path d="M8 11h6" />
-              </svg>
-              <p className="text-sm font-medium mb-1.5 text-text-secondary">No connections detected</p>
-              <p className="text-xs leading-relaxed text-text-tertiary">
-                {detectedMode === 'wallet'
-                  ? 'This wallet has no traceable funding sources in its recent transaction history.'
-                  : 'No shared funding connections found among top holders.'
-                }
-              </p>
-            </div>
-          </div>
-        )}
-
-        {/* Stats toggle button: mobile only */}
-        <button
-          className={`absolute right-3 z-10 md:hidden glass-panel p-2 rounded-lg transition-all duration-150 ${statsPanelOpen ? 'bg-green-primary/10' : ''}`}
-          style={{ top: 'var(--panel-top)' }}
-          onClick={() => setStatsPanelOpen(!statsPanelOpen)}
-          aria-label="Toggle stats panel"
-        >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={statsPanelOpen ? 'text-green-primary' : 'text-text-tertiary'}>
-            <path d="M3 12h4l3-9 4 18 3-9h4" />
-          </svg>
-        </button>
-
-        {/* Stats: desktop fixed right side, mobile bottom sheet overlay */}
-        <div className={`
-          absolute z-10
-          md:right-3 md:block
-          ${statsPanelOpen
-            ? 'bottom-0 left-0 right-0 md:bottom-auto md:left-auto'
-            : 'hidden md:block md:right-3'
-          }
-        `} style={{ top: 'var(--panel-top)' }}>
-          {/* Mobile backdrop */}
-          {statsPanelOpen && (
-            <div
-              className="fixed inset-0 bg-black/40 md:hidden"
-              onClick={() => setStatsPanelOpen(false)}
-            />
-          )}
-          {/* Mobile grab handle */}
-          <div className="relative md:hidden">
-            {statsPanelOpen && (
-              <div
-                className="flex justify-center py-2 cursor-pointer bg-bg-elevated border-t border-border-base rounded-t-xl"
-                onClick={() => setStatsPanelOpen(false)}
-              >
-                <div className="w-10 h-1 rounded-full bg-border-hover" />
-              </div>
-            )}
-          </div>
-          <StatsPanel
-            data={data}
-            mode={detectedMode || 'wallet'}
-            stats={stats || undefined}
-            tokenSecurity={tokenSecurity}
-            deployerInfo={deployerInfo}
-            onFilter={setGraphFilter}
-            activeFilter={graphFilter}
-            onTokenScan={handleScan}
-          />
-        </div>
-
-        {/* Detail Panel: full-width bottom on mobile */}
-        {currentSelectedNode && (
-          <div
-            className="absolute bottom-0 left-0 right-0 sm:bottom-4 sm:left-4 sm:right-auto z-10"
-            style={{ animation: 'slideUp 0.2s ease-out' }}
-          >
-            <NodeDetailPanel
-              node={currentSelectedNode}
-              onClose={() => setSelectedNode(null)}
-              onExpandFunding={!currentSelectedNode.expanded && currentSelectedNode.type !== 'token' ? () => expandNode(currentSelectedNode.id, 'funding') : undefined}
-              onExpandFunded={currentSelectedNode.type !== 'token' ? () => expandNode(currentSelectedNode.id, 'funded') : undefined}
-              isLoading={isLoading}
-            />
-          </div>
-        )}
-
-        {/* AI narrative: token mode, when nothing is selected. Bottom-center,
-            clear of the bottom-left legend and the bottom-right Deep Scan/zoom. */}
-        {detectedMode === 'token' && data && stats && !currentSelectedNode && (
-          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10 hidden lg:block" style={{ animation: 'slideUp 0.2s ease-out' }}>
-            <NarrativePanel
-              mint={scannedAddress}
-              data={data}
-              stats={stats || undefined}
-              tokenMetadata={tokenMetadata}
-              deployerInfo={deployerInfo}
-            />
-          </div>
-        )}
-
-        {/* Deep Scan button: only visible when cabal funders exist */}
-        {(() => {
-          const cabalWallets = data.nodes.filter(n => n.type === 'cabal-funder').map(n => n.id);
-          if (cabalWallets.length === 0) return null;
-          return (
+        <div className="app-body">
+          {/* Left rail — token identity (overlay on mobile) */}
+          {isToken && tokenMetadata && (
             <>
-              <ShimmerButton
-                className="absolute bottom-4 right-4 z-10 px-3.5 py-2 text-xs font-medium text-red-primary"
-                background="rgba(20, 5, 8, 0.95)"
-                shimmerColor="#ef4444"
-                borderRadius="8px"
-                shimmerDuration="2.5s"
-                onClick={async () => {
-                  if (!gateUnlocked) {
-                    const ok = await gateUnlock();
-                    if (!ok) return;
-                  }
-                  const cost = cabalWallets.length * 100;
-                  if (window.confirm(`This will analyze ${cabalWallets.length} cabal wallets across all their token holdings.\nEstimated cost: ~${cost} credits.\n\nContinue?`)) {
-                    setDeepScanOpen(true);
-                  }
-                }}
-              >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <circle cx="11" cy="11" r="8" />
-                  <path d="M21 21l-4.35-4.35" />
-                  <path d="M11 8v6M8 11h6" />
-                </svg>
-                Deep Scan ({cabalWallets.length})
-              </ShimmerButton>
-              <CrossTokenPanel
-                isOpen={deepScanOpen}
-                onClose={() => setDeepScanOpen(false)}
-                cabalWallets={cabalWallets}
+              {leftRailOpen && <div className="fixed inset-0 z-20 bg-black/40 lg:hidden" onClick={() => setLeftRailOpen(false)} />}
+              <TokenIdentityRail
+                metadata={tokenMetadata}
+                security={tokenSecurity}
+                rugScore={stats?.rugScore}
+                address={scannedAddress}
+                className={`${leftRailOpen ? 'rail--overlay flex' : 'hidden'} lg:flex`}
               />
             </>
-          );
-        })()}
+          )}
+
+          {/* Center stage — graph on the technical grid */}
+          <main className="app-stage">
+            <ErrorBoundary
+              resetKey={scannedAddress ?? ''}
+              fallback={(err, retry) => (
+                <div className="w-full h-full flex items-center justify-center p-4">
+                  <div className="glass-panel-danger p-5 max-w-md text-center">
+                    <p className="text-sm font-semibold text-text-primary mb-2">Graph failed to render</p>
+                    <p className="text-[11px] font-mono text-text-tertiary mb-4 break-words">{err.message}</p>
+                    <button onClick={retry} className="btn-primary text-[11px] px-3 py-1.5">Retry graph</button>
+                  </div>
+                </div>
+              )}
+            >
+              <div className="absolute inset-0" style={historicalSnapshot ? { boxShadow: 'inset 0 0 0 2px rgba(245,158,11,0.3)' } : undefined}>
+                <BubbleMap
+                  ref={bubbleRef}
+                  data={effectiveData || data}
+                  onNodeClick={handleNodeClick}
+                  onTraceFunders={handleTraceFunders}
+                  filter={graphFilter}
+                  mode={renderMode}
+                  onZoomChange={setZoomPct}
+                  totalSupply={stats?.supplyConcentration?.totalMintSupply}
+                />
+              </div>
+            </ErrorBoundary>
+
+            {/* Legend (top-left) + hint (top-right) */}
+            {isToken && (
+              <div className="absolute top-3 left-3 z-10 hidden md:block">
+                <GraphLegend />
+              </div>
+            )}
+            <div className="absolute top-3 right-3 z-10 hidden md:block font-mono text-[9.5px] uppercase tracking-[0.08em] text-text-faint select-none">
+              drag bubbles · scroll to zoom
+            </div>
+
+            {/* Mobile rail toggles */}
+            {isToken && tokenMetadata && (
+              <button className="absolute top-3 left-3 z-10 lg:hidden glass-legend !p-2" onClick={() => setLeftRailOpen(true)} aria-label="Token info">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-text-secondary"><circle cx="12" cy="12" r="10" /><path d="M12 16v-4M12 8h.01" /></svg>
+              </button>
+            )}
+            {isToken && stats && (
+              <button className="absolute top-3 right-3 z-10 lg:hidden glass-legend !p-2" onClick={() => setRightRailOpen(true)} aria-label="Risk analysis">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-text-secondary"><path d="M3 12h4l3-9 4 18 3-9h4" /></svg>
+              </button>
+            )}
+
+            {/* Historical mode indicator */}
+            {historicalSnapshot && (
+              <div className="absolute top-3 left-1/2 -translate-x-1/2 z-10 flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-mono bg-amber-ghost text-amber-primary border border-amber-primary/20">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>
+                {new Date(historicalSnapshot.blockTime * 1000).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true })}
+              </div>
+            )}
+
+            {error && (
+              <div className="absolute top-3 left-1/2 -translate-x-1/2 z-10 max-w-md w-[calc(100%-2rem)]">
+                <div className="glass-panel-danger p-3"><p className="text-sm text-red-primary">{error}</p></div>
+              </div>
+            )}
+
+            {/* Sparse results overlay */}
+            {data.nodes.length <= 1 && data.links.length === 0 && !isLoading && (
+              <div className="absolute inset-0 z-[5] flex items-center justify-center pointer-events-none">
+                <div className="text-center px-7 py-6 rounded-xl max-w-sm bg-black/90 border border-white/[0.06] backdrop-blur-md shadow-[0_8px_32px_rgba(0,0,0,0.4)]">
+                  <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="mx-auto mb-3 text-text-tertiary">
+                    <circle cx="11" cy="11" r="8" /><path d="M21 21l-4.35-4.35" /><path d="M8 11h6" />
+                  </svg>
+                  <p className="text-sm font-medium mb-1.5 text-text-secondary">No connections detected</p>
+                  <p className="text-xs leading-relaxed text-text-tertiary">
+                    {detectedMode === 'wallet'
+                      ? 'This wallet has no traceable funding sources in its recent transaction history.'
+                      : 'No shared funding connections found among top holders.'}
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* Live activity feed (when streaming) */}
+            {isToken && streaming.isStreaming && recentEvents.length > 0 && (
+              <div className="absolute bottom-[72px] left-3 z-10 hidden md:block">
+                <LiveActivityFeed events={recentEvents} />
+              </div>
+            )}
+
+            {/* AI read panel (toggled from dock) */}
+            {isToken && stats && (
+              <div className="absolute bottom-[72px] left-1/2 -translate-x-1/2 z-20">
+                <GraphAIPanel
+                  open={aiOpen}
+                  onClose={() => setAiOpen(false)}
+                  mint={scannedAddress}
+                  data={data}
+                  stats={stats || undefined}
+                  tokenMetadata={tokenMetadata}
+                  deployerInfo={deployerInfo}
+                />
+              </div>
+            )}
+
+            {/* Node detail panel (bottom-left) */}
+            {currentSelectedNode && (
+              <div className="absolute bottom-[72px] left-3 z-20" style={{ animation: 'slideUp 0.2s ease-out' }}>
+                <NodeDetailPanel
+                  node={currentSelectedNode}
+                  onClose={() => setSelectedNode(null)}
+                  onExpandFunding={!currentSelectedNode.expanded && currentSelectedNode.type !== 'token' ? () => expandNode(currentSelectedNode.id, 'funding') : undefined}
+                  onExpandFunded={currentSelectedNode.type !== 'token' ? () => expandNode(currentSelectedNode.id, 'funded') : undefined}
+                  isLoading={isLoading}
+                />
+              </div>
+            )}
+
+            {/* Deep Scan (bottom-right) when cabal funders exist */}
+            {cabalWallets.length > 0 && (
+              <>
+                <ShimmerButton
+                  className="absolute bottom-[72px] right-3 z-10 px-3.5 py-2 text-xs font-medium text-red-primary"
+                  background="rgba(20, 5, 8, 0.95)"
+                  shimmerColor="#ef4444"
+                  borderRadius="8px"
+                  shimmerDuration="2.5s"
+                  onClick={async () => {
+                    if (!gateUnlocked) {
+                      const ok = await gateUnlock();
+                      if (!ok) return;
+                    }
+                    const cost = cabalWallets.length * 100;
+                    if (window.confirm(`This will analyze ${cabalWallets.length} cabal wallets across all their token holdings.\nEstimated cost: ~${cost} credits.\n\nContinue?`)) {
+                      setDeepScanOpen(true);
+                    }
+                  }}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <circle cx="11" cy="11" r="8" /><path d="M21 21l-4.35-4.35" /><path d="M11 8v6M8 11h6" />
+                  </svg>
+                  Deep Scan ({cabalWallets.length})
+                </ShimmerButton>
+                <CrossTokenPanel isOpen={deepScanOpen} onClose={() => setDeepScanOpen(false)} cabalWallets={cabalWallets} />
+              </>
+            )}
+
+            {/* Control dock (bottom-center) */}
+            <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-30 max-w-[calc(100vw-1.5rem)] overflow-x-auto">
+              <ControlDock
+                isLive={streaming.isStreaming}
+                liveCount={streaming.transactionCount}
+                liveBusy={streaming.isConnecting}
+                onToggleLive={toggleLive}
+                aiOpen={aiOpen}
+                onToggleAi={() => setAiOpen(o => !o)}
+                mode={renderMode}
+                onSetMode={setRenderMode}
+                zoomPct={zoomPct}
+                onZoomIn={() => bubbleRef.current?.zoomIn()}
+                onZoomOut={() => bubbleRef.current?.zoomOut()}
+                onFit={() => bubbleRef.current?.fit()}
+                onExportPng={() => bubbleRef.current?.exportPng()}
+                onExportCsv={() => bubbleRef.current?.exportCsv()}
+              />
+            </div>
+          </main>
+
+          {/* Right rail — risk (overlay on mobile) */}
+          {isToken && stats && (
+            <>
+              {rightRailOpen && <div className="fixed inset-0 z-20 bg-black/40 lg:hidden" onClick={() => setRightRailOpen(false)} />}
+              <RiskRail
+                data={data}
+                rugScore={stats.rugScore}
+                supply={stats.supplyConcentration}
+                tokenSecurity={tokenSecurity}
+                deployer={deployerInfo}
+                meta={{
+                  analyzedHolders: stats.analyzedHolders,
+                  totalHolders: stats.totalHolders,
+                  clusterCount: clusters.clusterCount,
+                  maxClusterSize: clusters.maxClusterSize,
+                }}
+                className={`${rightRailOpen ? 'rail--overlay flex' : 'hidden'} lg:flex`}
+              />
+            </>
+          )}
+        </div>
 
         <WalletSidebar
           address={selectedWallet}
           onClose={() => setSelectedWallet(null)}
           graphNodes={data?.nodes || []}
         />
-      </main>
+      </div>
     );
   }
 

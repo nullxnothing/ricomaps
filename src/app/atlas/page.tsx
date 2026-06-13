@@ -3,11 +3,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
-import { Navbar } from '@/components/Navbar';
-import { AtlasHud } from '@/components/AtlasHud';
+import { TopBar } from '@/components/app/TopBar';
+import { AtlasHudRail } from '@/components/app/AtlasHudRail';
+import { AtlasMostWanted } from '@/components/app/AtlasMostWanted';
 import { AtlasTicker, type TickerEntry } from '@/components/AtlasTicker';
 import { AtlasDossier } from '@/components/AtlasDossier';
-import { AtlasLeaderboard } from '@/components/AtlasLeaderboard';
 import { AtlasHint } from '@/components/AtlasHint';
 import { useAtlasStream } from '@/hooks/useAtlasStream';
 import { truncateAddress } from '@/lib/address-utils';
@@ -34,6 +34,8 @@ export default function AtlasPage() {
   const [selectedCabal, setSelectedCabal] = useState<AtlasCabalNode | null>(null);
   const [selectedToken, setSelectedToken] = useState<AtlasToken | null>(null);
   const [ticker, setTicker] = useState<TickerEntry[]>([]);
+  const [leftRailOpen, setLeftRailOpen] = useState(false);
+  const [rightRailOpen, setRightRailOpen] = useState(false);
   const mapRef = useRef<AtlasMapHandle>(null);
   const buyTickerRef = useRef<Map<string, number>>(new Map());
 
@@ -127,67 +129,88 @@ export default function AtlasPage() {
 
   const isEmpty = graph !== null && graph.cabals.length === 0 && graph.tokens.length === 0;
 
+  const showDossier = !!(selectedCabal || selectedToken);
+
   return (
-    <div className="h-screen flex flex-col bg-bg-void overflow-hidden">
-      <Navbar />
-      <main className="relative flex-1 min-h-0">
-        <AtlasMap
-          ref={mapRef}
-          graph={graph}
-          selectedCabalId={selectedCabal?.id ?? null}
-          onSelectCabal={setSelectedCabal}
-          onSelectToken={setSelectedToken}
+    <div className="app-shell">
+      <TopBar active="atlas" />
+
+      <div className="app-body">
+        {/* Left HUD rail (overlay on mobile) */}
+        {leftRailOpen && <div className="fixed inset-0 z-20 bg-black/40 lg:hidden" onClick={() => setLeftRailOpen(false)} />}
+        <AtlasHudRail
+          stats={graph?.stats ?? null}
+          live={connected}
+          streamSupported={!unsupported}
+          className={`${leftRailOpen ? 'rail--overlay flex' : 'hidden'} lg:flex`}
         />
 
-        {/* Overlay chrome: panels re-enable pointer events individually */}
-        <div className="absolute inset-0 pointer-events-none p-4 flex flex-col">
-          <div className="flex items-start justify-between gap-4">
-            <AtlasHud stats={graph?.stats ?? null} live={connected} streamSupported={!unsupported} />
-            {/* Right rail: dossier when something's selected, else the Most-Wanted index. */}
-            <div className="max-h-full overflow-hidden flex">
-              {selectedCabal || selectedToken ? (
-                <AtlasDossier cabal={selectedCabal} token={selectedToken} graph={graph} onClose={closeDossier} />
-              ) : (
-                <AtlasLeaderboard
-                  cabals={graph?.cabals ?? []}
-                  selectedId={null}
-                  onSelect={(c) => { setSelectedCabal(c); setSelectedToken(null); }}
-                />
-              )}
-            </div>
-          </div>
-          <div className="mt-auto flex items-end justify-between gap-4">
+        {/* Center stage — crew graph on the technical grid */}
+        <main className="app-stage">
+          <AtlasMap
+            ref={mapRef}
+            graph={graph}
+            selectedCabalId={selectedCabal?.id ?? null}
+            onSelectCabal={setSelectedCabal}
+            onSelectToken={setSelectedToken}
+          />
+
+          {/* Mobile rail toggles */}
+          <button className="absolute top-3 left-3 z-10 lg:hidden glass-legend !p-2" onClick={() => setLeftRailOpen(true)} aria-label="Atlas status">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-text-secondary"><circle cx="12" cy="12" r="10" /><path d="M12 16v-4M12 8h.01" /></svg>
+          </button>
+          <button className="absolute top-3 right-3 z-10 lg:hidden glass-legend !p-2" onClick={() => setRightRailOpen(true)} aria-label="Most wanted">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-text-secondary"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2" /><circle cx="12" cy="7" r="4" /></svg>
+          </button>
+
+          {/* Live ticker (bottom-left) + hint (bottom-right) */}
+          <div className="absolute bottom-3 left-3 z-10 hidden sm:block">
             <AtlasTicker entries={ticker} />
-            <span className="ml-auto font-mono text-[9px] uppercase tracking-[0.1em] text-text-tertiary pointer-events-none pb-1">
-              scroll to zoom · drag to pan
-            </span>
           </div>
-        </div>
+          <span className="absolute bottom-3 right-3 z-10 font-mono text-[9.5px] uppercase tracking-[0.08em] text-text-faint pointer-events-none select-none hidden md:block">
+            scroll to zoom · drag to pan
+          </span>
 
-        <AtlasHint show={!isEmpty && !!graph} />
+          <AtlasHint show={!isEmpty && !!graph} />
 
-        {isEmpty && (
-          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-            <div className="glass-panel p-6 text-center max-w-[340px] pointer-events-auto" style={{ animation: 'slideUp 0.3s ease-out' }}>
-              <div className="font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-tertiary mb-2">
-                No intel yet
+          {isEmpty && (
+            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+              <div className="glass-panel p-6 text-center max-w-[340px] pointer-events-auto" style={{ animation: 'slideUp 0.3s ease-out' }}>
+                <div className="font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-tertiary mb-2">No intel yet</div>
+                <p className="text-[13px] text-text-secondary leading-relaxed mb-4">
+                  The atlas builds itself from scans. Run a few token scans, and every crew it finds gets fingerprinted and tracked here.
+                </p>
+                <Link href="/" className="btn-cta">Scan a token</Link>
               </div>
-              <p className="text-[13px] text-text-secondary leading-relaxed mb-4">
-                The atlas builds itself from scans. Run a few token scans, and every crew it finds gets fingerprinted and tracked here.
-              </p>
-              <Link href="/" className="btn-cta">Scan a token</Link>
             </div>
-          </div>
-        )}
+          )}
 
-        {loadError && !graph && (
-          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-            <div className="glass-panel-danger p-5 text-center pointer-events-auto">
-              <p className="text-[13px] text-red-primary">Failed to load the atlas. Retrying shortly…</p>
+          {loadError && !graph && (
+            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+              <div className="glass-panel-danger p-5 text-center pointer-events-auto">
+                <p className="text-[13px] text-red-primary">Failed to load the atlas. Retrying shortly…</p>
+              </div>
+            </div>
+          )}
+        </main>
+
+        {/* Right rail — dossier when selected, else Most-Wanted (overlay on mobile) */}
+        {rightRailOpen && <div className="fixed inset-0 z-20 bg-black/40 lg:hidden" onClick={() => setRightRailOpen(false)} />}
+        {showDossier ? (
+          <div className={`rail rail--right ${rightRailOpen ? 'rail--overlay flex' : 'hidden'} lg:flex`} style={{ width: 286, padding: 16 }}>
+            <div className="w-full [&>div]:!w-full">
+              <AtlasDossier cabal={selectedCabal} token={selectedToken} graph={graph} onClose={closeDossier} />
             </div>
           </div>
+        ) : (
+          <AtlasMostWanted
+            cabals={graph?.cabals ?? []}
+            selectedId={null}
+            onSelect={(c) => { setSelectedCabal(c); setSelectedToken(null); }}
+            className={`${rightRailOpen ? 'rail--overlay flex' : 'hidden'} lg:flex`}
+          />
         )}
-      </main>
+      </div>
     </div>
   );
 }

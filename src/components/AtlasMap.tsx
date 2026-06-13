@@ -630,6 +630,10 @@ function drawLinks(ctx: CanvasRenderingContext2D, links: { source: SimNode; targ
   for (const l of links) {
     const sx = l.source.x ?? 0, sy = l.source.y ?? 0;
     const tx = l.target.x ?? 0, ty = l.target.y ?? 0;
+    // Skip links whose endpoints haven't been assigned finite positions yet
+    // (a new node added mid-frame seeds NaN until the sim ticks) — a non-finite
+    // coordinate makes createLinearGradient throw.
+    if (!Number.isFinite(sx) || !Number.isFinite(sy) || !Number.isFinite(tx) || !Number.isFinite(ty)) continue;
     const inFocus = !focusing || focus.has(l.source.id) || focus.has(l.target.id);
     const a = inFocus ? 0.42 : 0.04;
     const isPurple = l.source.cabal ? cabalColor(l.source.cabal) === CABAL_PURPLE : false;
@@ -728,6 +732,9 @@ function drawNodes(ctx: CanvasRenderingContext2D, nodes: SimNode[], hover: SimNo
   for (const n of nodes) {
     const x = n.x ?? 0;
     const y = n.y ?? 0;
+    // A node added mid-frame seeds NaN until the sim ticks; non-finite coords make
+    // the radial-gradient calls below throw, so skip until it has a real position.
+    if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
     const dimmed = focusing && !focus.has(n.id);
     ctx.globalAlpha = dimmed ? 0.18 : 1;
 

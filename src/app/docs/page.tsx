@@ -10,7 +10,7 @@ import { Container } from '@/components/layout/Container';
 
 function EmbedCodeGenerator() {
   const [address, setAddress] = useState('');
-  const [view, setView] = useState<'forensic' | 'bubble'>('forensic');
+  const [hideWatermark, setHideWatermark] = useState(false);
   const [width, setWidth] = useState('100%');
   const [height, setHeight] = useState('500px');
   const [copied, setCopied] = useState(false);
@@ -21,7 +21,7 @@ function EmbedCodeGenerator() {
   useEffect(() => {
     setBaseUrl(window.location.origin);
   }, []);
-  const embedUrl = `${baseUrl}/embed?address=${address}&view=${view}`;
+  const embedUrl = `${baseUrl}/embed?address=${address}${hideWatermark ? '&hideWatermark=true' : ''}`;
   const embedCode = `<iframe
   src="${embedUrl}"
   width="${width}"
@@ -52,14 +52,14 @@ function EmbedCodeGenerator() {
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div>
-          <label className="block text-[11px] font-mono uppercase tracking-wide mb-2" style={{ color: 'var(--text-tertiary)' }}>View Style</label>
+          <label className="block text-[11px] font-mono uppercase tracking-wide mb-2" style={{ color: 'var(--text-tertiary)' }}>Watermark</label>
           <select
-            value={view}
-            onChange={(e) => setView(e.target.value as 'forensic' | 'bubble')}
+            value={hideWatermark ? 'hide' : 'show'}
+            onChange={(e) => setHideWatermark(e.target.value === 'hide')}
             className="input w-full"
           >
-            <option value="forensic">Forensic</option>
-            <option value="bubble">Bubble</option>
+            <option value="show">Show badge</option>
+            <option value="hide">Hide badge</option>
           </select>
         </div>
         <div>
@@ -485,6 +485,7 @@ export default function DocsPage() {
             <NodeCard color="#a78bfa" label="Bundled" description="Detected in a Jito bundle cluster transaction." />
             <NodeCard color="#64b5f6" label="Funder" description="Funding source wallet traced via SOL transfers." />
             <NodeCard color="#00FF41" label="Target" description="Original wallet being traced in wallet mode." />
+            <NodeCard color="#9ca3af" label="Pool" description="Liquidity pool / AMM. Infrastructure, not a real holder." />
           </div>
         </section>
 
@@ -595,14 +596,24 @@ export default function DocsPage() {
                 <div className="flex items-center gap-3">
                   <span className="px-2 py-1 text-[#00FF41] text-xs font-mono rounded font-bold" style={{ background: 'rgba(0,255,65,0.08)' }}>POST</span>
                   <code className="text-white font-mono text-sm">/api/v1/analyze</code>
-                  <span className="text-sm" style={{ color: 'var(--text-tertiary)' }}>Programmatic cabal analysis</span>
+                  <span className="text-sm" style={{ color: 'var(--text-tertiary)' }}>Full cabal analysis (top 30 holders, API key required)</span>
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className="px-2 py-1 text-[#00FF41] text-xs font-mono rounded font-bold" style={{ background: 'rgba(0,255,65,0.08)' }}>POST</span>
+                  <code className="text-white font-mono text-sm">/api/v1/quick-scan</code>
+                  <span className="text-sm" style={{ color: 'var(--text-tertiary)' }}>Fast scan (top 15 holders, IP rate-limited, no key)</span>
                 </div>
                 <div className="flex items-center gap-3">
                   <span className="px-2 py-1 text-[#4a9eff] text-xs font-mono rounded font-bold" style={{ background: 'rgba(74,158,255,0.08)' }}>GET</span>
                   <code className="text-white font-mono text-sm">/api/v1/status</code>
-                  <span className="text-sm" style={{ color: 'var(--text-tertiary)' }}>Health check</span>
+                  <span className="text-sm" style={{ color: 'var(--text-tertiary)' }}>Health check (version + timestamp)</span>
                 </div>
               </div>
+              <p className="mt-5 text-sm" style={{ color: 'var(--text-tertiary)' }}>
+                Authenticate <code className="px-1.5 py-0.5 rounded text-xs font-mono" style={{ background: 'var(--bg-void)', color: 'var(--purple-primary)' }}>/api/v1/analyze</code> by passing
+                {' '}<code className="px-1.5 py-0.5 rounded text-xs font-mono" style={{ background: 'var(--bg-void)', color: 'var(--purple-primary)' }}>apiKey</code> in the JSON body.
+                Rate limit: 10 requests/minute per key.
+              </p>
             </div>
 
             <div className="rounded-lg border overflow-hidden" style={{ background: 'var(--bg-surface)', borderColor: 'var(--border-base)' }}>
@@ -611,11 +622,10 @@ export default function DocsPage() {
               </div>
               <pre className="p-6 text-sm font-mono overflow-x-auto leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
 {`curl -X POST https://ricomaps.fun/api/v1/analyze \\
-  -H "Authorization: Bearer YOUR_API_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{
-    "mint": "So11111111111111111111111111111111111111112",
-    "topHolders": 30
+    "apiKey": "YOUR_API_KEY",
+    "mint": "So11111111111111111111111111111111111111112"
   }'`}
               </pre>
             </div>
@@ -626,28 +636,100 @@ export default function DocsPage() {
               </div>
               <pre className="p-6 text-sm font-mono overflow-x-auto leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
 {`{
-  "status": "ok",
-  "data": {
-    "nodes": 47,
-    "links": 62,
-    "cabalFunders": 3,
-    "snipers": 5,
-    "bundled": 2,
-    "avgThreatScore": 34.2,
-    "topThreats": [
-      { "wallet": "7xK...mN2", "score": 85, "tags": ["cabal-funder", "fresh"] }
-    ]
-  }
+  "success": true,
+  "nodes": [
+    {
+      "id": "7xK...mN2",
+      "type": "cabal-funder",
+      "label": "7xK...mN2",
+      "tokenAmount": 0,
+      "solBalance": 1.42,
+      "identity": { "tags": [] },
+      "metadata": { "threatScore": 85 }
+    }
+  ],
+  "links": [
+    { "source": "7xK...mN2", "target": "9aB...pQ4", "value": 0.5, "suspicious": true }
+  ],
+  "summary": {
+    "totalHolders": 30,
+    "cabalCount": 3,
+    "riskScore": 34,
+    "snipersDetected": 5,
+    "bundleClustersDetected": 2
+  },
+  "tokenSecurity": { /* mint/freeze authority, rug score */ },
+  "tokenMetadata": { /* name, symbol, supply */ },
+  "creditsUsed": 3050,
+  "processingMs": 8421,
+  "timestamp": "2026-06-13T19:00:00.000Z"
 }`}
               </pre>
             </div>
           </div>
         </section>
 
-        {/* ─── Section 7: Embed on Your Site ─── */}
+        {/* ─── RicoMaps for Agents (trading-agent skill) ─── */}
+        <section id="agents">
+          <div className="flex items-center gap-3 mb-8">
+            <SectionBadge number={7} color="#00FF41" />
+            <h2 className="text-2xl font-bold text-white">RicoMaps for Agents</h2>
+          </div>
+          <div className="rounded-lg p-6 border" style={{ background: 'var(--bg-surface)', borderColor: 'var(--border-base)', borderLeftColor: '#00FF41', borderLeftWidth: '3px' }}>
+            <p className="mb-5" style={{ color: 'var(--text-secondary)' }}>
+              A Claude Code skill that gates your trading agent. Drop it in and every buy gets run
+              through the RicoMaps detector first: mint/freeze authority, snipers, Jito bundles, and
+              cabal funders, returned as a single <code className="px-1.5 py-0.5 rounded text-xs font-mono" style={{ background: 'var(--bg-void)', color: 'var(--green-primary)' }}>BLOCK</code> / <code className="px-1.5 py-0.5 rounded text-xs font-mono" style={{ background: 'var(--bg-void)', color: '#f59e0b' }}>CAUTION</code> / <code className="px-1.5 py-0.5 rounded text-xs font-mono" style={{ background: 'var(--bg-void)', color: '#9ca3af' }}>PASS</code> verdict.
+              No API key. If a scan fails, it blocks by default, so your agent never trades on a bad check.
+            </p>
+
+            <a
+              href="/ricomaps-rugcheck.zip"
+              download
+              className="btn-cta inline-flex items-center gap-2"
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
+                <polyline points="7 10 12 15 17 10" />
+                <line x1="12" y1="15" x2="12" y2="3" />
+              </svg>
+              Download Skill (.zip)
+            </a>
+
+            <div className="mt-6">
+              <h3 className="text-lg font-semibold text-white mb-3">Install</h3>
+              <ol className="space-y-2 text-sm list-decimal pl-5" style={{ color: 'var(--text-secondary)' }}>
+                <li>Download the .zip above and unzip it.</li>
+                <li>Move the <code className="font-mono text-[#c3e88d]">ricomaps-rugcheck</code> folder into your skills directory: <code className="font-mono text-[#c3e88d]">~/.claude/skills/</code> (project-level <code className="font-mono text-[#c3e88d]">.claude/skills/</code> also works).</li>
+                <li>Your agent can now invoke it before any buy. It auto-triggers on prompts like &quot;is this token safe&quot; or &quot;rug check &lt;mint&gt;&quot;.</li>
+              </ol>
+            </div>
+
+            <div className="mt-6">
+              <h3 className="text-lg font-semibold text-white mb-3">Run it directly</h3>
+              <pre className="p-4 text-sm font-mono overflow-x-auto leading-relaxed rounded-md" style={{ background: 'var(--bg-void)', color: 'var(--text-secondary)' }}>
+{`# from the skill folder
+node scripts/rugcheck.mjs <MINT_ADDRESS>
+
+# machine-readable for a bot
+node scripts/rugcheck.mjs <MINT_ADDRESS> --json`}
+              </pre>
+              <p className="mt-3 text-sm" style={{ color: 'var(--text-tertiary)' }}>
+                Exit codes let a bot branch without parsing output:
+                {' '}<code className="font-mono text-[#c3e88d]">0</code> PASS,
+                {' '}<code className="font-mono" style={{ color: '#f59e0b' }}>10</code> CAUTION,
+                {' '}<code className="font-mono text-red-primary">20</code> BLOCK,
+                {' '}<code className="font-mono text-red-primary">1</code> error (fail closed).
+                Set <code className="font-mono text-[#c3e88d]">RICO_API_KEY</code> to upgrade to the deeper top-30 scan.
+              </p>
+            </div>
+          </div>
+        </section>
+
+        {/* ─── Section 8: Embed on Your Site ─── */}
         <section>
           <div className="flex items-center gap-3 mb-8">
-            <SectionBadge number={7} color="#f59e0b" />
+            <SectionBadge number={8} color="#f59e0b" />
             <h2 className="text-2xl font-bold text-white">Embed on Your Site</h2>
           </div>
           <div className="space-y-6">
@@ -677,15 +759,13 @@ export default function DocsPage() {
                       <td className="py-3 italic" style={{ color: 'var(--text-tertiary)' }}>required</td>
                     </tr>
                     <tr className="border-b" style={{ borderColor: 'var(--border-base)' }}>
-                      <td className="py-3"><code className="font-mono" style={{ color: 'var(--blue-primary)' }}>view</code></td>
-                      <td className="py-3">
-                        Visualization style: <code className="text-[#c3e88d] font-mono">forensic</code> or <code className="text-[#c3e88d] font-mono">bubble</code>
-                      </td>
-                      <td className="py-3" style={{ color: 'var(--text-tertiary)' }}>forensic</td>
+                      <td className="py-3"><code className="font-mono" style={{ color: 'var(--blue-primary)' }}>hideWatermark</code></td>
+                      <td className="py-3">Hide the &quot;Powered by RicoMaps&quot; badge (<code className="text-[#c3e88d] font-mono">true</code>)</td>
+                      <td className="py-3" style={{ color: 'var(--text-tertiary)' }}>false</td>
                     </tr>
                     <tr>
-                      <td className="py-3"><code className="font-mono" style={{ color: 'var(--blue-primary)' }}>hideWatermark</code></td>
-                      <td className="py-3">Hide the &quot;Powered by RicoMaps&quot; badge</td>
+                      <td className="py-3"><code className="font-mono" style={{ color: 'var(--blue-primary)' }}>compact</code></td>
+                      <td className="py-3">Compact panel for inline embeds; also hides the watermark (<code className="text-[#c3e88d] font-mono">1</code>)</td>
                       <td className="py-3" style={{ color: 'var(--text-tertiary)' }}>false</td>
                     </tr>
                   </tbody>
@@ -697,15 +777,15 @@ export default function DocsPage() {
               <h3 className="text-lg font-semibold text-white mb-4">Example Embeds</h3>
               <div className="space-y-4">
                 <div>
-                  <p className="mb-2 text-sm" style={{ color: 'var(--text-tertiary)' }}>Token Analysis (forensic view):</p>
+                  <p className="mb-2 text-sm" style={{ color: 'var(--text-tertiary)' }}>Token or wallet analysis:</p>
                   <pre className="p-3 text-xs text-[#c3e88d] overflow-x-auto font-mono rounded-md" style={{ background: 'var(--bg-void)' }}>
-                    {`<iframe src="https://ricomaps.fun/embed?address=TOKEN_MINT&view=forensic" width="100%" height="500"></iframe>`}
+                    {`<iframe src="https://ricomaps.fun/embed?address=TOKEN_OR_WALLET" width="100%" height="500"></iframe>`}
                   </pre>
                 </div>
                 <div>
-                  <p className="mb-2 text-sm" style={{ color: 'var(--text-tertiary)' }}>Wallet Trace (bubble view):</p>
+                  <p className="mb-2 text-sm" style={{ color: 'var(--text-tertiary)' }}>White-label (no watermark):</p>
                   <pre className="p-3 text-xs text-[#c3e88d] overflow-x-auto font-mono rounded-md" style={{ background: 'var(--bg-void)' }}>
-                    {`<iframe src="https://ricomaps.fun/embed?address=WALLET_ADDRESS&view=bubble" width="100%" height="600"></iframe>`}
+                    {`<iframe src="https://ricomaps.fun/embed?address=TOKEN_OR_WALLET&hideWatermark=true" width="100%" height="600"></iframe>`}
                   </pre>
                 </div>
               </div>
@@ -716,7 +796,7 @@ export default function DocsPage() {
         {/* ─── Browser Extension ─── */}
         <section id="extension">
           <div className="flex items-center gap-3 mb-8">
-            <SectionBadge number={8} color="#a78bfa" />
+            <SectionBadge number={9} color="#a78bfa" />
             <h2 className="text-2xl font-bold text-white">Browser Extension</h2>
           </div>
           <div className="rounded-lg p-6 border" style={{ background: 'var(--bg-surface)', borderColor: 'var(--border-base)' }}>
@@ -754,10 +834,10 @@ export default function DocsPage() {
           </div>
         </section>
 
-        {/* ─── Section 9: Data Sources & Methodology ─── */}
+        {/* ─── Section 10: Data Sources & Methodology ─── */}
         <section>
           <div className="flex items-center gap-3 mb-8">
-            <SectionBadge number={9} color="#22d3ee" />
+            <SectionBadge number={10} color="#22d3ee" />
             <h2 className="text-2xl font-bold text-white">Data Sources & Methodology</h2>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
@@ -811,10 +891,10 @@ export default function DocsPage() {
           </div>
         </section>
 
-        {/* ─── Section 10: Limitations ─── */}
+        {/* ─── Section 11: Limitations ─── */}
         <section>
           <div className="flex items-center gap-3 mb-8">
-            <SectionBadge number={10} color="#737373" />
+            <SectionBadge number={11} color="#737373" />
             <h2 className="text-2xl font-bold text-white">Limitations</h2>
           </div>
           <div className="rounded-lg p-6 border" style={{ background: 'var(--bg-surface)', borderColor: 'var(--border-base)' }}>
