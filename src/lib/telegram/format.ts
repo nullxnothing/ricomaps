@@ -5,6 +5,7 @@ import type {
   RugScore,
   SupplyConcentration,
   CabalFingerprintResult,
+  CabalFingerprint,
 } from '@/lib/types';
 import { formatUsd, formatMarketCap } from '@/lib/format';
 import { truncateAddress } from '@/lib/address-utils';
@@ -189,6 +190,9 @@ export function formatTokenCard(mint: string, result: ScanResultLike): TokenCard
   const dexUrl = meta?.dexUrl ?? `https://dexscreener.com/solana/${mint}`;
   const replyMarkup: InlineKeyboard = [
     [{ text: '🫧 Live Bubble Map ↗', url: `${APP_URL}/?mint=${mint}` }],
+    // The blacklist is the moat: when a known crew is present, let the user pull
+    // its rap sheet (prior launches + rug rate) right from the card.
+    ...(fpMatches > 0 ? [[{ text: `🚩 Bundler rap sheet (${fpMatches})`, callback_data: `rap:${mint}` }]] : []),
     [
       { text: '🔔 Watch', callback_data: `watch:${mint}` },
       { text: 'DexScreener ↗', url: dexUrl },
@@ -219,4 +223,60 @@ export function inlineSummary(mint: string, result: ScanResultLike): string {
   const score = rug ? `${rug.score}/100` : 'n/a';
   const insider = sc ? ` · insider ${pct(sc.insiderStillHoldingPct)}` : '';
   return `${rugEmoji(rug?.level)} ${sym} · rug ${score}${insider}`;
+}
+
+function ago(unixSec: number): string {
+  const days = (Date.now() / 1000 - unixSec) / 86_400;
+  if (days < 1) return 'today';
+  if (days < 30) return `${Math.round(days)}d ago`;
+  return `${Math.round(days / 30)}mo ago`;
+}
+
+/**
+ * The bundler rap sheet: the actual moat. For each known crew tied to this token,
+ * list how many tokens it has launched, its rug rate, and its recent launches by
+ * name. This is the cross-token memory no single-token scanner has.
+ */
+export function formatRapSheet(
+  mint: string,
+  fingerprint: CabalFingerprintResult,
+): { text: string; replyMarkup: InlineKeyboard } {
+  const matches = [...fingerprint.matches].sort((a, b) => b.confidence - a.confidence).slice(0, 3);
+  const lines: string[] = [`🚩 <b>Bundler rap sheet</b>`, `<code>${esc(mint)}</code>`, ''];
+
+  if (matches.length === 0) {
+    lines.push('<i>No known crews matched.</i>');
+  }
+
+  matches.forEach((fp: CabalFingerprint, i: number) => {
+    const tokens = [...fp.tokens].sort((a, b) => b.firstSeen - a.firstSeen);
+    const rugged = tokens.filter((t) => t.rugLevel === 'red').length;
+    const rugRate = tokens.length ? Math.round((rugged / tokens.length) * 100) : 0;
+    const cat = fp.components.funderCategory && fp.components.funderCategory !== 'unknown'
+      ? ` · ${esc(fp.components.funderCategory)}`
+      : '';
+
+    if (i > 0) lines.push('');
+    lines.push(`<b>Crew ${esc(fp.id.slice(0, 6))}</b> · ${fp.confidence}% conf${cat}`);
+    lines.push(leaf(T, 'Launches', `<b>${fp.totalAppearances}</b> tokens · last ${ago(fp.lastSeen)}`));
+    lines.push(leaf(T, 'Rug rate', `<b>${rugRate}%</b> <i>(${rugged}/${tokens.length} went red)</i>`));
+    lines.push(leaf(L, 'Wallets ', `<b>${fp.knownWallets.length}</b> known`));
+
+    // Recent prior launches by name, the receipts.
+    const recent = tokens.filter((t) => t.mint !== mint).slice(0, 4);
+    if (recent.length) {
+      lines.push('<i>Prior launches:</i>');
+      for (const t of recent) {
+        const label = t.tokenSymbol ? `$${esc(t.tokenSymbol)}` : `<code>${esc(truncateAddress(t.mint))}</code>`;
+        lines.push(`  ${rugEmoji(t.rugLevel)} ${label} <i>${ago(t.firstSeen)}</i>`);
+      }
+    }
+  });
+
+  const replyMarkup: InlineKeyboard = [
+    [{ text: '🫧 Open in Bubble Map ↗', url: `${APP_URL}/?mint=${mint}` }],
+    [{ text: '🚫 Full blacklist ↗', url: `${APP_URL}/blacklist` }],
+    ...FOOTER_ROW,
+  ];
+  return { text: lines.join('\n'), replyMarkup };
 }

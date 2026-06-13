@@ -3,7 +3,7 @@ import { mapTokenHolders } from '@/lib/holder-mapper';
 import { isValidSolanaAddress } from '@/lib/address-utils';
 import { getCachedTokenScan } from '@/lib/db-cache';
 import { sendMessage, sendPhoto, answerCallbackQuery, type InlineKeyboard } from './client';
-import { formatTokenCard, FOOTER_ROW, type ScanResultLike } from './format';
+import { formatTokenCard, formatRapSheet, FOOTER_ROW, type ScanResultLike } from './format';
 import { addSubscription, removeSubscription, listSubscriptions } from './subscriptions';
 
 const APP_URL = (process.env.NEXT_PUBLIC_APP_URL ?? 'https://ricomaps.fun').replace(/\/$/, '');
@@ -37,9 +37,11 @@ const HELP = [
   '',
   '<b>Commands</b>',
   '├ <code>/scan &lt;CA&gt;</code> · scan a token',
-  '└ <code>/watchlist</code> · your watched mints',
+  '├ <code>/watch &lt;wallet&gt;</code> · track a cabal wallet',
+  '└ <code>/watchlist</code> · what you\'re watching',
   '',
   '🔔 Tap <b>Watch</b> on any card for live alerts: bundle clusters, dev sells, blacklisted-bundler buys, and rugs.',
+  '🚩 Tap <b>Bundler rap sheet</b> to see a crew\'s prior launches and rug rate.',
   '👥 In groups, just paste a CA. No command needed.',
 ].join('\n');
 
@@ -129,21 +131,83 @@ async function handleCallback(cb: TgCallbackQuery): Promise<void> {
     return;
   }
 
+  // 🚩 Bundler rap sheet: pull the matched crews' cross-token history (cache-first).
+  const rap = data.match(/^rap:(\S+)$/);
+  if (rap && chatId != null) {
+    await answerCallbackQuery(cb.id, '🚩 Pulling rap sheet…');
+    const mint = rap[1];
+    if (!isValidSolanaAddress(mint)) return;
+    try {
+      const result = await runScan(mint);
+      const fp = result.stats.cabalFingerprint;
+      if (!fp || fp.matches.length === 0) {
+        await sendMessage({ chatId, text: '✅ No known bundler crews matched this token.' });
+        return;
+      }
+      const { text, replyMarkup } = formatRapSheet(mint, fp);
+      await sendMessage({ chatId, text, replyMarkup });
+    } catch (err) {
+      console.error('[telegram] rap sheet failed', mint, err);
+      await sendMessage({ chatId, text: '⚠️ Could not load the rap sheet. Try re-scanning first.' });
+    }
+    return;
+  }
+
   await answerCallbackQuery(cb.id);
 }
 
-/** Render a chat's current watchlist. */
+/** Render a chat's current watchlist (tokens + wallets). */
 async function handleWatchlist(chatId: number): Promise<void> {
   const subs = await listSubscriptions(chatId);
   const mints = subs.filter((s) => s.kind === 'mint');
-  if (mints.length === 0) {
-    await sendMessage({ chatId, text: 'No tokens watched yet. Tap <b>🔔 Watch</b> on any scan card to get live alerts.' });
+  const wallets = subs.filter((s) => s.kind === 'wallet');
+  if (subs.length === 0) {
+    await sendMessage({
+      chatId,
+      text: 'Nothing watched yet.\n\nTap <b>🔔 Watch</b> on a scan card to watch a token, or <code>/watch &lt;wallet&gt;</code> to track a cabal wallet.',
+    });
     return;
   }
-  const lines = ['🔔 <b>Your watchlist</b>', ''];
-  for (const s of mints) lines.push(`• <code>${s.target}</code>`);
-  lines.push('', 'Tap <b>🔕 Unwatch</b> on an alert to stop, or re-scan a token to manage it.');
+  const lines: string[] = ['🔔 <b>Your watchlist</b>'];
+  if (mints.length) {
+    lines.push('', '<b>Tokens</b>');
+    for (const s of mints) lines.push(`🪙 <code>${s.target}</code>`);
+  }
+  if (wallets.length) {
+    lines.push('', '<b>Wallets</b>');
+    for (const s of wallets) lines.push(`👛 <code>${s.target}</code>`);
+  }
+  lines.push('', 'Stop with <code>/unwatch &lt;address&gt;</code>.');
   await sendMessage({ chatId, text: lines.join('\n') });
+}
+
+/** /watch &lt;wallet&gt; — track a cabal/deployer wallet for live activity. */
+async function handleWatchWallet(chatId: number, text: string): Promise<void> {
+  const addr = (text.match(CA_RE) ?? []).find(isValidSolanaAddress);
+  if (!addr) {
+    await sendMessage({ chatId, text: 'Usage: <code>/watch &lt;wallet address&gt;</code>\nAlerts you when that wallet buys or funds a launch we see.' });
+    return;
+  }
+  const ok = await addSubscription(chatId, 'wallet', addr);
+  await sendMessage({
+    chatId,
+    text: ok
+      ? `👛 Watching wallet <code>${addr}</code>.\nI'll ping you when it shows up buying or funding a tracked launch.`
+      : '⚠️ Watchlist full. <code>/unwatch</code> something first.',
+  });
+}
+
+/** /unwatch &lt;address&gt; — remove a token or wallet from the watchlist. */
+async function handleUnwatchCmd(chatId: number, text: string): Promise<void> {
+  const addr = (text.match(CA_RE) ?? []).find(isValidSolanaAddress);
+  if (!addr) {
+    await sendMessage({ chatId, text: 'Usage: <code>/unwatch &lt;address&gt;</code>' });
+    return;
+  }
+  // Remove from both kinds; harmless no-op on the kind that wasn't subscribed.
+  await removeSubscription(chatId, 'mint', addr);
+  await removeSubscription(chatId, 'wallet', addr);
+  await sendMessage({ chatId, text: `🔕 Unwatched <code>${addr}</code>.` });
 }
 
 /** Top-level dispatcher. Always resolves; the webhook returns 200 regardless. */
@@ -159,6 +223,12 @@ export async function handleUpdate(update: TgUpdate): Promise<void> {
   const chatId = msg.chat.id;
 
   if (/^\/(start|help)\b/i.test(text)) {
+    // /start <CA> deep link: scan immediately so "Scan on RicoMaps" links land on the card.
+    const startMint = text.match(/^\/start(?:@\w+)?\s+(\S+)/i)?.[1];
+    if (startMint && isValidSolanaAddress(startMint)) {
+      await handleScan(chatId, startMint, msg.message_id);
+      return;
+    }
     const sent = await sendPhoto({ chatId, photoUrl: LOGO_URL, caption: HELP, replyMarkup: HELP_MARKUP });
     if (!sent) await sendMessage({ chatId, text: HELP, replyMarkup: HELP_MARKUP });
     return;
@@ -166,6 +236,14 @@ export async function handleUpdate(update: TgUpdate): Promise<void> {
 
   if (/^\/watchlist\b/i.test(text)) {
     await handleWatchlist(chatId);
+    return;
+  }
+  if (/^\/watch\b/i.test(text)) {
+    await handleWatchWallet(chatId, text);
+    return;
+  }
+  if (/^\/unwatch\b/i.test(text)) {
+    await handleUnwatchCmd(chatId, text);
     return;
   }
 
