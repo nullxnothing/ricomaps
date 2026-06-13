@@ -7,7 +7,16 @@
 
 const X_API = 'https://api.x.com/2';
 const X_TOKEN_URL = 'https://api.x.com/2/oauth2/token';
-const POLL_INTERVAL_MS = Number(process.env.X_POLL_INTERVAL_MS ?? 45_000);
+// Base cadence between mention polls. Lower = faster replies but more reads;
+// the adaptive backoff below stretches this automatically when X says we're
+// running low on the rate-limit window, so 15s is safe to default.
+const POLL_INTERVAL_MS = Number(process.env.X_POLL_INTERVAL_MS ?? 15_000);
+// Never poll faster than this even if the window looks healthy.
+const MIN_POLL_INTERVAL_MS = 5_000;
+// When the mentions window has few requests left, slow down. If remaining drops
+// to/below this, the next poll waits until the window resets instead of racing
+// into a 429.
+const RATE_LIMIT_FLOOR = 2;
 const SEEN_MAX = 5_000;                 // bound the dedupe set
 const BASE58_RE = /[1-9A-HJ-NP-Za-km-z]{32,44}/g;
 // Refresh the user token a minute before it actually expires.
@@ -48,7 +57,19 @@ export class XBot {
   constructor(private readonly cfg: XBotConfig) {
     this.accessToken = cfg.accessToken;
     this.refreshToken = cfg.refreshToken;
-    setInterval(() => void this.pollMentions(), POLL_INTERVAL_MS);
+    this.scheduleNextPoll(POLL_INTERVAL_MS);
+  }
+
+  /**
+   * Self-scheduling poll loop. Each poll computes the next delay from X's
+   * rate-limit headers, so we run fast when the window is healthy and stretch
+   * out automatically as it depletes — no fixed interval that races into 429s.
+   */
+  private scheduleNextPoll(delayMs: number): void {
+    setTimeout(async () => {
+      const nextDelay = await this.pollMentions();
+      this.scheduleNextPoll(nextDelay);
+    }, Math.max(MIN_POLL_INTERVAL_MS, delayMs));
   }
 
   /**
@@ -90,7 +111,8 @@ export class XBot {
     return { mentionsHandled: this.mentionsHandled, repliesPosted: this.repliesPosted, sinceId: this.sinceId };
   }
 
-  private async pollMentions(): Promise<void> {
+  /** Poll once; returns the delay (ms) before the next poll should run. */
+  private async pollMentions(): Promise<number> {
     try {
       const url = new URL(`${X_API}/users/${this.cfg.userId}/mentions`);
       url.searchParams.set('max_results', '20');
@@ -101,10 +123,18 @@ export class XBot {
         headers: { Authorization: `Bearer ${this.cfg.bearerToken}` },
         signal: AbortSignal.timeout(15_000),
       });
+
+      // A 429 means we're already over: wait the full window the header gives us.
+      if (res.status === 429) {
+        const wait = this.rateLimitResetDelay(res) ?? 15 * 60_000;
+        console.error(`[x-bot] mentions poll 429, backing off ${Math.round(wait / 1000)}s`);
+        return wait;
+      }
       if (!res.ok) {
         console.error(`[x-bot] mentions poll failed: HTTP ${res.status}`);
-        return;
+        return POLL_INTERVAL_MS;
       }
+
       const body = await res.json() as { data?: MentionTweet[]; meta?: { newest_id?: string } };
       const tweets = body.data ?? [];
       // newest_id advances the high-water mark even when no tweet had a CA.
@@ -120,9 +150,32 @@ export class XBot {
         this.mentionsHandled++;
         await this.handleMention(tweet.id, mint);
       }
+
+      return this.nextPollDelay(res);
     } catch (err) {
       console.error('[x-bot] poll error:', err);
+      return POLL_INTERVAL_MS;
     }
+  }
+
+  /**
+   * Decide the next poll delay from the response's rate-limit headers. While the
+   * window has headroom we run at the base cadence; once `remaining` hits the
+   * floor we wait for the window to reset so we never trip a 429.
+   */
+  private nextPollDelay(res: Response): number {
+    const remaining = Number(res.headers.get('x-rate-limit-remaining'));
+    if (Number.isFinite(remaining) && remaining <= RATE_LIMIT_FLOOR) {
+      return this.rateLimitResetDelay(res) ?? POLL_INTERVAL_MS;
+    }
+    return POLL_INTERVAL_MS;
+  }
+
+  /** Ms until the rate-limit window resets (from x-rate-limit-reset), or null. */
+  private rateLimitResetDelay(res: Response): number | null {
+    const resetSec = Number(res.headers.get('x-rate-limit-reset'));
+    if (!Number.isFinite(resetSec) || resetSec <= 0) return null;
+    return Math.max(MIN_POLL_INTERVAL_MS, resetSec * 1000 - Date.now() + 1_000);
   }
 
   /** First base58 run that looks like a mint (length 32-44). Catches CAs inside URLs/sentences. */

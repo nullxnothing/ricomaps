@@ -3,6 +3,7 @@ import { isAuthorizedInternal } from '@/lib/internal-auth';
 import { isValidSolanaAddress } from '@/lib/address-utils';
 import { isTokenMint } from '@/lib/helius';
 import { scanTokenForensics } from '@/lib/scan-core';
+import { getCachedTokenScan } from '@/lib/db-cache';
 import { formatXReply } from '@/lib/x/format';
 
 // Cache hits are instant; a cold scan holds the connection ~1s+.
@@ -34,14 +35,27 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: false, error: 'Invalid mint' }, { status: 400 });
   }
 
-  // Only scan token CAs, never wallet addresses. A wallet (or any non-fungible
-  // account) returns notToken:true so the worker skips the reply (no scan, no
-  // wasted X credits). DAS interface check, same gate /api/scan auto-detect uses.
-  if (!(await isTokenMint(mint))) {
-    return NextResponse.json({ success: true, notToken: true });
-  }
-
   try {
+    // Fast path: a cached scan means this mint already passed the token gate on a
+    // prior scan, so skip the ~0.4s isTokenMint DAS call and reply immediately.
+    const cached = await getCachedTokenScan(mint);
+    if (cached) {
+      const result = {
+        stats: cached.stats as Parameters<typeof formatXReply>[1]['stats'],
+        tokenSecurity: cached.tokenSecurity,
+        tokenMetadata: cached.tokenMetadata,
+        deployerInfo: cached.deployerInfo,
+      };
+      return NextResponse.json({ success: true, text: formatXReply(mint, result) });
+    }
+
+    // Uncached: gate on token-mint before scanning. A wallet (or any non-fungible
+    // account) returns notToken:true so the worker skips the reply (no scan, no
+    // wasted X credits). DAS interface check, same gate /api/scan auto-detect uses.
+    if (!(await isTokenMint(mint))) {
+      return NextResponse.json({ success: true, notToken: true });
+    }
+
     const result = await scanTokenForensics(mint);
     return NextResponse.json({ success: true, text: formatXReply(mint, result) });
   } catch (error) {
