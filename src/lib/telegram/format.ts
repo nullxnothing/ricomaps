@@ -41,6 +41,9 @@ export const FOOTER_ROW: InlineKeyboard = [
     { text: '💸 Trade $RICO', url: `https://pump.fun/coin/${RICO_MINT}` },
     { text: '⚡ Built with Daemon', url: `https://pump.fun/coin/${DAEMON_MINT}` },
   ],
+  [
+    { text: '🐦 Follow / Support', url: 'https://x.com/RicoxMaps' },
+  ],
 ];
 
 /** Escape the three characters that matter for Telegram HTML parse mode. */
