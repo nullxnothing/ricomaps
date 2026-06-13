@@ -95,7 +95,7 @@ export async function mapTokenHolders(mintAddress: string, options: MapOptions =
     // are still empty; null when unconfigured or no pool yet (we then fall back).
     getVenumPriceUsd(mintAddress),
   ]);
-  console.error(`[PERF] Phase 1: ${Date.now() - p1Start}ms`);
+  console.log(`[PERF] Phase 1: ${Date.now() - p1Start}ms`);
 
   // Derive security + metadata from asset (CPU only, zero API calls)
   const tokenSecurity = asset ? deriveTokenSecurity(asset) : null;
@@ -133,7 +133,7 @@ export async function mapTokenHolders(mintAddress: string, options: MapOptions =
   const p1bStart = Date.now();
   const tokenAccountAddresses = largestAccounts.map(a => a.address);
   const accountDetails = await getMultipleAccountsParsed(tokenAccountAddresses);
-  console.error(`[PERF] Phase 1b: ${Date.now() - p1bStart}ms`);
+  console.log(`[PERF] Phase 1b: ${Date.now() - p1bStart}ms`);
 
   // Build holder list from resolved accounts
   const rawHolders: { owner: string; amount: number; tokenAccount: string }[] = [];
@@ -177,7 +177,7 @@ export async function mapTokenHolders(mintAddress: string, options: MapOptions =
     runDeployerHistory ? searchAssetsByCreator(resolvedDeployer.address, { limit: 50 }) : Promise.resolve(null),
     runDeployerHistory ? getWalletFundedBy(resolvedDeployer.address) : Promise.resolve(null),
   ]);
-  console.error(`[PERF] Phase 2: ${Date.now() - p2Start}ms (${holderAddresses.length} holders)`);
+  console.log(`[PERF] Phase 2: ${Date.now() - p2Start}ms (${holderAddresses.length} holders)`);
 
   const fundedByResults = topHolders.map(h => ({
     owner: h.owner,
@@ -338,7 +338,7 @@ export async function mapTokenHolders(mintAddress: string, options: MapOptions =
 
   const p3Start = Date.now();
   const identities = await batchIdentifyWallets(allIdentityAddresses);
-  console.error(`[PERF] Phase 3 identity: ${Date.now() - p3Start}ms (${allIdentityAddresses.length} addresses)`);
+  console.log(`[PERF] Phase 3 identity: ${Date.now() - p3Start}ms (${allIdentityAddresses.length} addresses)`);
 
   // ═══════════════════════════════════════════════════════════
   // PHASE 4: Build graph: ALL connections (zero API calls)

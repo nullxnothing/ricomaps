@@ -35,6 +35,7 @@ export class XBot {
   private readonly seen = new Set<string>();   // replied tweet ids (dedupe)
   private accessToken: string;
   private refreshToken: string;
+  private refreshTokenLoaded = false;           // loaded the rotated token from the app yet?
   private tokenExpiresAt = 0;                   // ms epoch; 0 => refresh before first write
   private mentionsHandled = 0;
   private repliesPosted = 0;
@@ -43,6 +44,41 @@ export class XBot {
     this.accessToken = cfg.accessToken;
     this.refreshToken = cfg.refreshToken;
     setInterval(() => void this.pollMentions(), POLL_INTERVAL_MS);
+  }
+
+  /**
+   * Load the latest rotated refresh token persisted by a previous run. X rotates
+   * the refresh token on every refresh; without this the worker would reuse the
+   * stale env-seeded token after a restart and fail with invalid_request.
+   */
+  private async loadPersistedRefreshToken(): Promise<void> {
+    if (this.refreshTokenLoaded) return;
+    this.refreshTokenLoaded = true; // mark first so a transient failure doesn't loop forever
+    try {
+      const res = await fetch(`${this.cfg.appUrl}/api/internal/x-token`, {
+        headers: { 'x-internal-secret': this.cfg.internalSecret },
+        signal: AbortSignal.timeout(15_000),
+      });
+      if (!res.ok) return;
+      const body = await res.json() as { refreshToken?: string | null };
+      if (body.refreshToken) this.refreshToken = body.refreshToken;
+    } catch (err) {
+      console.error('[x-bot] failed to load persisted refresh token:', err);
+    }
+  }
+
+  /** Persist the rotated refresh token so the next restart picks it up. */
+  private async persistRefreshToken(token: string): Promise<void> {
+    try {
+      await fetch(`${this.cfg.appUrl}/api/internal/x-token`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-internal-secret': this.cfg.internalSecret },
+        body: JSON.stringify({ refreshToken: token }),
+        signal: AbortSignal.timeout(15_000),
+      });
+    } catch (err) {
+      console.error('[x-bot] failed to persist refresh token:', err);
+    }
   }
 
   stats(): { mentionsHandled: number; repliesPosted: number; sinceId: string | null } {
@@ -144,6 +180,9 @@ export class XBot {
 
   private async refreshAccessToken(): Promise<string | null> {
     try {
+      // On the first refresh after a restart, prefer the rotated token the app
+      // persisted over the (possibly already-invalidated) env-seeded one.
+      await this.loadPersistedRefreshToken();
       const params = new URLSearchParams({
         grant_type: 'refresh_token',
         refresh_token: this.refreshToken,
@@ -162,7 +201,10 @@ export class XBot {
       const body = await res.json() as { access_token?: string; refresh_token?: string; expires_in?: number };
       if (!body.access_token) return null;
       this.accessToken = body.access_token;
-      if (body.refresh_token) this.refreshToken = body.refresh_token; // X rotates refresh tokens
+      if (body.refresh_token && body.refresh_token !== this.refreshToken) {
+        this.refreshToken = body.refresh_token; // X rotates refresh tokens
+        void this.persistRefreshToken(body.refresh_token); // survive restarts
+      }
       this.tokenExpiresAt = Date.now() + (body.expires_in ?? 7200) * 1000;
       return this.accessToken;
     } catch (err) {
