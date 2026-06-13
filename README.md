@@ -66,6 +66,23 @@ prices without polling. Falls back to the existing price sources when unset.
 Get a Helius API key at [dashboard.helius.dev](https://dashboard.helius.dev).
 Get a Venum API key at [app.venum.dev](https://app.venum.dev).
 
+Optional (Telegram bot — forensic token cards via `/scan <CA>`):
+
+```
+TELEGRAM_BOT_TOKEN=your_bot_token        # from @BotFather
+TELEGRAM_WEBHOOK_SECRET=long_random_string
+NEXT_PUBLIC_APP_URL=https://ricomaps.fun # used for "Live Bubble Map" deep links
+```
+
+When set, the bot answers `/scan <contract>` (or a bare contract address in DM)
+with a forensic card — rug score, insider/cabal/bundle/sniper supply, and
+deployer intel — plus a deep link to the live bubble map. Register the webhook:
+
+```bash
+TELEGRAM_BOT_TOKEN=... TELEGRAM_WEBHOOK_SECRET=... \
+  node scripts/telegram-set-webhook.mjs https://ricomaps.fun/api/telegram/webhook
+```
+
 ## Development
 
 ```bash
