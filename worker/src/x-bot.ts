@@ -12,6 +12,10 @@ const SEEN_MAX = 5_000;                 // bound the dedupe set
 const BASE58_RE = /[1-9A-HJ-NP-Za-km-z]{32,44}/g;
 // Refresh the user token a minute before it actually expires.
 const TOKEN_REFRESH_SKEW_MS = 60_000;
+// After a hard refresh failure (e.g. a dead/revoked refresh token), back off
+// before retrying so we don't hammer X's token endpoint on every poll/mention
+// and risk a rate-limit. Clears as soon as one refresh succeeds.
+const REFRESH_BACKOFF_MS = 10 * 60_000;
 
 export interface XBotConfig {
   appUrl: string;            // RicoMaps app base URL (ATLAS_APP_URL)
@@ -37,6 +41,7 @@ export class XBot {
   private refreshToken: string;
   private refreshTokenLoaded = false;           // loaded the rotated token from the app yet?
   private tokenExpiresAt = 0;                   // ms epoch; 0 => refresh before first write
+  private refreshBlockedUntil = 0;              // ms epoch; backoff after a hard refresh failure
   private mentionsHandled = 0;
   private repliesPosted = 0;
 
@@ -175,6 +180,8 @@ export class XBot {
   /** Return a non-expired user access token, refreshing if needed. */
   private async validAccessToken(): Promise<string | null> {
     if (Date.now() < this.tokenExpiresAt - TOKEN_REFRESH_SKEW_MS) return this.accessToken;
+    // A recent hard failure (dead token) is in its cooldown: don't retry yet.
+    if (Date.now() < this.refreshBlockedUntil) return null;
     return this.refreshAccessToken();
   }
 
@@ -195,12 +202,16 @@ export class XBot {
       }
       const res = await fetch(X_TOKEN_URL, { method: 'POST', headers, body: params, signal: AbortSignal.timeout(15_000) });
       if (!res.ok) {
+        // 400 = dead/revoked token or bad client creds — re-auth needed, won't
+        // self-heal. Back off so we stop hammering X until the token is replaced.
+        if (res.status === 400) this.refreshBlockedUntil = Date.now() + REFRESH_BACKOFF_MS;
         console.error(`[x-bot] token refresh failed: HTTP ${res.status} ${await res.text()}`);
         return null;
       }
       const body = await res.json() as { access_token?: string; refresh_token?: string; expires_in?: number };
       if (!body.access_token) return null;
       this.accessToken = body.access_token;
+      this.refreshBlockedUntil = 0; // success clears any prior backoff
       if (body.refresh_token && body.refresh_token !== this.refreshToken) {
         this.refreshToken = body.refresh_token; // X rotates refresh tokens
         void this.persistRefreshToken(body.refresh_token); // survive restarts
