@@ -131,12 +131,23 @@ export class XBot {
         return wait;
       }
       if (!res.ok) {
-        console.error(`[x-bot] mentions poll failed: HTTP ${res.status}`);
+        // Surface the body — a bad bearer / wrong user id / missing scope returns
+        // a JSON error here that the bare status code hid, which is the usual
+        // reason polls "succeed" yet never see a mention.
+        const detail = await res.text().catch(() => '');
+        console.error(`[x-bot] mentions poll failed: HTTP ${res.status} ${detail.slice(0, 200)}`);
         return POLL_INTERVAL_MS;
       }
 
-      const body = await res.json() as { data?: MentionTweet[]; meta?: { newest_id?: string } };
+      const body = await res.json() as { data?: MentionTweet[]; meta?: { newest_id?: string; result_count?: number }; errors?: unknown };
       const tweets = body.data ?? [];
+      // A 200 can still carry partial errors (e.g. permission on a field). Log them.
+      if (body.errors) console.error('[x-bot] mentions partial errors:', JSON.stringify(body.errors).slice(0, 200));
+      // First poll and any non-empty poll: log what X actually returned so a
+      // silently-empty mentions feed is visible instead of looking idle.
+      if (this.sinceId === null || (body.meta?.result_count ?? 0) > 0) {
+        console.log(`[x-bot] poll: ${body.meta?.result_count ?? 0} mentions, newest=${body.meta?.newest_id ?? 'none'}`);
+      }
       // newest_id advances the high-water mark even when no tweet had a CA.
       if (body.meta?.newest_id) this.sinceId = body.meta.newest_id;
 
