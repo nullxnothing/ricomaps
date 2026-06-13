@@ -216,7 +216,11 @@ function sanitizeUrl(url: string): string {
     .replace(/(\/api-key\/)[^/?]*/gi, '$1***');
 }
 
-const FETCH_TIMEOUT_MS = 30_000;
+// Must stay well under the smallest route budget (quick-scan = 30s) so a single
+// hung upstream call aborts and retries inside the function's lifetime instead of
+// consuming the whole 30s and forcing a 504. 12s leaves room for a retry + the
+// rest of the request.
+const FETCH_TIMEOUT_MS = 12_000;
 
 interface FetchOptions extends RequestInit {
   maxRetries?: number;
