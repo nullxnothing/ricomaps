@@ -105,7 +105,8 @@ export class XBot {
         console.error(`[x-bot] x-scan failed for ${mint}: HTTP ${res.status}`);
         return;
       }
-      const body = await res.json() as { success?: boolean; text?: string };
+      const body = await res.json() as { success?: boolean; text?: string; notToken?: boolean };
+      // No text => not a token CA (e.g. a wallet address) or scan unavailable. Skip the reply.
       if (!body.success || !body.text) return;
       text = body.text;
     } catch (err) {

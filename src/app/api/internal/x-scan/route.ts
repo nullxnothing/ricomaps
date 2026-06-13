@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { isAuthorizedInternal } from '@/lib/internal-auth';
 import { isValidSolanaAddress } from '@/lib/address-utils';
+import { isTokenMint } from '@/lib/helius';
 import { scanTokenForensics } from '@/lib/scan-core';
 import { formatXReply } from '@/lib/x/format';
 
@@ -31,6 +32,13 @@ export async function POST(request: NextRequest) {
   const { mint } = body;
   if (!mint || !isValidSolanaAddress(mint)) {
     return NextResponse.json({ success: false, error: 'Invalid mint' }, { status: 400 });
+  }
+
+  // Only scan token CAs, never wallet addresses. A wallet (or any non-fungible
+  // account) returns notToken:true so the worker skips the reply (no scan, no
+  // wasted X credits). DAS interface check, same gate /api/scan auto-detect uses.
+  if (!(await isTokenMint(mint))) {
+    return NextResponse.json({ success: true, notToken: true });
   }
 
   try {

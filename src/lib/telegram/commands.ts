@@ -1,5 +1,6 @@
 import 'server-only';
 import { isValidSolanaAddress } from '@/lib/address-utils';
+import { isTokenMint } from '@/lib/helius';
 import { scanTokenForensics } from '@/lib/scan-core';
 import { sendMessage, sendPhoto, answerCallbackQuery, editMessageCaption, editMessageText, type InlineKeyboard } from './client';
 import { formatTokenCard, formatRapSheet, FOOTER_ROW, type ScanResultLike } from './format';
@@ -69,7 +70,17 @@ function extractMint(text: string): string | null {
   return null;
 }
 
-async function handleScan(chatId: number, mint: string, replyTo: number): Promise<void> {
+/**
+ * Scan a token CA and reply with the card. `quiet` (group auto-detect) skips any
+ * reply when the address isn't a token, so a wallet pasted in a group is ignored
+ * instead of generating noise. In DMs / explicit /scan we tell the user.
+ */
+async function handleScan(chatId: number, mint: string, replyTo: number, quiet = false): Promise<void> {
+  // Only scan token CAs, never wallets. DAS interface check (same gate /api/scan uses).
+  if (!(await isTokenMint(mint))) {
+    if (!quiet) await sendMessage({ chatId, text: 'That looks like a wallet, not a token. Send a token contract address (CA).' });
+    return;
+  }
   await sendMessage({ chatId, text: '🔍 Scanning…', replyToMessageId: replyTo });
   try {
     const result = await runScan(mint);
@@ -256,9 +267,13 @@ export async function handleUpdate(update: TgUpdate): Promise<void> {
 
   // Scan when: explicit /scan, a DM (any message), or a group message that
   // contains a CA anywhere in the text (auto-detect, no /scan needed).
+  // Group auto-detect (not /scan) is quiet: a wallet pasted in a group is skipped
+  // silently instead of replying "that's a wallet".
   const mint = extractMint(text);
+  const isPrivate = msg.chat.type === 'private';
+  const quiet = !isPrivate && !isScanCmd;
   if (mint) {
-    await handleScan(chatId, mint, msg.message_id);
+    await handleScan(chatId, mint, msg.message_id, quiet);
   } else if (isScanCmd) {
     await sendMessage({ chatId, text: 'Usage: <code>/scan &lt;contract address&gt;</code>' });
   }
