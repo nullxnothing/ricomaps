@@ -20,13 +20,44 @@ const SCORE_YELLOW = 30;
 const COVERAGE_HIGH = 60;
 const COVERAGE_LOW = 30;
 
+// Establishment dampener: deep liquidity + age + size means the market has
+// survived the risks a fresh launch hasn't. A large, old, liquid token with
+// active authorities has effectively priced them in (often a program-controlled
+// or trusted mint), so we shave points and lift the auto-red. These are
+// deliberately high bars so a fresh rug can't fake its way out of red.
+const ESTABLISH_LIQUIDITY_USD = 250_000;   // deep LP: hard to exit-scam quietly
+const ESTABLISH_MARKETCAP_USD = 5_000_000; // real size
+const ESTABLISH_AGE_SECONDS = 30 * 86_400; // survived a month+
+const ESTABLISH_MAX_DAMPEN = 28;           // most we'll subtract (keeps a blue-chip with live authorities at ~yellow, not green)
+
 interface Tier { at: number; pts: number }
+
+interface RugMarket {
+  marketCapUsd?: number;
+  liquidityUsd?: number;
+  launchTimestamp?: number; // unix seconds
+}
 
 interface RugInput {
   security: TokenSecurityInfo | null;
   supply: SupplyConcentration;
   snipersDetected: number;
   bundleClustersDetected: number;
+  market?: RugMarket;
+}
+
+/**
+ * 0..1 establishment strength from liquidity, market cap, and age. Each axis is
+ * normalized to its bar and capped at 1; the result is their average. A token
+ * has to be genuinely large AND liquid AND aged to approach 1.
+ */
+function establishmentStrength(market: RugMarket | undefined): number {
+  if (!market) return 0;
+  const liq = Math.min((market.liquidityUsd ?? 0) / ESTABLISH_LIQUIDITY_USD, 1);
+  const mc = Math.min((market.marketCapUsd ?? 0) / ESTABLISH_MARKETCAP_USD, 1);
+  const ageSec = market.launchTimestamp ? Date.now() / 1000 - market.launchTimestamp : 0;
+  const age = Math.min(Math.max(ageSec, 0) / ESTABLISH_AGE_SECONDS, 1);
+  return (liq + mc + age) / 3;
 }
 
 /**
@@ -38,7 +69,7 @@ interface RugInput {
  * top10% is invisibility, not safety, discounting the score there would
  * manufacture false green lights.
  */
-export function computeRugScore({ security, supply, snipersDetected, bundleClustersDetected }: RugInput): RugScore {
+export function computeRugScore({ security, supply, snipersDetected, bundleClustersDetected, market }: RugInput): RugScore {
   const factors: RugFactor[] = [];
 
   if (security?.hasMintAuthority) {
@@ -64,11 +95,27 @@ export function computeRugScore({ security, supply, snipersDetected, bundleClust
   void snipersDetected; void bundleClustersDetected; // counts inform UI elsewhere; score uses supply %
 
   factors.sort((a, b) => b.points - a.points);
-  const score = Math.min(100, factors.reduce((sum, f) => sum + f.points, 0));
+  const rawScore = Math.min(100, factors.reduce((sum, f) => sum + f.points, 0));
 
-  // Both authorities active is an automatic critical regardless of the additive total.
+  // Establishment dampener: large/old/liquid tokens have survived the risks, so
+  // shave the score and lift the authority auto-red. A factor note explains it.
+  const establishment = establishmentStrength(market);
+  const dampen = Math.round(establishment * ESTABLISH_MAX_DAMPEN);
+  const score = Math.max(0, rawScore - dampen);
+  if (dampen > 0) {
+    factors.push({
+      label: `Established (deep LP / size / age): risk dampened -${dampen}`,
+      severity: 'low',
+      points: -dampen,
+    });
+    factors.sort((a, b) => b.points - a.points);
+  }
+
+  // Both authorities active is an automatic red, UNLESS the token is clearly
+  // established (then the additive score decides). Strong establishment ~ >=0.6.
   const bothAuthorities = Boolean(security?.hasMintAuthority && security?.hasFreezeAuthority);
-  const level: RugScore['level'] = bothAuthorities || score >= SCORE_RED ? 'red' : score >= SCORE_YELLOW ? 'yellow' : 'green';
+  const forceRed = bothAuthorities && establishment < 0.6;
+  const level: RugScore['level'] = forceRed || score >= SCORE_RED ? 'red' : score >= SCORE_YELLOW ? 'yellow' : 'green';
 
   const { confidence, coverageNote } = deriveConfidence(supply);
 

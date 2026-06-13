@@ -616,6 +616,11 @@ export async function mapTokenHolders(mintAddress: string, options: MapOptions =
     supply: supplyConcentration,
     snipersDetected: sniperWallets.length,
     bundleClustersDetected: bundleClusters.length,
+    market: {
+      marketCapUsd: tokenMetadata?.marketCap,
+      liquidityUsd: tokenMetadata?.liquidity,
+      launchTimestamp: tokenMetadata?.launchTimestamp,
+    },
   });
   const botActivityScore = computeBotActivityScore({
     mintAddress,

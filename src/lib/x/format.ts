@@ -19,6 +19,25 @@ function pct(n: number | undefined): string {
   return `${Math.round(n)}%`;
 }
 
+/** Compact age from a unix-seconds launch timestamp: 45m, 2h, 3d, 5mo. */
+function age(launchTs: number | undefined): string | null {
+  if (!launchTs || launchTs <= 0) return null;
+  const mins = (Date.now() / 1000 - launchTs) / 60;
+  if (mins < 60) return `${Math.max(1, Math.round(mins))}m`;
+  if (mins < 1440) return `${Math.round(mins / 60)}h`;
+  if (mins < 43200) return `${Math.round(mins / 1440)}d`;
+  return `${Math.round(mins / 43200)}mo`;
+}
+
+/** Compact USD: $76M, $910K, $1.2K. */
+function usd(n: number | undefined): string | null {
+  if (n == null || !Number.isFinite(n)) return null;
+  if (n >= 1e9) return `$${(n / 1e9).toFixed(1)}B`;
+  if (n >= 1e6) return `$${(n / 1e6).toFixed(1)}M`;
+  if (n >= 1e3) return `$${(n / 1e3).toFixed(0)}K`;
+  return `$${Math.round(n)}`;
+}
+
 /** Visible length of a line where the trailing map URL counts as 23 chars. */
 function weightedLength(line: string, mapUrl: string): number {
   return line.includes(mapUrl) ? line.length - mapUrl.length + URL_WEIGHT : line.length;
@@ -43,6 +62,17 @@ export function formatXReply(mint: string, result: ScanResultLike): string {
     : `${rugEmoji(undefined)} ${sym}`;
 
   const optional: string[] = [];
+
+  // Context line: MC · age · holders. Legitimacy at a glance, so a flagged score
+  // on a big established token isn't read as "about to rug".
+  const ctx: string[] = [];
+  const mc = usd(meta?.marketCap);
+  if (mc) ctx.push(`MC ${mc}`);
+  const tokenAge = age(meta?.launchTimestamp);
+  if (tokenAge) ctx.push(`${tokenAge} old`);
+  if (stats.totalHolders != null) ctx.push(`👀 ${stats.totalHolders}`);
+  if (ctx.length) optional.push(ctx.join(' · '));
+
   if (sc) {
     optional.push(`cabal ${pct(sc.cabalSupplyPct)} · bundled ${pct(sc.bundledSupplyPct)} · snipers ${pct(sc.sniperSupplyPct)}`);
   }
