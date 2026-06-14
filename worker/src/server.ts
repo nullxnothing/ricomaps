@@ -3,6 +3,7 @@ import cors from 'cors';
 import { LaserStreamManager, type SseClient } from './laserstream.js';
 import { AtlasEngine } from './atlas.js';
 import { XBot } from './x-bot.js';
+import { XTracker } from './x-tracker.js';
 
 const PORT = Number(process.env.PORT ?? 8080);
 const API_KEY = process.env.HELIUS_LASERSTREAM_API_KEY ?? '';
@@ -61,6 +62,16 @@ console.log(xBot
   ? '[worker] X reply bot enabled'
   : '[worker] X reply bot disabled (set X_USER_ID, X_BEARER_TOKEN, X_ACCESS_TOKEN, X_REFRESH_TOKEN, X_CLIENT_ID)');
 
+// X recycled-account tracker: daily handle→user-id resolver. Read-only, so it only
+// needs the app bearer + the internal bridge — no OAuth2 user token. Gated like atlas.
+const xTrackerReady = ATLAS_APP_URL && INTERNAL_API_SECRET && X_BEARER_TOKEN && process.env.X_TRACKER_ENABLED !== '0';
+const xTracker = xTrackerReady
+  ? new XTracker({ appUrl: ATLAS_APP_URL, internalSecret: INTERNAL_API_SECRET, bearerToken: X_BEARER_TOKEN })
+  : null;
+console.log(xTracker
+  ? '[worker] X account tracker enabled'
+  : '[worker] X account tracker disabled (needs ATLAS_APP_URL + INTERNAL_API_SECRET + X_BEARER_TOKEN)');
+
 const app = express();
 
 app.use(cors({ origin: APP_ORIGIN }));
@@ -73,6 +84,7 @@ app.get('/health', (_req, res) => {
     watchedWallets: manager.watchedWallets().length,
     atlas: atlas ? { enabled: true, clients: atlas.clientCount() } : { enabled: false },
     xBot: xBot ? { enabled: true, ...xBot.stats() } : { enabled: false },
+    xTracker: xTracker ? { enabled: true, ...xTracker.stats() } : { enabled: false },
   });
 });
 

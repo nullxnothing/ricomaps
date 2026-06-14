@@ -7,6 +7,7 @@ import type {
   BotActivityScore,
   CabalFingerprintResult,
   CabalFingerprint,
+  XAccountIdentity,
 } from '@/lib/types';
 import { formatUsd, formatMarketCap } from '@/lib/format';
 import { truncateAddress } from '@/lib/address-utils';
@@ -24,6 +25,7 @@ interface ScanStats {
   rugScore?: RugScore;
   botActivityScore?: BotActivityScore;
   cabalFingerprint?: CabalFingerprintResult;
+  holderQuality?: { winners: number; exitLiquidity: number; analyzed: number };
 }
 
 export interface ScanResultLike {
@@ -31,6 +33,9 @@ export interface ScanResultLike {
   tokenSecurity: TokenSecurityInfo | null;
   tokenMetadata: TokenMetadata | null;
   deployerInfo: DeployerInfo | null;
+  // The token's X account, resolved against the recycled-account tracker. Present
+  // only when the handle is known AND recycled (>1 prior handle on the same id).
+  xAccount?: XAccountIdentity | null;
 }
 
 const APP_URL = (process.env.NEXT_PUBLIC_APP_URL ?? 'https://ricomaps.fun').replace(/\/$/, '');
@@ -266,6 +271,16 @@ export function formatTokenCard(mint: string, result: ScanResultLike): TokenCard
     }
   }
 
+  // ── Holder quality: are the top holders winners or exit liquidity? ──
+  const hq = stats.holderQuality;
+  if (hq && hq.analyzed > 0) {
+    const rows = [
+      leaf(T, 'Winners ', `<b>${hq.winners}</b> <i>took profit</i>`),
+      leaf(L, 'Exit liq', `<b>${hq.exitLiquidity}</b> <i>underwater / dumping on</i>`),
+    ];
+    lines.push(...section('💰', `Top ${hq.analyzed} Holder PnL`, rows));
+  }
+
   const bot = stats.botActivityScore;
   if (bot && bot.level !== 'green') {
     const m = bot.metrics;
@@ -283,7 +298,10 @@ export function formatTokenCard(mint: string, result: ScanResultLike): TokenCard
     if (sc) s.push(leaf(T, 'Fresh ', `<b>${pct(sc.freshWalletPct)}</b>`));
     if (sc) s.push(leaf(T, 'Top 10', ` <b>${pct(sc.top10Pct)}</b> <i>(${sc.realHolderCount} holders)</i>`));
     if (dep) {
-      const d = dep.isSerialDeployer
+      // ⛔ rug-dev (rugged a prior tracked token) outranks the serial/clean read.
+      const d = dep.isRugDev
+        ? `⛔ <b>rug dev</b> <i>(${dep.priorRugCount} prior rug${dep.priorRugCount === 1 ? '' : 's'})</i>`
+        : dep.isSerialDeployer
         ? `🔴 <b>serial</b>${dep.pastLaunchCount != null ? ` <i>(${dep.pastLaunchCount} launches)</i>` : ''}`
         : '🟢 clean';
       const holds = dep.stillHolds === true && dep.heldSupplyPct != null ? ` · holds ${pct(dep.heldSupplyPct)}`
@@ -306,6 +324,14 @@ export function formatTokenCard(mint: string, result: ScanResultLike): TokenCard
   if (fpMatches > 0) {
     lines.push('');
     lines.push(`🚩 <b>${fpMatches} known bundler${fpMatches === 1 ? '' : 's'}</b> <i>seen on prior launches</i>`);
+  }
+
+  // ── Recycled X account (the token's handle changed names / was reused) ──
+  const x = result.xAccount;
+  if (x?.isRecycled && x.priorUsernames.length > 0) {
+    const prior = x.priorUsernames.slice(0, 3).map((u) => `@${esc(u)}`).join(', ');
+    lines.push('');
+    lines.push(`♻️ <b>Recycled X account</b> <i>— @${esc(x.currentUsername)} was previously ${prior}</i>`);
   }
 
   // Token's own socials line, then the full link grid — all inline in one text

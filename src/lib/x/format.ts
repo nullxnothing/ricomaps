@@ -101,15 +101,27 @@ export function formatXReply(mint: string, result: ScanResultLike): string {
     rows.push(`cabal ${pct(sc.cabalSupplyPct)} · bundled ${bundled} · snipers ${snipers}`);
   }
 
+  const hq = stats.holderQuality;
+  if (hq && hq.analyzed > 0 && (hq.winners > 0 || hq.exitLiquidity > 0)) {
+    rows.push(`top ${hq.analyzed} holders: ${hq.winners} winners · ${hq.exitLiquidity} exit liq`);
+  }
+
   const devBits: string[] = [];
   if (dep) {
-    devBits.push(dep.isSerialDeployer
+    devBits.push(dep.isRugDev
+      ? `⛔ rug dev (${dep.priorRugCount} prior)`
+      : dep.isSerialDeployer
       ? (dep.pastLaunchCount != null ? `dev serial (${dep.pastLaunchCount})` : 'dev serial')
       : 'dev clean');
   }
   const fpMatches = stats.cabalFingerprint?.matches?.length ?? 0;
   if (fpMatches > 0) devBits.push(`🚩 ${fpMatches} known bundler${fpMatches === 1 ? '' : 's'}`);
   if (devBits.length) rows.push(devBits.join(' · '));
+
+  const x = result.xAccount;
+  if (x?.isRecycled && x.priorUsernames.length > 0) {
+    rows.push(`♻️ recycled X: was @${x.priorUsernames.slice(0, 2).join(', @')}`);
+  }
 
   // CTA: the map link trails after a blank line. X folds a trailing URL into its
   // link-preview card, so the "full map:" label keeps the text reading cleanly.

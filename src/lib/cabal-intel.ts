@@ -1,6 +1,7 @@
 import { getCabalById } from './cabal-fingerprint';
-import { getWalletBalances, getWalletTransfers, NATIVE_SOL_MINT, WSOL_MINT, type WalletBalance } from './helius';
+import { getWalletBalances, type WalletBalance } from './helius';
 import { pLimit } from './concurrency';
+import { isSol, walletRealizedSol } from './wallet-pnl';
 import type { CabalIntel, CabalPosition, CabalWalletPnl } from './types';
 
 export type { CabalIntel, CabalPosition, CabalWalletPnl };
@@ -25,23 +26,6 @@ const TOP_POSITIONS = 8;
 // as tens of millions. Ignore any one position above this ceiling so the crew's
 // "holding now" total stays honest. Real bags on pump.fun crews sit well under it.
 const MAX_PLAUSIBLE_POSITION_USD = 5_000_000;
-const SOL_MINTS = new Set([NATIVE_SOL_MINT, WSOL_MINT]);
-
-function isSol(mint: string): boolean {
-  return SOL_MINTS.has(mint);
-}
-
-/** Net SOL extracted by one wallet over its recent transfer history. */
-async function walletRealizedSol(address: string): Promise<number> {
-  const transfers = await getWalletTransfers(address, { limit: 100, direction: 'any', solMode: 'merged', sortOrder: 'desc' });
-  if (!transfers) return 0;
-  let net = 0;
-  for (const t of transfers.data) {
-    if (!isSol(t.mint)) continue;
-    net += t.direction === 'out' ? t.amount : -t.amount; // out = took SOL, in = spent SOL
-  }
-  return net;
-}
 
 /**
  * Build the live intel snapshot for a cabal. Returns null if the cabal is

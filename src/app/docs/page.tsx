@@ -5,6 +5,7 @@ import { useState, useCallback, useEffect } from 'react';
 import { PageShell } from '@/components/layout/PageShell';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { Container } from '@/components/layout/Container';
+import { BorderBeam } from '@/components/ui/border-beam';
 
 /* ─── Embed Code Generator ─── */
 
@@ -541,10 +542,89 @@ export default function DocsPage() {
           </div>
         </section>
 
+        {/* ─── Bots & Surfaces (Telegram / Discord / X) ─── */}
+        <section id="bots">
+          <div className="flex items-center gap-3 mb-8">
+            <SectionBadge number={5} color="#26a5e4" />
+            <h2 className="text-2xl font-bold text-white">Bots &amp; Surfaces</h2>
+          </div>
+          <p className="text-lg leading-relaxed max-w-3xl mb-10" style={{ color: 'var(--text-secondary)' }}>
+            The same forensic engine that powers the web app runs everywhere your group already lives.
+            Paste a contract address and get the full rug / cabal / sniper / bundle read in-channel.
+          </p>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <FeatureCard
+              title="Telegram"
+              description="Add the bot to any group. Auto-detects pasted CAs, ranks your callers on a performance leaderboard (/top), and auto-warns on drainer links. Commands: /scan, /price, /pnl, /top, /x, /watch."
+              color="#26a5e4"
+              icon={icons.bolt}
+            />
+            <FeatureCard
+              title="Discord"
+              description="Slash commands backed by the same engine: /scan, /price, /pnl, /x. Ephemeral forensic cards with the bubble-map link. Verified Ed25519 interactions endpoint — no third-party middleman."
+              color="#5865f2"
+              icon={icons.shield}
+            />
+            <FeatureCard
+              title="X Reply Bot + Tracker"
+              description="Tweet a CA at the bot for a forensic reply. A daily tracker also fingerprints X accounts by immutable user id, so a renamed / recycled account is flagged on every token that links it."
+              color="#1d9bf0"
+              icon={icons.crosshair}
+            />
+          </div>
+          <div className="mt-6 rounded-lg p-6 border" style={{ background: 'var(--bg-surface)', borderColor: 'var(--border-base)', borderLeftColor: '#26a5e4', borderLeftWidth: '3px' }}>
+            <h3 className="text-white font-semibold mb-2">Group Caller Leaderboard</h3>
+            <p className="text-sm leading-relaxed" style={{ color: 'var(--text-tertiary)' }}>
+              Every CA pasted in a Telegram group is credited to its first caller and re-priced live (market
+              cap at call vs now). <code className="font-mono text-[#c3e88d]">/top [24h|7d|30d]</code> ranks
+              callers by their best multiple and hit rate — the call-tracking Phanes charges for, with the
+              forensic depth it doesn&apos;t have.
+            </p>
+          </div>
+        </section>
+
+        {/* ─── Persistent Forensics (reputation / PnL / recycled X) ─── */}
+        <section id="persistent-forensics">
+          <div className="flex items-center gap-3 mb-8">
+            <SectionBadge number={6} color="#a78bfa" />
+            <h2 className="text-2xl font-bold text-white">Persistent Forensics</h2>
+          </div>
+          <p className="text-lg leading-relaxed max-w-3xl mb-10" style={{ color: 'var(--text-secondary)' }}>
+            Single-token scanners forget. Rico Maps remembers across tokens — so a wallet&apos;s sniping,
+            bundling, and rug history follows it, and a crew is recognized even after it rotates wallets.
+          </p>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <FeatureCard
+              title="Wallet Reputation"
+              description="Sniper / bundler / cabal-funder / rug-dev tags accumulate per wallet across every scan. A serial sniper that's hit 8 launches is tagged on the 9th, not treated as a stranger."
+              color="#ff3366"
+              icon={icons.database}
+            />
+            <FeatureCard
+              title="Holder PnL & Win-Rate"
+              description="Top holders are scored by realized SOL flow: winners (took profit) vs exit liquidity (underwater / dumping on you). Whale tiers 🦐🐟🐬🦈🐋 size each holder at a glance."
+              color="#00FF41"
+              icon={icons.wallet}
+            />
+            <FeatureCard
+              title="Rug-Dev Flag"
+              description="A deployer that has rugged a prior tracked token carries a ⛔ flag into every future launch — cross-token dev accountability, not a one-shot guess."
+              color="#ff4444"
+              icon={icons.alert}
+            />
+            <FeatureCard
+              title="Recycled X Accounts"
+              description="Accounts are keyed on their immutable X user id. Two different @handles on one id = the same operator recycling an account. Surfaced as ♻️ with the prior handles on any token that links it."
+              color="#1d9bf0"
+              icon={icons.refresh}
+            />
+          </div>
+        </section>
+
         {/* ─── Section 5: Threat Scoring ─── */}
         <section>
           <div className="flex items-center gap-3 mb-8">
-            <SectionBadge number={5} color="#ff4444" />
+            <SectionBadge number={7} color="#ff4444" />
             <h2 className="text-2xl font-bold text-white">Threat Scoring</h2>
           </div>
           <div className="rounded-lg p-8 border" style={{ background: 'var(--bg-surface)', borderColor: 'var(--border-base)' }}>
@@ -582,7 +662,7 @@ export default function DocsPage() {
         {/* ─── Section 6: API Access ─── */}
         <section id="api-access">
           <div className="flex items-center gap-3 mb-8">
-            <SectionBadge number={6} color="#a78bfa" />
+            <SectionBadge number={8} color="#a78bfa" />
             <h2 className="text-2xl font-bold text-white">API Access</h2>
           </div>
           <div className="space-y-6">
@@ -602,6 +682,11 @@ export default function DocsPage() {
                   <span className="px-2 py-1 text-[#00FF41] text-xs font-mono rounded font-bold" style={{ background: 'rgba(0,255,65,0.08)' }}>POST</span>
                   <code className="text-white font-mono text-sm">/api/v1/quick-scan</code>
                   <span className="text-sm" style={{ color: 'var(--text-tertiary)' }}>Fast scan (top 15 holders, IP rate-limited, no key)</span>
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className="px-2 py-1 text-[#4a9eff] text-xs font-mono rounded font-bold" style={{ background: 'rgba(74,158,255,0.08)' }}>GET</span>
+                  <code className="text-white font-mono text-sm">/api/v1/x-account?handle=</code>
+                  <span className="text-sm" style={{ color: 'var(--text-tertiary)' }}>Recycled-X-account check: current + prior handles, linked CAs</span>
                 </div>
                 <div className="flex items-center gap-3">
                   <span className="px-2 py-1 text-[#4a9eff] text-xs font-mono rounded font-bold" style={{ background: 'rgba(74,158,255,0.08)' }}>GET</span>
@@ -672,31 +757,79 @@ export default function DocsPage() {
         {/* ─── RicoMaps for Agents (trading-agent skill) ─── */}
         <section id="agents">
           <div className="flex items-center gap-3 mb-8">
-            <SectionBadge number={7} color="#00FF41" />
+            <SectionBadge number={9} color="#00FF41" />
             <h2 className="text-2xl font-bold text-white">RicoMaps for Agents</h2>
           </div>
-          <div className="rounded-lg p-6 border" style={{ background: 'var(--bg-surface)', borderColor: 'var(--border-base)', borderLeftColor: '#00FF41', borderLeftWidth: '3px' }}>
-            <p className="mb-5" style={{ color: 'var(--text-secondary)' }}>
-              A Claude Code skill that gates your trading agent. Drop it in and every buy gets run
-              through the RicoMaps detector first: mint/freeze authority, snipers, Jito bundles, and
-              cabal funders, returned as a single <code className="px-1.5 py-0.5 rounded text-xs font-mono" style={{ background: 'var(--bg-void)', color: 'var(--green-primary)' }}>BLOCK</code> / <code className="px-1.5 py-0.5 rounded text-xs font-mono" style={{ background: 'var(--bg-void)', color: '#f59e0b' }}>CAUTION</code> / <code className="px-1.5 py-0.5 rounded text-xs font-mono" style={{ background: 'var(--bg-void)', color: '#9ca3af' }}>PASS</code> verdict.
-              No API key. If a scan fails, it blocks by default, so your agent never trades on a bad check.
+          {/* Animated hero download card */}
+          <div
+            className="agent-card relative rounded-2xl border p-8 sm:p-10 text-center mb-6"
+            style={{ background: 'radial-gradient(120% 120% at 50% 0%, rgba(0,255,65,0.05), var(--bg-void) 60%)', borderColor: 'rgba(0,255,65,0.18)' }}
+          >
+            {/* Orbiting border beam */}
+            <BorderBeam size={120} duration={7} colorFrom="#00FF41" colorTo="#00cc33" borderWidth={1.5} />
+            <BorderBeam size={120} duration={7} delay={3.5} colorFrom="#00FF41" colorTo="#34d399" borderWidth={1.5} />
+
+            {/* Breathing glow + sweeping scan line (decorative) */}
+            <div className="agent-glow" style={{ top: '-90px', left: '50%', marginLeft: '-160px' }} />
+            <div className="agent-scanline" />
+
+            {/* Pulsing download icon */}
+            <div className="relative inline-flex items-center justify-center mb-5">
+              <span className="absolute inset-0 rounded-2xl" style={{ background: 'rgba(0,255,65,0.12)', filter: 'blur(14px)' }} />
+              <span
+                className="relative inline-flex items-center justify-center w-16 h-16 rounded-2xl border"
+                style={{ background: 'rgba(0,255,65,0.06)', borderColor: 'rgba(0,255,65,0.25)' }}
+              >
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#00FF41" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ animation: 'agent-arrow 2.2s ease-in-out infinite' }}>
+                  <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
+                  <polyline points="7 10 12 15 17 10" />
+                  <line x1="12" y1="15" x2="12" y2="3" />
+                </svg>
+              </span>
+            </div>
+
+            <h3 className="text-2xl font-bold text-white mb-2">RicoMaps Rug Check Skill</h3>
+            <p className="mx-auto max-w-xl text-sm leading-relaxed mb-6" style={{ color: 'var(--text-tertiary)' }}>
+              A Claude Code skill that gates your trading agent. Every buy runs through the RicoMaps
+              detector first: mint/freeze authority, snipers, Jito bundles, and cabal funders. No API
+              key. If a scan fails, it blocks by default, so your agent never trades on a bad check.
             </p>
+
+            {/* Live verdict chips */}
+            <div className="flex items-center justify-center gap-2.5 mb-7">
+              {[
+                { label: 'BLOCK', color: '#ef4444', delay: '0s' },
+                { label: 'CAUTION', color: '#f59e0b', delay: '0.5s' },
+                { label: 'PASS', color: '#00FF41', delay: '1s' },
+              ].map((v) => (
+                <span
+                  key={v.label}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-mono font-bold tracking-wide border"
+                  style={{ color: v.color, borderColor: `${v.color}33`, background: `${v.color}0d` }}
+                >
+                  <span className="w-1.5 h-1.5 rounded-full" style={{ background: v.color, animation: `agent-verdict 1.5s ease-in-out infinite`, animationDelay: v.delay }} />
+                  {v.label}
+                </span>
+              ))}
+            </div>
 
             <a
               href="/ricomaps-rugcheck.zip"
               download
-              className="btn-cta inline-flex items-center gap-2"
+              className="btn-cta inline-flex items-center gap-2 text-base px-6 py-3"
             >
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
                 <polyline points="7 10 12 15 17 10" />
                 <line x1="12" y1="15" x2="12" y2="3" />
               </svg>
               Download Skill (.zip)
             </a>
+            <p className="mt-3 text-[11px] font-mono" style={{ color: 'var(--text-faint)' }}>~7 KB · no dependencies · works with any Claude Code agent</p>
+          </div>
 
-            <div className="mt-6">
+          <div className="rounded-lg p-6 border" style={{ background: 'var(--bg-surface)', borderColor: 'var(--border-base)' }}>
+            <div>
               <h3 className="text-lg font-semibold text-white mb-3">Install</h3>
               <ol className="space-y-2 text-sm list-decimal pl-5" style={{ color: 'var(--text-secondary)' }}>
                 <li>Download the .zip above and unzip it.</li>
@@ -729,7 +862,7 @@ node scripts/rugcheck.mjs <MINT_ADDRESS> --json`}
         {/* ─── Section 8: Embed on Your Site ─── */}
         <section>
           <div className="flex items-center gap-3 mb-8">
-            <SectionBadge number={8} color="#f59e0b" />
+            <SectionBadge number={10} color="#f59e0b" />
             <h2 className="text-2xl font-bold text-white">Embed on Your Site</h2>
           </div>
           <div className="space-y-6">
@@ -796,7 +929,7 @@ node scripts/rugcheck.mjs <MINT_ADDRESS> --json`}
         {/* ─── Browser Extension ─── */}
         <section id="extension">
           <div className="flex items-center gap-3 mb-8">
-            <SectionBadge number={9} color="#a78bfa" />
+            <SectionBadge number={11} color="#a78bfa" />
             <h2 className="text-2xl font-bold text-white">Browser Extension</h2>
           </div>
           <div className="rounded-lg p-6 border" style={{ background: 'var(--bg-surface)', borderColor: 'var(--border-base)' }}>
@@ -837,7 +970,7 @@ node scripts/rugcheck.mjs <MINT_ADDRESS> --json`}
         {/* ─── Section 10: Data Sources & Methodology ─── */}
         <section>
           <div className="flex items-center gap-3 mb-8">
-            <SectionBadge number={10} color="#22d3ee" />
+            <SectionBadge number={12} color="#22d3ee" />
             <h2 className="text-2xl font-bold text-white">Data Sources & Methodology</h2>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
@@ -894,7 +1027,7 @@ node scripts/rugcheck.mjs <MINT_ADDRESS> --json`}
         {/* ─── Section 11: Limitations ─── */}
         <section>
           <div className="flex items-center gap-3 mb-8">
-            <SectionBadge number={11} color="#737373" />
+            <SectionBadge number={13} color="#737373" />
             <h2 className="text-2xl font-bold text-white">Limitations</h2>
           </div>
           <div className="rounded-lg p-6 border" style={{ background: 'var(--bg-surface)', borderColor: 'var(--border-base)' }}>

@@ -115,6 +115,7 @@ export async function POST(request: NextRequest) {
         riskScore,
         snipersDetected: result.stats.snipersDetected,
         bundleClustersDetected: result.stats.bundleClustersDetected,
+        holderQuality: result.stats.holderQuality,
       },
       tokenSecurity: result.tokenSecurity,
       tokenMetadata: result.tokenMetadata,

@@ -67,6 +67,11 @@ export interface GraphNode {
     isPool?: boolean;            // Liquidity pool / AMM / treasury, not a real holder
     threatScore?: number;        // Composite threat score 0-100
     threatLevel?: 'critical' | 'high' | 'medium' | 'low' | 'safe';
+    // SOL-flow PnL (top holders only): net SOL extracted. + = took profit, − = underwater.
+    realizedSol?: number;
+    traderQuality?: 'winner' | 'neutral' | 'exit-liquidity';
+    // Wealth tier from SOL balance (Phanes-parity 🦐🐟🐬🦈🐋).
+    wealthTier?: { emoji: string; label: string };
     transferPatterns?: {
       totalIn: number;           // Total SOL received
       totalOut: number;          // Total SOL sent
@@ -149,6 +154,9 @@ export interface DeployerInfo {
   inAnalyzedSet: boolean;       // whether deployer was within the analyzed top-N
   pastLaunchCount: number | null; // tokens created by this address (null = lookup skipped/failed)
   isSerialDeployer: boolean;
+  // Cross-token rug history from the persistent wallet-reputation store (Phase 1).
+  priorRugCount?: number;       // prior tokens by this dev that ended 'red'
+  isRugDev?: boolean;           // has rugged before → the ⛔ flag
   fundedBy: { address: string; amount: number; source: string } | null;
   notes: string[];              // attribution + coverage caveats
 }
@@ -663,6 +671,64 @@ export interface CabalFingerprint {
 export interface CabalFingerprintResult {
   id: string;
   matches: CabalFingerprint[];
+}
+
+// Persistent per-wallet reputation: tags accumulate across every scan so a wallet's
+// sniper/bundler/insider/dev history follows it across tokens (Phanes-parity, but
+// keyed on real cross-token behavior rather than a one-off scan).
+export type WalletReputationTag =
+  | 'sniper'
+  | 'bundler'
+  | 'cabal-funder'
+  | 'insider'
+  | 'serial-deployer'
+  | 'rug-dev';
+
+export interface WalletReputation {
+  address: string;
+  tags: WalletReputationTag[];        // distinct tags ever observed for this wallet
+  tokensSniped: number;               // count of distinct tokens this wallet sniped
+  tokensBundled: number;              // count of distinct tokens this wallet bundled
+  tokensDeployed: number;             // count of distinct tokens this wallet deployed
+  tokensRugged: number;               // deployed tokens that ended 'red' (rug outcome)
+  timesSeen: number;                  // distinct tokens this wallet appeared in (any role)
+  mints: string[];                    // distinct mints seen, capped (most-recent kept)
+  firstSeen: number;                  // unix seconds
+  lastSeen: number;                   // unix seconds
+}
+
+// One observation fed into the store from a scan (fire-and-forget upsert input).
+export interface WalletReputationObservation {
+  address: string;
+  mint: string;
+  tags: WalletReputationTag[];
+  rugged?: boolean;                   // for deployers: did this token end as a rug
+}
+
+// X (Twitter) account tracking. The immutable numeric `userId` is the identity key:
+// a handle can change, but the id doesn't. Two different @handles sharing one id =
+// the same operator recycling an account (Phanes' signature signal).
+export interface XAccountSnapshot {
+  userId: string;                     // immutable numeric X user id (the real identity)
+  username: string;                   // @handle at time of snapshot (mutable)
+  name?: string;                      // display name
+  createdAt?: number;                 // account creation, unix seconds
+  followers?: number;
+  seenAt: number;                     // when WE captured this snapshot, unix seconds
+  mints?: string[];                   // token CAs this handle was seen shilling (linkage)
+}
+
+// The resolved cross-time view of one X identity, surfaced in scans + the /x command.
+export interface XAccountIdentity {
+  userId: string;
+  currentUsername: string;            // most-recent handle
+  priorUsernames: string[];           // distinct earlier handles (the recycling evidence)
+  isRecycled: boolean;                // >1 distinct handle ever seen on this id
+  createdAt?: number;
+  followers?: number;
+  firstSeen: number;
+  lastSeen: number;
+  linkedMints: string[];              // CAs this identity has been associated with
 }
 
 export interface BlacklistEntry {

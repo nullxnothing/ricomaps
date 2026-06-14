@@ -1,8 +1,27 @@
 import { mapTokenHolders } from '@/lib/holder-mapper';
 import { getCachedTokenScan } from '@/lib/db-cache';
+import { getXIdentityByUsername, trackHandles, normalizeHandle } from '@/lib/x-account-history';
+import type { TokenMetadata, XAccountIdentity } from '@/lib/types';
 import type { ScanResultLike } from '@/lib/telegram/format';
 
 export type { ScanResultLike };
+
+/**
+ * Resolve a token's X handle against the recycled-account tracker. Always queues the
+ * handle for daily tracking (so the timeline keeps building); returns the identity
+ * only when it's KNOWN-RECYCLED, so the bots surface a warning only on a real signal.
+ */
+async function resolveXAccount(meta: TokenMetadata | null): Promise<XAccountIdentity | null> {
+  const handle = normalizeHandle(meta?.twitter ?? meta?.twitterHandle);
+  if (!handle) return null;
+  try {
+    void trackHandles([handle]);            // fire-and-forget: build the timeline over time
+    const identity = await getXIdentityByUsername(handle);
+    return identity?.isRecycled ? identity : null;
+  } catch {
+    return null;
+  }
+}
 
 interface ScanOptions {
   /** Skip the cache and force a fresh scan. */
@@ -26,6 +45,7 @@ export async function scanTokenForensics(mint: string, options: ScanOptions = {}
         tokenSecurity: cached.tokenSecurity,
         tokenMetadata: cached.tokenMetadata,
         deployerInfo: cached.deployerInfo,
+        xAccount: await resolveXAccount(cached.tokenMetadata),
       };
     }
   }
@@ -35,5 +55,6 @@ export async function scanTokenForensics(mint: string, options: ScanOptions = {}
     tokenSecurity: result.tokenSecurity,
     tokenMetadata: result.tokenMetadata,
     deployerInfo: result.deployerInfo,
+    xAccount: await resolveXAccount(result.tokenMetadata),
   };
 }

@@ -85,14 +85,18 @@ export function buildDeployerInfo(args: {
   holdings: ReturnType<typeof computeDeployerHoldings>;
   pastLaunchCount: number | null;
   fundedBy: DeployerInfo['fundedBy'];
+  priorRugCount?: number;       // from the persistent wallet-reputation store
 }): DeployerInfo {
-  const { resolved, holdings, pastLaunchCount, fundedBy } = args;
+  const { resolved, holdings, pastLaunchCount, fundedBy, priorRugCount = 0 } = args;
   const notes = [...resolved.notes];
   if (holdings.note) notes.push(holdings.note);
   // pump.fun deployers are rarely the on-chain DAS creator, so a 0 count is a
   // floor, not proof of a first-timer. Be explicit rather than imply safety.
   if (resolved.source === 'mint-tx-signer' && pastLaunchCount === 0) {
     notes.push('No prior launches found via on-chain creator records (may undercount pump.fun devs).');
+  }
+  if (priorRugCount > 0) {
+    notes.push(`⛔ This dev has rugged ${priorRugCount} prior token${priorRugCount === 1 ? '' : 's'} we've tracked.`);
   }
 
   return {
@@ -103,6 +107,8 @@ export function buildDeployerInfo(args: {
     inAnalyzedSet: holdings.inAnalyzedSet,
     pastLaunchCount,
     isSerialDeployer: pastLaunchCount !== null && pastLaunchCount > SERIAL_THRESHOLD,
+    priorRugCount,
+    isRugDev: priorRugCount > 0,
     fundedBy,
     notes,
   };

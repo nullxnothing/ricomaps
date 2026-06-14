@@ -3,7 +3,7 @@ import {
   getAsset, deriveTokenSecurity, batchIdentifyWallets, batchGetEarlyTransactions,
   batchGetFirstIncomingSolTransfers, searchAssetsByCreator, getWalletFundedBy,
 } from './helius';
-import { GraphNode, GraphLink, GraphData, NODE_COLORS, TokenSecurityInfo, TokenMetadata, EnrichedFunderInfo, BundleCluster, SupplyConcentration, RugScore, DeployerInfo, CabalFingerprintResult, BotActivityScore } from './types';
+import { GraphNode, GraphLink, GraphData, NODE_COLORS, TokenSecurityInfo, TokenMetadata, EnrichedFunderInfo, BundleCluster, SupplyConcentration, RugScore, DeployerInfo, CabalFingerprintResult, BotActivityScore, WalletReputationObservation, WalletReputationTag } from './types';
 import { computeThreatScore, getThreatLevel } from './threat-scorer';
 import { computeSupplyConcentration } from './supply-metrics';
 import { computeRugScore } from './rug-scorer';
@@ -14,6 +14,8 @@ import { createNode } from './graph-utils';
 import { detectBundleClusters } from './bundle-detector';
 import { generateClusterId, persistBundleClusters } from './db-blacklist';
 import { computeFingerprintId, deriveFingerprintComponents, upsertCabalFingerprint, findMatchingCabals } from './cabal-fingerprint';
+import { recordWalletReputations, getWalletReputations, reputationToTags } from './wallet-reputation';
+import { enrichWallets, traderQuality, wealthTier } from './wallet-pnl';
 import { upsertAtlasToken } from './db-cabal';
 import { extractBehavioralFeatures, clusterByBehavior } from './behavioral-cluster';
 import { fetchTokenMarketData } from './dexscreener';
@@ -73,6 +75,7 @@ export async function mapTokenHolders(mintAddress: string, options: MapOptions =
     rugScore: RugScore;
     botActivityScore: BotActivityScore;
     cabalFingerprint?: CabalFingerprintResult;
+    holderQuality: { winners: number; exitLiquidity: number; analyzed: number };
   };
   tokenSecurity: TokenSecurityInfo | null;
   tokenMetadata: TokenMetadata | null;
@@ -785,6 +788,102 @@ export async function mapTokenHolders(mintAddress: string, options: MapOptions =
     console.error('[Fingerprint] laundered-cluster feedback failed:', error);
   }
 
+  // ═══════════════════════════════════════════════════════════
+  // PHASE 5d: Persistent per-wallet reputation. Read prior cross-token history back
+  // onto each holder's identity.tags, then record THIS token's observations so the
+  // rap sheet compounds over time. Sniper/bundler/cabal flags are computed per-scan
+  // above; this is what makes them follow a wallet across tokens (Phanes-parity).
+  // ═══════════════════════════════════════════════════════════
+  let deployerPriorRugCount = 0;
+  try {
+    // Include the deployer in the batch so its cross-token rug history is read in the
+    // same round-trip (it may not be in the holder set).
+    const repAddresses = holderNodes.map(n => n.id);
+    if (resolvedDeployer && !resolvedDeployer.unattributable) repAddresses.push(resolvedDeployer.address);
+    const reputations = await getWalletReputations(repAddresses);
+
+    // Prior rugs by this dev, EXCLUDING the current token (which isn't recorded yet
+    // at read time, but guard anyway): drives the ⛔ rug-dev flag on the card.
+    if (resolvedDeployer) {
+      const devRep = reputations.get(resolvedDeployer.address);
+      deployerPriorRugCount = devRep?.tokensRugged ?? 0;
+    }
+
+    // Read-back: merge stored rap-sheet tags into the existing identity.tags plumbing
+    // so NodeDetailPanel / v1/analyze surface them with no UI rework.
+    for (const node of holderNodes) {
+      const rep = reputations.get(node.id);
+      if (!rep) continue;
+      const repTags = reputationToTags(rep);
+      if (repTags.length === 0) continue;
+      const base = node.identity ?? { name: null, category: null, type: null, tags: [] };
+      node.identity = { ...base, tags: [...new Set([...base.tags, ...repTags])] };
+    }
+
+    // Record this token's observations (fire-and-forget; never blocks the scan).
+    const observations: WalletReputationObservation[] = [];
+    for (const node of holderNodes) {
+      const tags: WalletReputationTag[] = [];
+      if (node.metadata?.isSniper) tags.push('sniper');
+      if (node.metadata?.isBundled) tags.push('bundler');
+      if (node.metadata?.sharedFunderGroup) tags.push('cabal-funder');
+      if (tags.length > 0) observations.push({ address: node.id, mint: mintAddress, tags });
+    }
+    // The deployer earns its own observation keyed on deploy behavior + this outcome.
+    if (resolvedDeployer && !resolvedDeployer.unattributable) {
+      const isSerial = (deployerHistory?.count ?? 0) > 1;
+      const rugged = rugScore.level === 'red';
+      const devTags: WalletReputationTag[] = [];
+      if (rugged) devTags.push('rug-dev');
+      else if (isSerial) devTags.push('serial-deployer');
+      if (devTags.length > 0) {
+        observations.push({ address: resolvedDeployer.address, mint: mintAddress, tags: devTags, rugged });
+      }
+    }
+    recordWalletReputations(observations).catch(err =>
+      console.error('[Wallet Reputation] record failed:', err));
+  } catch (error) {
+    console.error('[Wallet Reputation] read-back/record failed:', error);
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  // PHASE 5e: PnL / trader-quality + wealth tiers on the TOP holders.
+  // Bounded: only the largest non-pool holders are enriched (2 cached Helius calls
+  // each) so credit spend stays predictable. Surfaces "are these holders winners or
+  // exit liquidity" + Phanes-style 🦐→🐋 tiers without touching the full holder set.
+  // ═══════════════════════════════════════════════════════════
+  try {
+    const TOP_ENRICH = 12;
+    const topRealHolders = holderNodes
+      .filter(n => n.type !== 'pool' && !n.metadata?.isPool)
+      .sort((a, b) => (b.tokenAmount ?? 0) - (a.tokenAmount ?? 0))
+      .slice(0, TOP_ENRICH);
+
+    const enrichment = await enrichWallets(topRealHolders.map(n => n.id), { maxWallets: TOP_ENRICH });
+    for (const node of topRealHolders) {
+      const e = enrichment.get(node.id);
+      if (!e) continue;
+      node.solBalance = e.solBalance;
+      node.metadata = {
+        ...node.metadata,
+        realizedSol: e.realizedSol,
+        traderQuality: traderQuality(e.realizedSol),
+        wealthTier: wealthTier(e.solBalance),
+      };
+    }
+  } catch (error) {
+    console.error('[Wallet PnL] enrichment failed:', error);
+  }
+
+  // Roll the per-holder trader-quality up into a token-level summary the bots can
+  // render directly ("top holders: 2 winners, 3 exit-liquidity") without re-deriving.
+  const enrichedHolders = holderNodes.filter(n => n.metadata?.traderQuality !== undefined);
+  const holderQuality = {
+    winners: enrichedHolders.filter(n => n.metadata?.traderQuality === 'winner').length,
+    exitLiquidity: enrichedHolders.filter(n => n.metadata?.traderQuality === 'exit-liquidity').length,
+    analyzed: enrichedHolders.length,
+  };
+
   // Assemble deployer intel from the resolved signer + overlapped lookups.
   const deployerInfo: DeployerInfo | null = resolvedDeployer
     ? buildDeployerInfo({
@@ -794,6 +893,7 @@ export async function mapTokenHolders(mintAddress: string, options: MapOptions =
         fundedBy: deployerFundedBy
           ? { address: deployerFundedBy.address, amount: deployerFundedBy.amount, source: deployerFundedBy.txSource }
           : null,
+        priorRugCount: deployerPriorRugCount,
       })
     : null;
 
@@ -827,6 +927,7 @@ export async function mapTokenHolders(mintAddress: string, options: MapOptions =
       rugScore,
       botActivityScore,
       cabalFingerprint,
+      holderQuality,
     },
     tokenSecurity, tokenMetadata, deployerInfo,
   };

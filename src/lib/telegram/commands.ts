@@ -2,9 +2,16 @@ import 'server-only';
 import { isValidSolanaAddress } from '@/lib/address-utils';
 import { isTokenMint } from '@/lib/helius';
 import { scanTokenForensics } from '@/lib/scan-core';
+import { fetchTokenMarketData } from '@/lib/dexscreener';
+import { getWalletBalances } from '@/lib/helius';
+import { walletRealizedSol } from '@/lib/wallet-pnl';
+import { formatUsd, formatMarketCap } from '@/lib/format';
 import { sendMessage, sendPhoto, answerCallbackQuery, editMessageCaption, editMessageText, type InlineKeyboard } from './client';
 import { formatTokenCard, formatRapSheet, FOOTER_ROW, type ScanResultLike } from './format';
 import { addSubscription, removeSubscription, listSubscriptions } from './subscriptions';
+import { recordCall, buildLeaderboard, type LeaderboardWindow } from './group-calls';
+import { inspectMessage } from './scam-guard';
+import { getXIdentityByUsername, trackHandles, normalizeHandle } from '@/lib/x-account-history';
 
 const APP_URL = (process.env.NEXT_PUBLIC_APP_URL ?? 'https://ricomaps.fun').replace(/\/$/, '');
 
@@ -13,7 +20,8 @@ const CA_RE = /[1-9A-HJ-NP-Za-km-z]{32,44}/g;
 
 // --- Minimal subset of the Telegram update shape we consume ---
 interface TgChat { id: number; type: string }
-interface TgMessage { message_id: number; chat: TgChat; text?: string; photo?: unknown[] }
+interface TgUser { id: number; username?: string; first_name?: string }
+interface TgMessage { message_id: number; chat: TgChat; from?: TgUser; text?: string; photo?: unknown[] }
 interface TgCallbackQuery { id: string; data?: string; message?: TgMessage }
 export interface TgUpdate {
   message?: TgMessage;
@@ -36,13 +44,18 @@ const HELP = [
   '└ market · security · live bubble map',
   '',
   '<b>Commands</b>',
-  '├ <code>/scan &lt;CA&gt;</code> · scan a token',
+  '├ <code>/scan &lt;CA&gt;</code> · full forensic scan',
+  '├ <code>/price &lt;CA&gt;</code> · quick market snapshot',
+  '├ <code>/pnl &lt;wallet&gt;</code> · wallet SOL PnL + bags',
+  '├ <code>/top [24h|7d|30d]</code> · group caller leaderboard',
+  '├ <code>/x &lt;handle&gt;</code> · recycled X-account check',
   '├ <code>/watch &lt;wallet&gt;</code> · track a cabal wallet',
   '└ <code>/watchlist</code> · what you\'re watching',
   '',
   '🔔 Tap <b>Watch</b> on any card for live alerts: bundle clusters, dev sells, blacklisted-bundler buys, and rugs.',
   '🚩 Tap <b>Bundler rap sheet</b> to see a crew\'s prior launches and rug rate.',
-  '👥 In groups, just paste a CA. No command needed.',
+  '👥 In groups, just paste a CA — it scans AND logs your call for the leaderboard.',
+  '🛡 Drainer links and flagged scam wallets are auto-warned in groups.',
 ].join('\n');
 
 /** Help-message keyboard: add-to-group + open the app. */
@@ -224,6 +237,146 @@ async function handleUnwatchCmd(chatId: number, text: string): Promise<void> {
   await sendMessage({ chatId, text: `🔕 Unwatched <code>${addr}</code>.` });
 }
 
+/** Best-effort display handle for a caller: @username, else first name, else "anon". */
+function displayName(user: TgUser | undefined): string {
+  if (!user) return 'anon';
+  if (user.username) return `@${user.username}`;
+  return user.first_name ?? `id${user.id}`;
+}
+
+function escHtml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+/** /price <CA> — quick market snapshot (no full forensic scan). */
+async function handlePrice(chatId: number, text: string): Promise<void> {
+  const mint = extractMint(text);
+  if (!mint) {
+    await sendMessage({ chatId, text: 'Usage: <code>/price &lt;contract address&gt;</code>' });
+    return;
+  }
+  const m = await fetchTokenMarketData(mint);
+  if (!m || (m.priceUsd == null && m.marketCap == null)) {
+    await sendMessage({ chatId, text: '⚠️ No market data found for that token yet.' });
+    return;
+  }
+  const sym = m.symbol ? `$${escHtml(m.symbol)}` : escHtml(m.name ?? 'Token');
+  const lines = [`💱 <b>${sym}</b>`];
+  if (m.priceUsd != null) lines.push(`├ <code>Price</code> $${m.priceUsd < 0.01 ? m.priceUsd.toPrecision(2) : m.priceUsd.toFixed(4)}`);
+  if (m.marketCap != null) lines.push(`├ <code>MC   </code> ${formatMarketCap(m.marketCap)}`);
+  if (m.volume24h != null) lines.push(`├ <code>Vol  </code> ${formatUsd(m.volume24h)}`);
+  if (m.liquidity != null) lines.push(`├ <code>LP   </code> ${formatUsd(m.liquidity)}`);
+  if (m.priceChange24h != null) lines.push(`└ <code>24h  </code> ${m.priceChange24h >= 0 ? '+' : ''}${m.priceChange24h.toFixed(0)}% ${m.priceChange24h >= 0 ? '🟢' : '🔴'}`);
+  await sendMessage({
+    chatId,
+    text: lines.join('\n'),
+    replyMarkup: [[{ text: '🔬 Full forensic scan', callback_data: `refresh:${mint}` }, { text: '🫧 Bubble Map ↗', url: `${APP_URL}/?mint=${mint}` }]],
+  });
+}
+
+/** /pnl <wallet> — SOL-flow PnL + portfolio snapshot for one wallet. */
+async function handlePnl(chatId: number, text: string): Promise<void> {
+  const addr = (text.match(CA_RE) ?? []).find(isValidSolanaAddress);
+  if (!addr) {
+    await sendMessage({ chatId, text: 'Usage: <code>/pnl &lt;wallet address&gt;</code>\nShows net SOL extracted + current portfolio.' });
+    return;
+  }
+  const [realizedSol, balances] = await Promise.all([
+    walletRealizedSol(addr).catch(() => 0),
+    getWalletBalances(addr).catch(() => null),
+  ]);
+  const verdict = realizedSol >= 1 ? '🟢 net extractor (winner)' : realizedSol <= -2 ? '🔴 net spender (underwater)' : '⚪️ flat';
+  const lines = [
+    `💰 <b>Wallet PnL</b>`,
+    `<code>${escHtml(addr)}</code>`,
+    '',
+    `├ <code>Realized</code> <b>${realizedSol >= 0 ? '+' : ''}${realizedSol.toFixed(2)} SOL</b> <i>(last 100 transfers)</i>`,
+    `├ <code>Verdict </code> ${verdict}`,
+    `└ <code>Bags    </code> ${balances ? formatUsd(balances.totalUsdValue) : 'n/a'}`,
+    '',
+    '<i>SOL-flow proxy: SOL pulled out minus SOL put in. Not mark-to-market.</i>',
+  ];
+  await sendMessage({
+    chatId,
+    text: lines.join('\n'),
+    replyMarkup: [[{ text: '🕸 Trace funders ↗', url: `${APP_URL}/?address=${addr}` }]],
+  });
+}
+
+/** /top [24h|7d|30d|all] — group caller leaderboard ranked by call performance. */
+async function handleLeaderboard(chatId: number, text: string): Promise<void> {
+  const arg = text.trim().split(/\s+/)[1]?.toLowerCase();
+  const window: LeaderboardWindow = arg === '24h' || arg === '7d' || arg === '30d' ? arg : 'all';
+  const entries = await buildLeaderboard(chatId, window);
+  if (entries.length === 0) {
+    await sendMessage({
+      chatId,
+      text: '📊 No calls tracked yet.\n\nPaste a token CA in this group and it gets logged as your call. Performance is scored from market cap at call vs now.',
+    });
+    return;
+  }
+  const medal = (i: number) => (i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `${i + 1}.`);
+  const lines = [`🏆 <b>Caller Leaderboard</b> <i>(${window})</i>`, ''];
+  entries.slice(0, 10).forEach((e, i) => {
+    const best = e.bestMultiple >= 1 ? `${e.bestMultiple.toFixed(1)}x best` : 'no priced calls';
+    lines.push(`${medal(i)} <b>${escHtml(e.username)}</b> — ${best} · ${e.calls} call${e.calls === 1 ? '' : 's'} · ${e.hitRate.toFixed(0)}% hit`);
+  });
+  lines.push('', '<i>Ranked by best single call (MC now ÷ MC at call). Hit = reached 2x+.</i>');
+  await sendMessage({ chatId, text: lines.join('\n') });
+}
+
+/** /x <handle> — recycled-account check for an X handle. */
+async function handleXAccount(chatId: number, text: string): Promise<void> {
+  const raw = text.trim().split(/\s+/)[1];
+  const handle = normalizeHandle(raw);
+  if (!handle) {
+    await sendMessage({ chatId, text: 'Usage: <code>/x &lt;handle&gt;</code>\nChecks whether an X account has been recycled (renamed / reused).' });
+    return;
+  }
+  const identity = await getXIdentityByUsername(handle);
+  if (!identity) {
+    await trackHandles([handle]);
+    await sendMessage({ chatId, text: `🆕 <b>@${escHtml(handle)}</b> isn't in the tracker yet. Now queued — check back in a day.` });
+    return;
+  }
+  const lines = [`♻️ <b>X account: @${escHtml(identity.currentUsername)}</b>`];
+  if (identity.isRecycled) {
+    const prior = identity.priorUsernames.map((u) => `@${escHtml(u)}`).join(', ');
+    lines.push(`├ <code>Recycled</code> 🔴 <b>yes</b> — was ${prior}`);
+  } else {
+    lines.push(`├ <code>Recycled</code> 🟢 no rename seen since tracking`);
+  }
+  if (identity.followers != null) lines.push(`├ <code>Followers</code> ${identity.followers.toLocaleString()}`);
+  if (identity.linkedMints.length) lines.push(`├ <code>Tokens   </code> ${identity.linkedMints.length} linked CA${identity.linkedMints.length === 1 ? '' : 's'}`);
+  lines.push(`└ <code>Tracked  </code> since ${new Date(identity.firstSeen * 1000).toISOString().slice(0, 10)}`);
+  await sendMessage({ chatId, text: lines.join('\n') });
+}
+
+/** Record a group call + run the scam guard on a group message. Both best-effort. */
+async function handleGroupMessage(msg: TgMessage, mint: string | null): Promise<void> {
+  const chatId = msg.chat.id;
+  // Scam guard (warn-only): flag drainer links / known scam wallets pasted in groups.
+  const finding = inspectMessage(msg.text ?? '');
+  if (finding) {
+    await sendMessage({
+      chatId,
+      text: `⚠️ <b>Heads up:</b> a message above ${finding.reason}.\n<code>${escHtml(finding.evidence)}</code>\n<i>Do not connect your wallet or sign anything. RicoMaps auto-flagged this.</i>`,
+      replyToMessageId: msg.message_id,
+    });
+  }
+  // Call-tracking: first poster of a CA in this group is credited.
+  if (mint && msg.from) {
+    const market = await fetchTokenMarketData(mint).catch(() => null);
+    await recordCall({
+      chatId,
+      userId: msg.from.id,
+      username: displayName(msg.from),
+      mint,
+      marketCapAtCall: market?.marketCap ?? 0,
+    });
+  }
+}
+
 /** Top-level dispatcher. Always resolves; the webhook returns 200 regardless. */
 export async function handleUpdate(update: TgUpdate): Promise<void> {
   if (update.callback_query) {
@@ -260,6 +413,23 @@ export async function handleUpdate(update: TgUpdate): Promise<void> {
     await handleUnwatchCmd(chatId, text);
     return;
   }
+  if (/^\/price\b/i.test(text)) {
+    await handlePrice(chatId, text);
+    return;
+  }
+  if (/^\/pnl\b/i.test(text)) {
+    await handlePnl(chatId, text);
+    return;
+  }
+  // /top and /leaderboard both open the caller leaderboard.
+  if (/^\/(top|leaderboard|lb)\b/i.test(text)) {
+    await handleLeaderboard(chatId, text);
+    return;
+  }
+  if (/^\/x\b/i.test(text)) {
+    await handleXAccount(chatId, text);
+    return;
+  }
 
   // Ignore other slash-commands (e.g. /something@OtherBot) so we don't reply to noise.
   const isScanCmd = /^\/scan\b/i.test(text);
@@ -272,6 +442,13 @@ export async function handleUpdate(update: TgUpdate): Promise<void> {
   const mint = extractMint(text);
   const isPrivate = msg.chat.type === 'private';
   const quiet = !isPrivate && !isScanCmd;
+
+  // In groups: log the call + run the scam guard before/alongside the scan. The
+  // call is credited to the poster even when the scan is quiet (e.g. cached).
+  if (!isPrivate) {
+    await handleGroupMessage(msg, mint);
+  }
+
   if (mint) {
     await handleScan(chatId, mint, msg.message_id, quiet);
   } else if (isScanCmd) {
