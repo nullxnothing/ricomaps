@@ -7,7 +7,16 @@ import { walletRealizedSol } from '@/lib/wallet-pnl';
 import { formatUsd, formatMarketCap } from '@/lib/format';
 import { getXIdentityByUsername, trackHandles, normalizeHandle } from '@/lib/x-account-history';
 import { sendFollowup } from './client';
-import { formatDiscordCard } from './format';
+import { formatDiscordEmbed, type DiscordEmbed } from './format';
+
+const APP_URL = (process.env.NEXT_PUBLIC_APP_URL ?? 'https://ricomaps.fun').replace(/\/$/, '');
+
+// A command result is either plain content, or an embed + a link-button row.
+interface CommandResult {
+  content?: string;
+  embeds?: DiscordEmbed[];
+  mint?: string;   // when set, a "Bubble map / Solscan" link-button row is attached
+}
 
 // Discord slash-command handlers. Each runs AFTER the route has already deferred the
 // reply (scans exceed Discord's 3s ACK window), and posts its result as a follow-up.
@@ -32,34 +41,49 @@ export async function runDiscordCommand(
   data: DiscordCommandData,
 ): Promise<void> {
   try {
-    const content = await dispatch(data);
-    await sendFollowup(applicationId, interactionToken, content);
+    const result = await dispatch(data);
+    await sendFollowup(applicationId, interactionToken, {
+      content: result.content,
+      embeds: result.embeds,
+      components: result.mint ? linkRow(result.mint) : undefined,
+    });
   } catch (err) {
     console.error('[discord] command error:', data.name, err);
-    await sendFollowup(applicationId, interactionToken, '⚠️ Something went wrong. Try again.');
+    await sendFollowup(applicationId, interactionToken, { content: '⚠️ Something went wrong. Try again.' });
   }
 }
 
-async function dispatch(data: DiscordCommandData): Promise<string> {
+/** A row of link buttons (bubble map + Solscan) for a scanned token. */
+function linkRow(mint: string) {
+  return [{
+    type: 1, // action row
+    components: [
+      { type: 2, style: 5, label: '🫧 Bubble Map', url: `${APP_URL}/?mint=${mint}` },
+      { type: 2, style: 5, label: 'Solscan', url: `https://solscan.io/token/${mint}` },
+    ],
+  }];
+}
+
+async function dispatch(data: DiscordCommandData): Promise<CommandResult> {
   switch (data.name) {
     case 'scan':
       return scanCommand(optValue(data, 'address'));
     case 'price':
-      return priceCommand(optValue(data, 'address'));
+      return { content: await priceCommand(optValue(data, 'address')) };
     case 'pnl':
-      return pnlCommand(optValue(data, 'wallet'));
+      return { content: await pnlCommand(optValue(data, 'wallet')) };
     case 'x':
-      return xCommand(optValue(data, 'handle'));
+      return { content: await xCommand(optValue(data, 'handle')) };
     default:
-      return 'Unknown command.';
+      return { content: 'Unknown command.' };
   }
 }
 
-async function scanCommand(address: string | undefined): Promise<string> {
-  if (!address || !isValidSolanaAddress(address)) return 'Provide a valid token contract address.';
-  if (!(await isTokenMint(address))) return 'That looks like a wallet, not a token. Send a token CA.';
+async function scanCommand(address: string | undefined): Promise<CommandResult> {
+  if (!address || !isValidSolanaAddress(address)) return { content: 'Provide a valid token contract address.' };
+  if (!(await isTokenMint(address))) return { content: 'That looks like a wallet, not a token. Send a token CA.' };
   const result = await scanTokenForensics(address);
-  return formatDiscordCard(address, result);
+  return { embeds: [formatDiscordEmbed(address, result)], mint: address };
 }
 
 async function priceCommand(address: string | undefined): Promise<string> {

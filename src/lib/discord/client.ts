@@ -52,13 +52,19 @@ export async function verifyDiscordRequest(
   }
 }
 
+export interface FollowupPayload {
+  content?: string;
+  embeds?: unknown[];
+  components?: unknown[];
+}
+
 /** Send a follow-up message to a deferred interaction via the webhook token. */
-export async function sendFollowup(applicationId: string, interactionToken: string, content: string): Promise<void> {
+export async function sendFollowup(applicationId: string, interactionToken: string, payload: FollowupPayload): Promise<void> {
   try {
     await fetch(`https://discord.com/api/v10/webhooks/${applicationId}/${interactionToken}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ content }),
+      body: JSON.stringify(payload),
       signal: AbortSignal.timeout(15_000),
     });
   } catch (err) {

@@ -4,6 +4,7 @@ import { LaserStreamManager, type SseClient } from './laserstream.js';
 import { AtlasEngine } from './atlas.js';
 import { XBot } from './x-bot.js';
 import { XTracker } from './x-tracker.js';
+import { DiscordGateway } from './discord-gateway.js';
 
 const PORT = Number(process.env.PORT ?? 8080);
 const API_KEY = process.env.HELIUS_LASERSTREAM_API_KEY ?? '';
@@ -72,6 +73,17 @@ console.log(xTracker
   ? '[worker] X account tracker enabled'
   : '[worker] X account tracker disabled (needs ATLAS_APP_URL + INTERNAL_API_SECRET + X_BEARER_TOKEN)');
 
+// Discord gateway: auto-detect CAs pasted in channels (no /scan), like the Telegram
+// group bot. Needs the bot token + MESSAGE CONTENT intent enabled in the portal.
+const DISCORD_BOT_TOKEN = process.env.DISCORD_BOT_TOKEN ?? '';
+const discordReady = ATLAS_APP_URL && INTERNAL_API_SECRET && DISCORD_BOT_TOKEN && process.env.DISCORD_GATEWAY_ENABLED !== '0';
+const discordGateway = discordReady
+  ? new DiscordGateway({ appUrl: ATLAS_APP_URL, internalSecret: INTERNAL_API_SECRET, botToken: DISCORD_BOT_TOKEN })
+  : null;
+console.log(discordGateway
+  ? '[worker] Discord gateway enabled (auto-detect CAs in channels)'
+  : '[worker] Discord gateway disabled (needs ATLAS_APP_URL + INTERNAL_API_SECRET + DISCORD_BOT_TOKEN)');
+
 const app = express();
 
 app.use(cors({ origin: APP_ORIGIN }));
@@ -85,6 +97,7 @@ app.get('/health', (_req, res) => {
     atlas: atlas ? { enabled: true, clients: atlas.clientCount() } : { enabled: false },
     xBot: xBot ? { enabled: true, ...xBot.stats() } : { enabled: false },
     xTracker: xTracker ? { enabled: true, ...xTracker.stats() } : { enabled: false },
+    discordGateway: discordGateway ? { enabled: true, ...discordGateway.stats() } : { enabled: false },
   });
 });
 
