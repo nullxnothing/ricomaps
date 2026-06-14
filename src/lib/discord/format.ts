@@ -92,17 +92,24 @@ export function formatDiscordEmbed(mint: string, result: ScanResultLike): Discor
   fields.push({ name: '💧 Liquidity', value: lp ?? 'n/a', inline: true });
   fields.push({ name: '📊 24h Vol', value: vol ?? 'n/a', inline: true });
 
+  // How many holders were actually analyzed — RicoMaps inspects the top accounts,
+  // not the full holder set, so we label this as the SAMPLE, never a total. Showing
+  // "Holders 20" as if it were the token's holder count is the misleading read.
+  const analyzed = sc?.realHolderCount ?? stats.totalHolders;
+
   // Row 2 — holder structure, 3 across.
   if (sc) {
-    fields.push({ name: '👥 Holders', value: stats.totalHolders != null ? `${stats.totalHolders}` : 'n/a', inline: true });
+    fields.push({ name: '🔬 Analyzed', value: analyzed != null ? `top ${analyzed}` : 'n/a', inline: true });
     fields.push({ name: '🔝 Top 10', value: pct(sc.top10Pct), inline: true });
     fields.push({ name: '🤝 Cabal', value: pct(sc.cabalSupplyPct), inline: true });
   }
 
-  // Row 3 — launch insiders, 3 across (none vs % so a 0 doesn't read as a clean bill).
+  // Row 3 — launch insiders, 3 across. "none in sample" (not bare "none"), so a token
+  // whose early bundlers/snipers already exited the top holders doesn't read as a
+  // verified clean bill — they're just not visible in the analyzed window.
   if (sc) {
-    const bundled = (stats.bundleClustersDetected ?? 0) > 0 ? pct(sc.bundledSupplyPct) : 'none';
-    const snipers = (stats.snipersDetected ?? 0) > 0 ? pct(sc.sniperSupplyPct) : 'none';
+    const bundled = (stats.bundleClustersDetected ?? 0) > 0 ? pct(sc.bundledSupplyPct) : 'none in top';
+    const snipers = (stats.snipersDetected ?? 0) > 0 ? pct(sc.sniperSupplyPct) : 'none in top';
     const hq = stats.holderQuality;
     fields.push({ name: '📦 Bundled', value: bundled, inline: true });
     fields.push({ name: '🎯 Snipers', value: snipers, inline: true });
@@ -113,21 +120,43 @@ export function formatDiscordEmbed(mint: string, result: ScanResultLike): Discor
     });
   }
 
-  // Security + dev — one full-width field (no blob emojis).
-  if (sec || dep) {
-    const parts: string[] = [];
-    if (dep) {
-      parts.push(dep.isRugDev
-        ? `Dev ⛔ **rug dev** (${dep.priorRugCount} prior)`
-        : dep.isSerialDeployer
-        ? `Dev 🔴 serial${dep.pastLaunchCount != null ? ` (${dep.pastLaunchCount})` : ''}`
-        : 'Dev 🟢 clean');
+  // Dev / deployer — its own field: address (tap-copy), launch history, rug record,
+  // holdings, funding source. The single biggest rug predictor, so it gets real estate.
+  if (dep) {
+    const verdict = dep.isRugDev
+      ? `⛔ **rug dev** — rugged ${dep.priorRugCount} prior token${dep.priorRugCount === 1 ? '' : 's'}`
+      : dep.isSerialDeployer
+      ? `🔴 serial deployer${dep.pastLaunchCount != null ? ` — ${dep.pastLaunchCount} launches` : ''}`
+      : dep.pastLaunchCount === 0
+      ? '🟢 no prior launches found'
+      : '🟢 clean';
+
+    const lines = [verdict, `\`${dep.address}\``];
+
+    // Holdings: still in vs sold vs unknown (outside the analyzed window).
+    if (dep.stillHolds === true && dep.heldSupplyPct != null) {
+      lines.push(`Holds **${pct(dep.heldSupplyPct)}** of supply`);
+    } else if (dep.stillHolds === false) {
+      lines.push('Sold its bag');
+    } else if (!dep.inAnalyzedSet) {
+      lines.push('Holdings unknown (below top-holder cutoff)');
     }
-    if (sec) {
-      parts.push(`Mint ${authFlag(sec.hasMintAuthority, 'safe', 'live')}`);
-      parts.push(`Freeze ${authFlag(sec.hasFreezeAuthority, 'safe', 'live')}`);
+
+    // Where the dev was funded from — a CEX vs a fresh/bridged wallet is a real tell.
+    if (dep.fundedBy?.source && dep.fundedBy.source !== 'UNKNOWN') {
+      lines.push(`Funded via ${dep.fundedBy.source}`);
     }
-    fields.push({ name: '🔒 Security', value: parts.join('  ·  '), inline: false });
+
+    fields.push({ name: '👷 Developer', value: lines.join('\n'), inline: false });
+  }
+
+  // Token security authorities — its own compact field.
+  if (sec) {
+    fields.push({
+      name: '🔒 Security',
+      value: `Mint ${authFlag(sec.hasMintAuthority, 'safe', 'live')}  ·  Freeze ${authFlag(sec.hasFreezeAuthority, 'safe', 'live')}  ·  Meta ${authFlag(sec.isMutable, 'fixed', 'mutable')}`,
+      inline: false,
+    });
   }
 
   // Cross-token + recycled-X red flags — only when present.
@@ -145,6 +174,11 @@ export function formatDiscordEmbed(mint: string, result: ScanResultLike): Discor
     ? `${rugDot(rug.level)} **Rug ${rug.score}/100**${rug.factors?.[0]?.label ? ` — ${rug.factors[0].label}` : ''}`
     : '';
 
+  // Coverage caveat in the footer so a low sample isn't mistaken for the whole token.
+  const coverage = sc?.analyzedSupplyPct != null && sc.analyzedSupplyPct < 80
+    ? ` · covers ~${Math.round(sc.analyzedSupplyPct)}% of supply (top holders)`
+    : '';
+
   return {
     title: `${name}${sym}`,
     url: `${APP_URL}/?mint=${mint}`,
@@ -152,6 +186,6 @@ export function formatDiscordEmbed(mint: string, result: ScanResultLike): Discor
     color,
     fields,
     thumbnail: resolveThumb(meta?.image),
-    footer: { text: 'RicoMaps · Solana forensic intel' },
+    footer: { text: `RicoMaps · top-holder forensics${coverage}` },
   };
 }
