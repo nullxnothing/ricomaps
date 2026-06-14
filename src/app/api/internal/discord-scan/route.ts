@@ -4,7 +4,7 @@ import { isValidSolanaAddress } from '@/lib/address-utils';
 import { isTokenMint } from '@/lib/helius';
 import { scanTokenForensics } from '@/lib/scan-core';
 import { getCachedTokenScan } from '@/lib/db-cache';
-import { formatDiscordCard } from '@/lib/discord/format';
+import { formatDiscordEmbed, discordLinkRow } from '@/lib/discord/format';
 
 export const maxDuration = 60;
 
@@ -39,12 +39,12 @@ export async function POST(request: NextRequest) {
     const cached = await getCachedTokenScan(mint);
     if (cached) {
       const result = {
-        stats: cached.stats as Parameters<typeof formatDiscordCard>[1]['stats'],
+        stats: cached.stats as Parameters<typeof formatDiscordEmbed>[1]['stats'],
         tokenSecurity: cached.tokenSecurity,
         tokenMetadata: cached.tokenMetadata,
         deployerInfo: cached.deployerInfo,
       };
-      return NextResponse.json({ success: true, text: formatDiscordCard(mint, result) });
+      return NextResponse.json({ success: true, embeds: [formatDiscordEmbed(mint, result)], components: discordLinkRow(mint) });
     }
 
     if (!(await isTokenMint(mint))) {
@@ -52,7 +52,7 @@ export async function POST(request: NextRequest) {
     }
 
     const result = await scanTokenForensics(mint);
-    return NextResponse.json({ success: true, text: formatDiscordCard(mint, result) });
+    return NextResponse.json({ success: true, embeds: [formatDiscordEmbed(mint, result)], components: discordLinkRow(mint) });
   } catch (error) {
     console.error(`[discord-scan] failed for ${mint}:`, error);
     return NextResponse.json({ success: false, error: 'Scan failed' }, { status: 500 });

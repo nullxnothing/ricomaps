@@ -148,6 +148,8 @@ export class DiscordGateway {
     await this.reply(msg.channel_id, msg.id, card);
   }
 
+  // Card payload from the app: a rich embed + link-button row (same as /scan).
+
   private extractMint(text: string): string | null {
     for (const m of text.match(BASE58_RE) ?? []) {
       if (m.length >= 32 && m.length <= 44) return m;
@@ -155,8 +157,8 @@ export class DiscordGateway {
     return null;
   }
 
-  /** Ask the app to scan; returns the plain-text card or null if not a token. */
-  private async scan(mint: string): Promise<string | null> {
+  /** Ask the app to scan; returns the embed card payload or null if not a token. */
+  private async scan(mint: string): Promise<ScanCard | null> {
     try {
       const res = await fetch(`${this.cfg.appUrl}/api/internal/discord-scan`, {
         method: 'POST',
@@ -165,21 +167,23 @@ export class DiscordGateway {
         signal: AbortSignal.timeout(55_000),
       });
       if (!res.ok) return null;
-      const body = (await res.json()) as { success?: boolean; text?: string };
-      return body.success && body.text ? body.text : null;
+      const body = (await res.json()) as { success?: boolean; embeds?: unknown[]; components?: unknown[]; notToken?: boolean };
+      if (!body.success || body.notToken || !body.embeds?.length) return null;
+      return { embeds: body.embeds, components: body.components };
     } catch (err) {
       console.error('[discord-gw] scan error:', err);
       return null;
     }
   }
 
-  private async reply(channelId: string, messageId: string, content: string): Promise<void> {
+  private async reply(channelId: string, messageId: string, card: ScanCard): Promise<void> {
     try {
       await fetch(`${REST}/channels/${channelId}/messages`, {
         method: 'POST',
         headers: { Authorization: `Bot ${this.cfg.botToken}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          content,
+          embeds: card.embeds,
+          components: card.components,
           message_reference: { message_id: messageId, fail_if_not_exists: false },
           allowed_mentions: { parse: [] },
         }),
@@ -205,4 +209,9 @@ interface DiscordMessage {
   channel_id: string;
   content?: string;
   author?: { id: string; bot?: boolean };
+}
+
+interface ScanCard {
+  embeds: unknown[];
+  components?: unknown[];
 }

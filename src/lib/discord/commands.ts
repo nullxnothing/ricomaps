@@ -7,9 +7,7 @@ import { walletRealizedSol } from '@/lib/wallet-pnl';
 import { formatUsd, formatMarketCap } from '@/lib/format';
 import { getXIdentityByUsername, trackHandles, normalizeHandle } from '@/lib/x-account-history';
 import { sendFollowup } from './client';
-import { formatDiscordEmbed, type DiscordEmbed } from './format';
-
-const APP_URL = (process.env.NEXT_PUBLIC_APP_URL ?? 'https://ricomaps.fun').replace(/\/$/, '');
+import { formatDiscordEmbed, discordLinkRow, type DiscordEmbed } from './format';
 
 // A command result is either plain content, or an embed + a link-button row.
 interface CommandResult {
@@ -45,23 +43,12 @@ export async function runDiscordCommand(
     await sendFollowup(applicationId, interactionToken, {
       content: result.content,
       embeds: result.embeds,
-      components: result.mint ? linkRow(result.mint) : undefined,
+      components: result.mint ? discordLinkRow(result.mint) : undefined,
     });
   } catch (err) {
     console.error('[discord] command error:', data.name, err);
     await sendFollowup(applicationId, interactionToken, { content: '⚠️ Something went wrong. Try again.' });
   }
-}
-
-/** A row of link buttons (bubble map + Solscan) for a scanned token. */
-function linkRow(mint: string) {
-  return [{
-    type: 1, // action row
-    components: [
-      { type: 2, style: 5, label: '🫧 Bubble Map', url: `${APP_URL}/?mint=${mint}` },
-      { type: 2, style: 5, label: 'Solscan', url: `https://solscan.io/token/${mint}` },
-    ],
-  }];
 }
 
 async function dispatch(data: DiscordCommandData): Promise<CommandResult> {
