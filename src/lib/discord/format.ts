@@ -39,13 +39,6 @@ export interface DiscordEmbed {
   footer?: { text: string };
 }
 
-function rugDot(level: RugScore['level'] | undefined): string {
-  if (level === 'red') return '🔴';
-  if (level === 'yellow') return '🟡';
-  if (level === 'green') return '🟢';
-  return '⚪';
-}
-
 function pct(n: number | undefined): string {
   if (n == null || Number.isNaN(n)) return 'n/a';
   return `${n.toFixed(1)}%`;
@@ -59,12 +52,6 @@ function usd(n: number | undefined): string | null {
   return `$${Math.round(n)}`;
 }
 
-// Plain ✓ / ✕ for authority flags reads far cleaner than colored-circle emoji,
-// which Discord blows up to full-size blocks mid-line.
-function authFlag(bad: boolean | undefined, goodLabel: string, badLabel: string): string {
-  return bad ? `\`${badLabel}\`` : `\`${goodLabel}\``;
-}
-
 function resolveThumb(image: string | undefined): { url: string } | undefined {
   if (!image) return undefined;
   if (image.startsWith('ipfs://')) return { url: `https://ipfs.io/ipfs/${image.slice('ipfs://'.length)}` };
@@ -72,120 +59,122 @@ function resolveThumb(image: string | undefined): { url: string } | undefined {
   return undefined;
 }
 
-/** Build the Discord forensic card as a rich embed. */
+// Plain-language risk label from the rug level — leads the card so the verdict reads first.
+function riskLabel(level: RugScore['level'] | undefined): string {
+  if (level === 'red') return '🔴 High Risk';
+  if (level === 'yellow') return '🟡 Medium Risk';
+  if (level === 'green') return '🟢 Low Risk';
+  return '⚪ Unrated';
+}
+
+/** Shorten an address to head…tail for inline display (full one lives behind buttons). */
+function shortAddr(addr: string): string {
+  return addr.length > 12 ? `${addr.slice(0, 6)}…${addr.slice(-4)}` : addr;
+}
+
+/**
+ * Build the Discord forensic card as a rich embed. Verdict-first: the risk label +
+ * rug score + top-10 concentration lead in the description, then grouped blocks
+ * (Market / Supply Risk / Developer / Security) with short labels and header-only
+ * emojis, then a loud Flags block only when something is actually wrong.
+ */
 export function formatDiscordEmbed(mint: string, result: ScanResultLike): DiscordEmbed {
   const { stats, tokenMetadata: meta, tokenSecurity: sec, deployerInfo: dep } = result;
   const sc = stats.supplyConcentration;
   const rug = stats.rugScore;
 
-  const name = meta?.name ?? 'Unknown token';
-  const sym = meta?.symbol ? ` ($${meta.symbol})` : '';
+  // Title: "Rico Maps • Name ($SYM)" — keeps brand + token identity in one line.
+  const tokenLabel = meta?.symbol
+    ? `${meta.name ? `${meta.name} ` : ''}($${meta.symbol})`
+    : (meta?.name ?? 'Unknown token');
   const color = (rug?.level && RUG_COLORS[rug.level]) || NEUTRAL_COLOR;
+
+  // ── Description: the verdict, read in 2 seconds ──
+  const descLines: string[] = [`\`${mint}\``, ''];
+  if (rug) {
+    descLines.push(`**${riskLabel(rug.level)}** — Rug Score ${rug.score}/100`);
+    if (sc) descLines.push(`Top 10 holders control ${pct(sc.top10Pct)}`);
+  }
 
   const fields: DiscordEmbedField[] = [];
 
-  // Row 1 — market stats, 3 across (the Rick/BONKbot convention).
-  const mc = usd(meta?.marketCap);
-  const lp = usd(meta?.liquidity);
-  const vol = usd(meta?.volume24h);
-  fields.push({ name: '💰 Market Cap', value: mc ?? 'n/a', inline: true });
-  fields.push({ name: '💧 Liquidity', value: lp ?? 'n/a', inline: true });
-  fields.push({ name: '📊 24h Vol', value: vol ?? 'n/a', inline: true });
-
-  // How many holders were actually analyzed — RicoMaps inspects the top accounts,
-  // not the full holder set, so we label this as the SAMPLE, never a total. Showing
-  // "Holders 20" as if it were the token's holder count is the misleading read.
+  // ── Market (one block, short labels) ──
+  const market: string[] = [];
+  if (usd(meta?.marketCap)) market.push(`MCap: ${usd(meta?.marketCap)}`);
+  if (usd(meta?.liquidity)) market.push(`Liq: ${usd(meta?.liquidity)}`);
+  if (usd(meta?.volume24h)) market.push(`24h Vol: ${usd(meta?.volume24h)}`);
+  // Honest framing: this is the SAMPLE RicoMaps inspected, not the token's holder total.
   const analyzed = sc?.realHolderCount ?? stats.totalHolders;
+  if (analyzed != null) market.push(`Holders checked: top ${analyzed}`);
+  if (market.length) fields.push({ name: '📊 Market', value: market.join('\n'), inline: false });
 
-  // Row 2 — holder structure, 3 across.
+  // ── Supply Risk (one block) ──
   if (sc) {
-    fields.push({ name: '🔬 Analyzed', value: analyzed != null ? `top ${analyzed}` : 'n/a', inline: true });
-    fields.push({ name: '🔝 Top 10', value: pct(sc.top10Pct), inline: true });
-    fields.push({ name: '🤝 Cabal', value: pct(sc.cabalSupplyPct), inline: true });
-  }
-
-  // Row 3 — launch insiders, 3 across. "none in sample" (not bare "none"), so a token
-  // whose early bundlers/snipers already exited the top holders doesn't read as a
-  // verified clean bill — they're just not visible in the analyzed window.
-  if (sc) {
+    // "none in top" — an established token whose early bundlers/snipers already exited
+    // shows none here; that's not a verified clean bill, just not in the sample.
     const bundled = (stats.bundleClustersDetected ?? 0) > 0 ? pct(sc.bundledSupplyPct) : 'none in top';
     const snipers = (stats.snipersDetected ?? 0) > 0 ? pct(sc.sniperSupplyPct) : 'none in top';
+    const supply = [
+      `Top 10: ${pct(sc.top10Pct)}`,
+      `Cabal: ${pct(sc.cabalSupplyPct)}`,
+      `Bundled: ${bundled}`,
+      `Snipers: ${snipers}`,
+    ];
     const hq = stats.holderQuality;
-    fields.push({ name: '📦 Bundled', value: bundled, inline: true });
-    fields.push({ name: '🎯 Snipers', value: snipers, inline: true });
-    fields.push({
-      name: '🏆 Top Holders',
-      value: hq && hq.analyzed > 0 ? `${hq.winners}W / ${hq.exitLiquidity}E` : 'n/a',
-      inline: true,
-    });
+    if (hq && hq.analyzed > 0) supply.push(`Top holders: ${hq.winners} winners / ${hq.exitLiquidity} exit liq`);
+    fields.push({ name: '🧬 Supply Risk', value: supply.join('\n'), inline: false });
   }
 
-  // Dev / deployer — its own field: address (tap-copy), launch history, rug record,
-  // holdings, funding source. The single biggest rug predictor, so it gets real estate.
+  // ── Developer (one block) ──
   if (dep) {
-    const verdict = dep.isRugDev
-      ? `⛔ **rug dev** — rugged ${dep.priorRugCount} prior token${dep.priorRugCount === 1 ? '' : 's'}`
+    const history = dep.isRugDev
+      ? `⛔ Rug dev — rugged ${dep.priorRugCount} prior token${dep.priorRugCount === 1 ? '' : 's'}`
       : dep.isSerialDeployer
-      ? `🔴 serial deployer${dep.pastLaunchCount != null ? ` — ${dep.pastLaunchCount} launches` : ''}`
+      ? `Serial deployer${dep.pastLaunchCount != null ? ` — ${dep.pastLaunchCount} launches` : ''}`
       : dep.pastLaunchCount === 0
-      ? '🟢 no prior launches found'
-      : '🟢 clean';
-
-    const lines = [verdict, `\`${dep.address}\``];
-
-    // Holdings: still in vs sold vs unknown (outside the analyzed window).
-    if (dep.stillHolds === true && dep.heldSupplyPct != null) {
-      lines.push(`Holds **${pct(dep.heldSupplyPct)}** of supply`);
-    } else if (dep.stillHolds === false) {
-      lines.push('Sold its bag');
-    } else if (!dep.inAnalyzedSet) {
-      lines.push('Holdings unknown (below top-holder cutoff)');
-    }
-
-    // Where the dev was funded from — a CEX vs a fresh/bridged wallet is a real tell.
-    if (dep.fundedBy?.source && dep.fundedBy.source !== 'UNKNOWN') {
-      lines.push(`Funded via ${dep.fundedBy.source}`);
-    }
-
-    fields.push({ name: '👷 Developer', value: lines.join('\n'), inline: false });
+      ? 'No prior launches found'
+      : 'Clean';
+    const devLines = [history, `\`${shortAddr(dep.address)}\``];
+    if (dep.stillHolds === true && dep.heldSupplyPct != null) devLines.push(`Holds ${pct(dep.heldSupplyPct)} of supply`);
+    else if (dep.stillHolds === false) devLines.push('Sold its bag');
+    if (dep.fundedBy?.source && dep.fundedBy.source !== 'UNKNOWN') devLines.push(`Funded via ${dep.fundedBy.source}`);
+    fields.push({ name: '👨‍💻 Developer', value: devLines.join('\n'), inline: false });
   }
 
-  // Token security authorities — its own compact field.
+  // ── Security (one block) ──
   if (sec) {
     fields.push({
       name: '🔒 Security',
-      value: `Mint ${authFlag(sec.hasMintAuthority, 'safe', 'live')}  ·  Freeze ${authFlag(sec.hasFreezeAuthority, 'safe', 'live')}  ·  Meta ${authFlag(sec.isMutable, 'fixed', 'mutable')}`,
+      value: [
+        `Mint: ${sec.hasMintAuthority ? 'Live ⚠️' : 'Safe'}`,
+        `Freeze: ${sec.hasFreezeAuthority ? 'Live ⚠️' : 'Safe'}`,
+        `Metadata: ${sec.isMutable ? 'Mutable' : 'Fixed'}`,
+      ].join('\n'),
       inline: false,
     });
   }
 
-  // Cross-token + recycled-X red flags — only when present.
+  // ── Flags (the only loud block — shown only when something's actually wrong) ──
   const flags: string[] = [];
   const fpMatches = stats.cabalFingerprint?.matches?.length ?? 0;
-  if (fpMatches > 0) flags.push(`🚩 **${fpMatches}** known bundler${fpMatches === 1 ? '' : 's'} on prior launches`);
+  if (fpMatches > 0) flags.push(`🔴 ${fpMatches} known bundler${fpMatches === 1 ? '' : 's'} found on prior launches`);
   const x = result.xAccount;
   if (x?.isRecycled && x.priorUsernames.length > 0) {
-    flags.push(`♻️ Recycled X: @${x.currentUsername} was @${x.priorUsernames.slice(0, 3).join(', @')}`);
+    flags.push(`🔴 Recycled X account — @${x.currentUsername} was @${x.priorUsernames.slice(0, 3).join(', @')}`);
   }
-  if (flags.length) fields.push({ name: '⚠️ Flags', value: flags.join('\n'), inline: false });
+  if (flags.length) fields.push({ name: '🚩 Flags', value: flags.join('\n'), inline: false });
 
-  // Verdict in the description under the CA, so the rug score leads visually.
-  const verdict = rug
-    ? `${rugDot(rug.level)} **Rug ${rug.score}/100**${rug.factors?.[0]?.label ? ` — ${rug.factors[0].label}` : ''}`
-    : '';
-
-  // Coverage caveat in the footer so a low sample isn't mistaken for the whole token.
   const coverage = sc?.analyzedSupplyPct != null && sc.analyzedSupplyPct < 80
-    ? ` · covers ~${Math.round(sc.analyzedSupplyPct)}% of supply (top holders)`
+    ? ` covers ~${Math.round(sc.analyzedSupplyPct)}% of supply`
     : '';
 
   return {
-    title: `${name}${sym}`,
+    title: `Rico Maps • ${tokenLabel}`,
     url: `${APP_URL}/?mint=${mint}`,
-    description: `\`${mint}\`\n${verdict}`,
+    description: descLines.join('\n'),
     color,
     fields,
     thumbnail: resolveThumb(meta?.image),
-    footer: { text: `RicoMaps · top-holder forensics${coverage}` },
+    footer: { text: `RicoMaps top-holder forensics${coverage}` },
   };
 }
