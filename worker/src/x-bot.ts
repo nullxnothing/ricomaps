@@ -49,15 +49,19 @@ export class XBot {
   private readonly seen = new Set<string>();   // replied tweet ids (dedupe)
   private accessToken: string;
   private refreshToken: string;
-  private refreshTokenLoaded = false;           // loaded the rotated token from the app yet?
+  private readonly seedRefreshToken: string;    // env-seeded token; fallback if the stored one is dead
+  private triedSeedFallback = false;            // already retried with the env seed after a dead stored token?
+  private stateLoaded = false;                   // successfully loaded persisted state from the app yet?
   private tokenExpiresAt = 0;                   // ms epoch; 0 => refresh before first write
   private refreshBlockedUntil = 0;              // ms epoch; backoff after a hard refresh failure
+  private authConfigBroken = false;             // invalid_client: a config/credential problem, not a token one
   private mentionsHandled = 0;
   private repliesPosted = 0;
 
   constructor(private readonly cfg: XBotConfig) {
     this.accessToken = cfg.accessToken;
     this.refreshToken = cfg.refreshToken;
+    this.seedRefreshToken = cfg.refreshToken;
     // Load the durable sinceId BEFORE the first poll so a restart resumes from
     // the last processed mention instead of re-scanning X's recent window —
     // re-scanning is what made the bot reply 2-3x to the same tweet after each
@@ -70,21 +74,31 @@ export class XBot {
     this.scheduleNextPoll(0); // first poll immediately once state is loaded
   }
 
-  /** Load the persisted refresh token + sinceId high-water mark on startup. */
+  /**
+   * Load the persisted refresh token + sinceId high-water mark from the app.
+   * Only latches as loaded on success — a transient failure at boot must NOT pin
+   * the worker to the (possibly already-rotated, now-dead) env-seeded token for
+   * the rest of its lifetime; the next refresh retries the load instead.
+   */
   private async loadPersistedState(): Promise<void> {
-    if (this.refreshTokenLoaded) return;
-    this.refreshTokenLoaded = true; // mark first so a transient failure doesn't loop
+    if (this.stateLoaded) return;
     try {
       const res = await fetch(`${this.cfg.appUrl}/api/internal/x-token`, {
         headers: { 'x-internal-secret': this.cfg.internalSecret },
         signal: AbortSignal.timeout(15_000),
       });
-      if (!res.ok) return;
+      if (!res.ok) {
+        console.error(`[x-bot] load persisted state failed: HTTP ${res.status} (will retry on next refresh)`);
+        return;
+      }
       const body = await res.json() as { refreshToken?: string | null; sinceId?: string | null };
+      // Prefer the stored rotated token over the env seed; the env seed is only
+      // a bootstrap and goes stale after the first rotation.
       if (body.refreshToken) this.refreshToken = body.refreshToken;
       if (body.sinceId) this.sinceId = body.sinceId;
+      this.stateLoaded = true; // only now: we have authoritative state
     } catch (err) {
-      console.error('[x-bot] failed to load persisted state:', err);
+      console.error('[x-bot] failed to load persisted state (will retry on next refresh):', err);
     }
   }
 
@@ -123,8 +137,19 @@ export class XBot {
     }
   }
 
-  stats(): { mentionsHandled: number; repliesPosted: number; sinceId: string | null } {
-    return { mentionsHandled: this.mentionsHandled, repliesPosted: this.repliesPosted, sinceId: this.sinceId };
+  stats(): {
+    mentionsHandled: number; repliesPosted: number; sinceId: string | null;
+    authConfigBroken: boolean; refreshBlocked: boolean;
+  } {
+    return {
+      mentionsHandled: this.mentionsHandled,
+      repliesPosted: this.repliesPosted,
+      sinceId: this.sinceId,
+      // Surfaced on /health so a dead auth state is visible without log-diving:
+      // authConfigBroken => bad client creds; refreshBlocked => token in cooldown.
+      authConfigBroken: this.authConfigBroken,
+      refreshBlocked: Date.now() < this.refreshBlockedUntil,
+    };
   }
 
   /**
@@ -379,13 +404,46 @@ export class XBot {
   }
 
   private async refreshAccessToken(): Promise<string | null> {
+    // On the first refresh after a restart, prefer the rotated token the app
+    // persisted over the (possibly already-invalidated) env-seeded one.
+    await this.loadPersistedState();
+    const token = await this.tryRefreshWith(this.refreshToken);
+    if (token !== null) return token;
+
+    // The stored/current token was rejected as invalid (not a config error). If
+    // it differs from the env seed, the operator may have just re-seeded a fresh
+    // X_REFRESH_TOKEN on the worker after a manual re-auth — try that ONCE before
+    // giving up, so recovery is "set the env var + redeploy" with no DB surgery.
+    if (
+      !this.authConfigBroken &&
+      !this.triedSeedFallback &&
+      this.seedRefreshToken &&
+      this.seedRefreshToken !== this.refreshToken
+    ) {
+      this.triedSeedFallback = true;
+      console.error('[x-bot] stored refresh token rejected; retrying with env-seeded X_REFRESH_TOKEN');
+      const seedToken = await this.tryRefreshWith(this.seedRefreshToken);
+      if (seedToken !== null) {
+        this.refreshToken = this.seedRefreshToken;
+        return seedToken;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Attempt one refresh with a specific refresh token. Returns the new access
+   * token on success, or null on failure. Distinguishes the two 400 failure
+   * modes: invalid_client (bad X_CLIENT_ID/SECRET — a config problem that no
+   * token swap can fix) vs a dead/rotated refresh token (recoverable by swapping
+   * in a valid token). Sets refreshBlockedUntil on hard failures to stop
+   * hammering X's token endpoint.
+   */
+  private async tryRefreshWith(refreshToken: string): Promise<string | null> {
     try {
-      // On the first refresh after a restart, prefer the rotated token the app
-      // persisted over the (possibly already-invalidated) env-seeded one.
-      await this.loadPersistedState();
       const params = new URLSearchParams({
         grant_type: 'refresh_token',
-        refresh_token: this.refreshToken,
+        refresh_token: refreshToken,
         client_id: this.cfg.clientId,
       });
       const headers: Record<string, string> = { 'Content-Type': 'application/x-www-form-urlencoded' };
@@ -395,16 +453,27 @@ export class XBot {
       }
       const res = await fetch(X_TOKEN_URL, { method: 'POST', headers, body: params, signal: AbortSignal.timeout(15_000) });
       if (!res.ok) {
-        // 400 = dead/revoked token or bad client creds — re-auth needed, won't
-        // self-heal. Back off so we stop hammering X until the token is replaced.
+        const detail = await res.text().catch(() => '');
+        if (res.status === 400 && detail.includes('invalid_client')) {
+          // Bad client_id/secret. No token will ever work until the env creds are
+          // fixed — flag it loudly and stop the seed-fallback from masking it.
+          this.authConfigBroken = true;
+          this.refreshBlockedUntil = Date.now() + REFRESH_BACKOFF_MS;
+          console.error(`[x-bot] FATAL config: invalid_client — fix X_CLIENT_ID/X_CLIENT_SECRET on the worker. ${detail}`);
+          return null;
+        }
+        // 400 = dead/revoked token; other non-2xx = transient-ish. Back off either
+        // way so we don't hammer X's token endpoint until the token is replaced.
         if (res.status === 400) this.refreshBlockedUntil = Date.now() + REFRESH_BACKOFF_MS;
-        console.error(`[x-bot] token refresh failed: HTTP ${res.status} ${await res.text()}`);
+        console.error(`[x-bot] token refresh failed: HTTP ${res.status} ${detail}`);
         return null;
       }
       const body = await res.json() as { access_token?: string; refresh_token?: string; expires_in?: number };
       if (!body.access_token) return null;
       this.accessToken = body.access_token;
-      this.refreshBlockedUntil = 0; // success clears any prior backoff
+      this.refreshBlockedUntil = 0;       // success clears any prior backoff
+      this.authConfigBroken = false;      // creds are evidently fine
+      this.triedSeedFallback = false;     // re-arm seed fallback for any future failure
       if (body.refresh_token && body.refresh_token !== this.refreshToken) {
         this.refreshToken = body.refresh_token; // X rotates refresh tokens
         void this.persistRefreshToken(body.refresh_token); // survive restarts
